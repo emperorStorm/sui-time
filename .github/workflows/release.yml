@@ -1,0 +1,149 @@
+name: Release desktop app
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+
+env:
+  OSS_PROJECT_PREFIX: sui-time
+
+jobs:
+  release-info:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - id: release
+        shell: bash
+        run: |
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "Tag must use vX.Y.Z"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+  build-and-release:
+    needs: release-info
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            args: --target aarch64-apple-darwin
+            target: aarch64-apple-darwin
+          - runner: windows-latest
+            args: --bundles nsis
+            target: ""
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: |
+            desktop-client/package-lock.json
+            tauri-desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Validate release configuration
+        shell: bash
+        env:
+          ALIYUN_OSS_BASE_URL: ${{ vars.ALIYUN_OSS_BASE_URL }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          for name in ALIYUN_OSS_BASE_URL TAURI_UPDATER_PUBLIC_KEY TAURI_SIGNING_PRIVATE_KEY; do
+            [[ -n "${!name}" ]] || { echo "Missing $name"; exit 1; }
+          done
+      - run: npm ci
+        working-directory: desktop-client
+      - run: npm ci
+        working-directory: tauri-desktop
+      - name: Prepare release-only updater configuration
+        shell: bash
+        working-directory: tauri-desktop
+        env:
+          RELEASE_VERSION: ${{ needs.release-info.outputs.version }}
+          ALIYUN_OSS_BASE_URL: ${{ vars.ALIYUN_OSS_BASE_URL }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ vars.TAURI_UPDATER_PUBLIC_KEY }}
+        run: npm run prepare:release
+      - name: Build and upload GitHub Release assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: tauri-desktop
+          tauriScript: npm run tauri
+          tagName: ${{ needs.release-info.outputs.tag }}
+          releaseName: 岁岁时光 ${{ needs.release-info.outputs.tag }}
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }} --config src-tauri/tauri.conf.release.json
+
+  sync-oss-updater:
+    needs: [release-info, build-and-release]
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.release-info.outputs.tag }}
+      OSS_BASE_URL: ${{ vars.ALIYUN_OSS_BASE_URL }}
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+    steps:
+      - name: Validate OSS configuration
+        shell: bash
+        run: |
+          for name in OSS_BASE_URL OSS_BUCKET OSS_ENDPOINT ALIYUN_ACCESS_KEY_ID ALIYUN_ACCESS_KEY_SECRET; do
+            [[ -n "${!name}" ]] || { echo "Missing $name"; exit 1; }
+          done
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
+      - name: Rewrite updater URLs for OSS
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'release-assets/latest.json';
+          const json = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const root = `${process.env.OSS_BASE_URL.replace(/\/+$/, '')}/sui-time/releases/${process.env.TAG}`;
+          for (const platform of Object.values(json.platforms || {})) {
+            platform.url = `${root}/${platform.url.split('/').pop()}`;
+          }
+          fs.writeFileSync(path, JSON.stringify(json, null, 2) + '\n');
+          NODE
+      - name: Upload immutable assets and current metadata
+        run: |
+          pip install oss2
+          python <<'PY'
+          import os
+          from pathlib import Path
+          import oss2
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, os.environ['OSS_ENDPOINT'], os.environ['OSS_BUCKET'])
+          root = f"sui-time/releases/{os.environ['TAG']}"
+          for file in Path('release-assets').iterdir():
+              if file.name == 'latest.json':
+                  continue
+              bucket.put_object_from_file(f"{root}/{file.name}", str(file))
+          bucket.put_object_from_file('sui-time/latest.json', 'release-assets/latest.json')
+          PY

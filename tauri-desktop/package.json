@@ -1,0 +1,18 @@
+{
+  "name": "sui-time-tauri-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cd ../desktop-client && npm run dev",
+    "build:web": "cd ../desktop-client && npm run build",
+    "prepare:release": "node scripts/prepare-release-config.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "npm run build:web && tauri build",
+    "tauri:build:release": "npm run build:web && npm run prepare:release && tauri build --config src-tauri/tauri.conf.release.json"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

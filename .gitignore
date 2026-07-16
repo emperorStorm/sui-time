@@ -1,0 +1,18 @@
+.DS_Store
+.idea/
+.vscode/
+
+desktop-client/node_modules/
+desktop-client/dist/
+tauri-desktop/node_modules/
+tauri-desktop/src-tauri/target/
+
+# Release secrets and local overrides
+.env
+.env.*
+!.env.example
+tauri-desktop/src-tauri/tauri.conf.release.json
+
+# Local visual verification artifacts
+.playwright-cli/
+output/playwright/
