@@ -25,7 +25,9 @@
           <button :class="['nav-item', { active: currentView === 'week' }]" @click="currentView = 'week'"><CalendarDays :size="18" />我的一周</button>
           <button :class="['nav-item', { active: currentView === 'month' }]" @click="currentView = 'month'"><CalendarRange :size="18" />我的一月</button>
           <p class="nav-group-title planning-title">基础设置</p>
-          <button :class="['nav-item', { active: currentView === 'settings' }]" @click="currentView = 'settings'"><Settings2 :size="18" />标签与更新</button>
+          <button :class="['nav-item', { active: currentView === 'tags' }]" @click="currentView = 'tags'"><Tags :size="18" />标签管理</button>
+          <p class="nav-group-title planning-title">应用</p>
+          <button :class="['nav-item', { active: currentView === 'about' }]" @click="currentView = 'about'"><Info :size="18" />关于岁岁时光</button>
         </nav>
         <div class="sidebar-foot"><span></span><small>Local-first · v{{ version }}</small></div>
       </aside>
@@ -34,7 +36,7 @@
         <header class="topbar">
           <div><p class="eyebrow">{{ viewMeta.kicker }}</p><h1>{{ viewMeta.title }}</h1></div>
           <div class="topbar-actions">
-            <template v-if="currentView !== 'settings'">
+            <template v-if="currentView !== 'tags' && currentView !== 'about'">
               <button class="text-icon-button" @click="showCompleted = !showCompleted"><component :is="showCompleted ? EyeOff : Eye" :size="17" />{{ showCompleted ? '隐藏已完成' : '显示已完成' }}</button>
               <button class="primary-button" @click="openTaskModal()"><Plus :size="18" />新建事项</button>
             </template>
@@ -84,9 +86,12 @@
           </div>
         </section>
 
-        <section v-else class="page settings-page">
+        <section v-else-if="currentView === 'tags'" class="page settings-page">
           <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">分类方式</p><h2>标签管理</h2><span>用颜色区分不同生活主题，删除标签不会删除关联事项。</span></div><button class="primary-button" @click="openTagModal()"><Plus :size="18" />新增标签</button></div><div v-if="tags.length" class="tag-table"><div v-for="tag in tags" :key="tag.id" class="tag-row"><span class="tag-swatch" :style="{ backgroundColor: tag.color }"></span><strong>{{ tag.name }}</strong><small>{{ tagTaskCount(tag.id) }} 项事项</small><div><button class="icon-button ghost" title="编辑标签" @click="openTagModal(tag)"><Pencil :size="16" /></button><button class="icon-button ghost danger" title="删除标签" @click="deleteTag(tag)"><Trash2 :size="16" /></button></div></div></div><p v-else class="empty-state">还没有标签。先为工作、生活或兴趣添加一种颜色。</p></section>
-          <section class="settings-block update-block"><div class="settings-heading"><div><p class="eyebrow">桌面客户端</p><h2>版本更新</h2><span>安装包发布后，会从独立的岁岁时光更新通道检查新版本。</span></div><button class="primary-button" :disabled="checkingUpdate || installingUpdate" @click="handleUpdate"><RefreshCw :class="{ spinning: checkingUpdate || installingUpdate }" :size="18" />{{ updateButtonLabel }}</button></div><div class="version-detail"><span>当前版本</span><strong>v{{ version }}</strong><span>{{ updateStatus }}</span></div></section>
+        </section>
+
+        <section v-else class="page settings-page">
+          <section class="settings-block update-block"><div class="settings-heading"><div><p class="eyebrow">桌面客户端</p><h2>关于岁岁时光</h2><span>岁岁时光是一个本地优先的个人待办与时间规划应用。安装包发布后，可在此检查新版本。</span></div><button class="primary-button" :disabled="checkingUpdate || installingUpdate" @click="handleUpdate"><RefreshCw :class="{ spinning: checkingUpdate || installingUpdate }" :size="18" />{{ updateButtonLabel }}</button></div><div class="version-detail"><span>当前版本</span><strong>v{{ version }}</strong><span>{{ updateStatus }}</span></div></section>
         </section>
       </section>
     </template>
@@ -101,11 +106,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowRight, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, Eye, EyeOff, LayoutGrid, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, Settings2, Trash2, X } from 'lucide-vue-next'
+import { ArrowRight, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, Eye, EyeOff, Info, LayoutGrid, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, Tags, Trash2, X } from 'lucide-vue-next'
 import { checkAppUpdate, createAccount, currentVersion, getBootState, installAppUpdate, listTags, listTasks, loginUser, logoutUser, removeTag, removeTask, rescheduleTask, saveTag, saveTask, toggleTask } from './api/native'
 import type { BootState, Tag, Task, TaskInput, UserSession } from './types'
 
-type View = 'all' | 'week' | 'month' | 'settings'
+type View = 'all' | 'week' | 'month' | 'tags' | 'about'
 type Notice = { text: string; type: 'success' | 'error' }
 
 const colors = ['#4D82D5', '#13A66A', '#E97B47', '#B16FC8', '#C79B31', '#D2546D']
@@ -143,7 +148,8 @@ const viewMeta = computed(() => ({
   all: { kicker: '事项', title: '全部事项' },
   week: { kicker: '规划', title: '我的一周' },
   month: { kicker: '规划', title: '我的一月' },
-  settings: { kicker: '基础设置', title: '标签与更新' }
+  tags: { kicker: '基础设置', title: '标签管理' },
+  about: { kicker: '应用', title: '关于岁岁时光' }
 }[currentView.value]))
 
 const visibleTasks = computed(() => tasks.value.filter(item => showCompleted.value || item.status !== 'done'))

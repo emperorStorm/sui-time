@@ -15,6 +15,7 @@
         "title": "岁岁时光",
         "width": 1360,
         "height": 900,
+        "maximized": true,
         "minWidth": 1100,
         "minHeight": 720
       }
