@@ -17,7 +17,7 @@
     <template v-else>
       <aside class="sidebar">
         <div class="brand-lockup sidebar-brand"><img src="./assets/brand/sui-time-icon.svg" alt="岁岁时光" /><span>岁岁时光</span></div>
-        <div class="account-chip"><div class="avatar">{{ session.displayName.slice(0, 1) }}</div><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div><button class="icon-button ghost" title="退出登录" @click="handleLogout"><LogOut :size="17" /></button></div>
+        <div class="account-chip"><div class="avatar">{{ session.displayName.slice(0, 1) }}</div><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div><AppNotificationCenter ref="notificationCenter" /><button class="icon-button ghost" title="退出登录" @click="handleLogout"><LogOut :size="17" /></button></div>
         <nav aria-label="主导航">
           <p class="nav-group-title">事项</p>
           <button :class="['nav-item', { active: currentView === 'all' }]" @click="currentView = 'all'"><LayoutGrid :size="18" />全部事项</button>
@@ -91,7 +91,7 @@
         </section>
 
         <section v-else class="page settings-page">
-          <section class="settings-block update-block"><div class="settings-heading"><div><p class="eyebrow">桌面客户端</p><h2>关于岁岁时光</h2><span>岁岁时光是一个本地优先的个人待办与时间规划应用。安装包发布后，可在此检查新版本。</span></div><button class="primary-button" :disabled="checkingUpdate || installingUpdate" @click="handleUpdate"><RefreshCw :class="{ spinning: checkingUpdate || installingUpdate }" :size="18" />{{ updateButtonLabel }}</button></div><div class="version-detail"><span>当前版本</span><strong>v{{ version }}</strong><span>{{ updateStatus }}</span></div></section>
+          <section class="settings-block update-block"><div class="settings-heading"><div><p class="eyebrow">桌面客户端</p><h2>关于岁岁时光</h2><span>岁岁时光是一个本地优先的个人待办与时间规划应用。安装包发布后，可在此检查新版本。</span></div><button class="primary-button" :disabled="checkingUpdate" @click="handleUpdate"><RefreshCw :class="{ spinning: checkingUpdate }" :size="18" />{{ updateButtonLabel }}</button></div><div class="version-detail"><span>当前版本</span><strong>v{{ version }}</strong><span>{{ updateStatus }}</span></div></section>
           <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">本地数据</p><h2>加密备份</h2><span>导出的备份包含本机账号、标签和事项。恢复前会自动保存一份加密回滚备份，恢复完成后应用将重新载入。</span></div><div class="data-actions"><button class="quiet-button" @click="openBackupModal('export')"><Download :size="17" />导出备份</button><button class="primary-button" @click="openBackupModal('restore')"><Upload :size="17" />恢复备份</button></div></div></section>
         </section>
       </section>
@@ -110,7 +110,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowRight, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Info, LayoutGrid, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, Tags, Trash2, Upload, X } from 'lucide-vue-next'
-import { checkAppUpdate, createAccount, currentVersion, exportEncryptedBackup, getBootState, installAppUpdate, listTags, listTasks, loginUser, logoutUser, removeTag, removeTask, rescheduleTask, restoreEncryptedBackup, saveTag, saveTask, toggleTask } from './api/native'
+import { createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, listTags, listTasks, loginUser, logoutUser, removeTag, removeTask, rescheduleTask, restoreEncryptedBackup, saveTag, saveTask, toggleTask } from './api/native'
+import type { UpdateCheckResult } from './api/native'
+import AppNotificationCenter from './components/AppNotificationCenter.vue'
 import type { BootState, Tag, Task, TaskInput, UserSession } from './types'
 
 type View = 'all' | 'week' | 'month' | 'tags' | 'about'
@@ -137,8 +139,8 @@ const notice = ref<Notice | null>(null)
 const submitting = ref(false)
 const authError = ref('')
 const checkingUpdate = ref(false)
-const installingUpdate = ref(false)
 const updateStatus = ref('尚未检查更新')
+const notificationCenter = ref<{ checkForUpdate: (openWhenFound?: boolean) => Promise<UpdateCheckResult | null> } | null>(null)
 const taskModalOpen = ref(false)
 const tagModalOpen = ref(false)
 const backupModalOpen = ref(false)
@@ -167,7 +169,7 @@ const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) =>
 const monthDays = computed(() => calendarDays(monthAnchor.value))
 const weekLabel = computed(() => `${formatMonth(weekDays.value[0].date)} · ${formatMonth(weekDays.value[6].date)}`)
 const monthLabel = computed(() => formatMonth(monthAnchor.value))
-const updateButtonLabel = computed(() => installingUpdate.value ? '正在安装' : checkingUpdate.value ? '正在检查' : '检查更新')
+const updateButtonLabel = computed(() => checkingUpdate.value ? '正在检查' : '检查更新')
 
 onMounted(async () => {
   try {
@@ -318,24 +320,18 @@ async function dropOnGroup(groupId: string) {
 }
 
 async function handleUpdate() {
+  if (checkingUpdate.value || !notificationCenter.value) return
   checkingUpdate.value = true
   updateStatus.value = '正在连接更新通道…'
   try {
-    const update = await checkAppUpdate()
-    if (!update) { updateStatus.value = '当前已经是最新版本'; return }
-    if (!window.confirm(`发现新版本 ${update.version}，现在下载并安装吗？`)) { updateStatus.value = `发现新版本 ${update.version}`; return }
-    checkingUpdate.value = false
-    installingUpdate.value = true
-    updateStatus.value = `正在下载 ${update.version}…`
-    await installAppUpdate(update, event => {
-      if (event.event === 'Progress') updateStatus.value = '正在下载安装包…'
-      if (event.event === 'Finished') updateStatus.value = '安装完成，正在重启…'
-    })
+    const result = await notificationCenter.value.checkForUpdate(true)
+    if (!result) return
+    version.value = result.currentVersion
+    updateStatus.value = result.update ? `发现新版本 ${result.update.version}` : '当前已经是最新版本'
   } catch (error) {
-    updateStatus.value = `更新失败：${messageOf(error)}`
+    updateStatus.value = `检查失败：${formatUpdateError(error)}`
   } finally {
     checkingUpdate.value = false
-    installingUpdate.value = false
   }
 }
 

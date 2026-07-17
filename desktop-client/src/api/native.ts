@@ -141,9 +141,26 @@ export async function currentVersion() {
   return isTauriRuntime() ? getVersion() : '0.1.0-dev'
 }
 
-export async function checkAppUpdate(): Promise<Update | null> {
-  if (!isTauriRuntime()) return null
-  return check({ timeout: 15000 })
+export interface UpdateCheckResult {
+  currentVersion: string
+  update?: Update
+}
+
+export function formatUpdateError(error: unknown) {
+  const text = String(error).replace(/^Error:\s*/, '')
+  if (text.includes('error sending request') || text.includes('timed out') || text.includes('timeout')) {
+    return '连接更新服务失败，请稍后重试或检查当前网络'
+  }
+  return text || '检查更新失败，请稍后重试'
+}
+
+export async function checkAppUpdate(): Promise<UpdateCheckResult> {
+  if (!isTauriRuntime()) return { currentVersion: await currentVersion() }
+  const update = await check({ timeout: 15000 })
+  return {
+    currentVersion: update?.currentVersion || await currentVersion(),
+    update: update || undefined
+  }
 }
 
 export async function installAppUpdate(update: Update, onEvent: (event: DownloadEvent) => void) {
