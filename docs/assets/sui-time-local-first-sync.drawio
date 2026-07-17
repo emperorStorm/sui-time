@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="30.3.6">
+  <diagram id="sui-time-sync" name="本地优先同步架构">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="岁岁时光：个人开发者推荐的本地优先跨端方案" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#17324d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="15" width="900" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="客户端：离线可用，写入先落本地" style="swimlane;startSize=30;horizontal=1;whiteSpace=wrap;html=1;rounded=1;fillColor=#f7fbff;strokeColor=#6c8ebf;fontStyle=1;fontColor=#17324d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="65" width="1100" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="桌面端&#xa;Tauri + Vue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4d82d5;fontStyle=1;fontSize=16;fontColor=#17324d;" vertex="1" parent="3">
+          <mxGeometry x="35" y="55" width="220" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="本地 SQLite&#xa;tasks / tags / 会话 / outbox" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#4e8b64;fontSize=14;fontColor=#17324d;" vertex="1" parent="3">
+          <mxGeometry x="35" y="133" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="移动端&#xa;UniApp 或 Flutter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=16;fontColor=#30223a;" vertex="1" parent="3">
+          <mxGeometry x="325" y="55" width="220" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="本地 SQLite&#xa;同一份领域数据 + outbox" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#4e8b64;fontSize=14;fontColor=#17324d;" vertex="1" parent="3">
+          <mxGeometry x="325" y="133" width="220" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="本地备份&#xa;加密 ZIP / 手动导入导出" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;fontColor=#594714;" vertex="1" parent="3">
+          <mxGeometry x="720" y="80" width="290" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="云端同步：可选，不阻塞本地使用" style="swimlane;startSize=30;horizontal=1;whiteSpace=wrap;html=1;rounded=1;fillColor=#f8fbf8;strokeColor=#82b366;fontStyle=1;fontColor=#244d2f;" vertex="1" parent="1">
+          <mxGeometry x="40" y="325" width="1100" height="250" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="账号与设备&#xa;注册、登录、刷新令牌" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=14;fontColor=#5c3d00;" vertex="1" parent="9">
+          <mxGeometry x="30" y="70" width="205" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="同步 API&#xa;push 操作 / pull 增量&#xa;幂等、鉴权、冲突规则" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4d82d5;fontStyle=1;fontSize=15;fontColor=#17324d;" vertex="1" parent="9">
+          <mxGeometry x="330" y="60" width="250" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="PostgreSQL&#xa;账户、事项、标签、变更日志、游标" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#4e8b64;fontSize=14;fontColor=#17324d;" vertex="1" parent="9">
+          <mxGeometry x="685" y="55" width="250" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="阿里云 OSS&#xa;图片、附件、备份文件&#xa;签名 URL 访问" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=14;fontColor=#70300a;" vertex="1" parent="9">
+          <mxGeometry x="685" y="175" width="250" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="同步策略：UUID 主键 + updated_at + deleted_at；先用最后写入优先，冲突留审计记录；不要首版引入 CRDT。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#a6a6a6;dashed=1;fontSize=13;fontColor=#46535e;" vertex="1" parent="1">
+          <mxGeometry x="40" y="600" width="1100" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#4d82d5;fontSize=12;" edge="1" parent="3" source="4" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;fontSize=12;" edge="1" parent="3" source="6" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#4d82d5;fontSize=12;exitX=0.35;exitY=1;exitDx=0;exitDy=0;entryX=0.35;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="5" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="19" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;fontSize=12;exitX=0.65;exitY=1;exitDx=0;exitDy=0;entryX=0.65;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="7" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="20" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#d79b00;fontSize=12;" edge="1" parent="9" source="10" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#4e8b64;fontSize=12;" edge="1" parent="9" source="11" target="12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="22" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#c55a11;fontSize=12;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="9" source="12" target="13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

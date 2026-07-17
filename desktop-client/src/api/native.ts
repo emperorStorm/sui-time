@@ -1,5 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
+import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import type { BootState, Tag, TagInput, Task, TaskInput, TaskQuery, UserSession } from '../types'
@@ -148,4 +149,24 @@ export async function checkAppUpdate(): Promise<Update | null> {
 export async function installAppUpdate(update: Update, onEvent: (event: DownloadEvent) => void) {
   await update.downloadAndInstall(onEvent, { timeout: 120000 })
   await relaunch()
+}
+
+export async function exportEncryptedBackup(password: string): Promise<string | null> {
+  if (!isTauriRuntime()) throw new Error('备份功能仅在桌面客户端中可用')
+  const backupPath = await save({
+    defaultPath: `岁岁时光-${today()}.suitime-backup`,
+    filters: [{ name: '岁岁时光加密备份', extensions: ['suitime-backup'] }]
+  })
+  if (!backupPath) return null
+  return invoke<string>('backup_app_data_command', { backupPath, password })
+}
+
+export async function restoreEncryptedBackup(password: string): Promise<string | null> {
+  if (!isTauriRuntime()) throw new Error('恢复功能仅在桌面客户端中可用')
+  const backupPath = await open({
+    multiple: false,
+    filters: [{ name: '岁岁时光加密备份', extensions: ['suitime-backup'] }]
+  })
+  if (!backupPath || Array.isArray(backupPath)) return null
+  return invoke<string>('restore_app_data_command', { backupPath, password })
 }

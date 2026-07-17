@@ -13,6 +13,14 @@ sui-time/
 
 Tasks, labels, accounts, and the local session are stored in the application's SQLite database. No server or cloud account is required for the first release.
 
+## Data Architecture
+
+![Local-first data architecture](docs/assets/sui-time-local-first-sync.png)
+
+The current release implements only the local tier: `sui-time.sqlite3` lives in the operating system's application data directory and stores accounts, the active session, tags, and tasks. The mobile client, sync API, PostgreSQL, and OSS sections in the diagram are the planned evolution, not runtime dependencies.
+
+The editable source is available at [docs/assets/sui-time-local-first-sync.drawio](docs/assets/sui-time-local-first-sync.drawio).
+
 ## Development
 
 ```bash

@@ -1,14 +1,21 @@
 use std::{
     fs,
-    path::PathBuf,
+    fs::OpenOptions,
+    io::Write,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use rand_core::OsRng;
+use chrono::{NaiveDate, NaiveTime};
+use rand_core::{OsRng, RngCore};
 use rusqlite::{params, Connection, OptionalExtension};
 use tauri::Manager;
 use uuid::Uuid;
@@ -16,6 +23,11 @@ use uuid::Uuid;
 use crate::models::{AccountInput, Tag, TagInput, Task, TaskInput, UserSession};
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
+const SCHEMA_VERSION: i64 = 1;
+const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
+const BACKUP_SALT_LENGTH: usize = 16;
+const BACKUP_NONCE_LENGTH: usize = 12;
+const MAX_BACKUP_SIZE: u64 = 512 * 1024 * 1024;
 
 pub fn app_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -28,13 +40,41 @@ pub fn app_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 pub fn open_app_db(app: &tauri::AppHandle) -> Result<Connection, String> {
     let conn = Connection::open(app_db_path(app)?).map_err(|error| error.to_string())?;
+    configure_connection(&conn)?;
     initialize(&conn)?;
     Ok(conn)
 }
 
 pub fn initialize(conn: &Connection) -> Result<(), String> {
+    configure_connection(conn)?;
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if version > SCHEMA_VERSION {
+        return Err("本地数据版本高于当前客户端，请升级应用后再打开".to_string());
+    }
+    if version < 1 {
+        migrate_to_v1(conn)?;
+    }
+    Ok(())
+}
+
+fn configure_connection(conn: &Connection) -> Result<(), String> {
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| error.to_string())?;
     conn.execute_batch(
-        "PRAGMA foreign_keys = ON;
+        "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;",
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn migrate_to_v1(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch(
+            "PRAGMA foreign_keys = ON;
          CREATE TABLE IF NOT EXISTS users (
            id TEXT PRIMARY KEY,
            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -70,8 +110,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
          );
          CREATE INDEX IF NOT EXISTS idx_tasks_owner_date ON tasks(owner_id, planned_date);
          CREATE INDEX IF NOT EXISTS idx_tags_owner_sort ON tags(owner_id, sort_order);",
-    )
-    .map_err(|error| error.to_string())
+        )
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
 }
 
 pub fn needs_setup(conn: &Connection) -> Result<bool, String> {
@@ -213,12 +257,16 @@ pub fn save_tag(conn: &Connection, owner_id: &str, input: TagInput) -> Result<Ta
 }
 
 pub fn delete_tag(conn: &Connection, owner_id: &str, tag_id: &str) -> Result<(), String> {
-    conn.execute(
-        "UPDATE tasks SET tag_id = NULL, updated_at = ?1 WHERE owner_id = ?2 AND tag_id = ?3",
-        params![now_millis(), owner_id, tag_id],
-    )
-    .map_err(|error| error.to_string())?;
-    let changed = conn
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute(
+            "UPDATE tasks SET tag_id = NULL, updated_at = ?1 WHERE owner_id = ?2 AND tag_id = ?3",
+            params![now_millis(), owner_id, tag_id],
+        )
+        .map_err(|error| error.to_string())?;
+    let changed = transaction
         .execute(
             "DELETE FROM tags WHERE id = ?1 AND owner_id = ?2",
             params![tag_id, owner_id],
@@ -227,7 +275,7 @@ pub fn delete_tag(conn: &Connection, owner_id: &str, tag_id: &str) -> Result<(),
     if changed == 0 {
         return Err("标签不存在或无权删除".to_string());
     }
-    Ok(())
+    transaction.commit().map_err(|error| error.to_string())
 }
 
 pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String> {
@@ -389,13 +437,7 @@ fn validate_date(value: Option<&str>) -> Result<(), String> {
     let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
         return Ok(());
     };
-    let valid = value.len() == 10
-        && value.as_bytes().get(4) == Some(&b'-')
-        && value.as_bytes().get(7) == Some(&b'-')
-        && value
-            .chars()
-            .all(|char| char.is_ascii_digit() || char == '-');
-    if valid {
+    if NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok() {
         Ok(())
     } else {
         Err("计划日期格式无效".to_string())
@@ -406,16 +448,220 @@ fn validate_time(value: Option<&str>) -> Result<(), String> {
     let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
         return Ok(());
     };
-    let valid = value.len() == 5
-        && value.as_bytes().get(2) == Some(&b':')
-        && value
-            .chars()
-            .all(|char| char.is_ascii_digit() || char == ':');
-    if valid {
+    if NaiveTime::parse_from_str(value, "%H:%M").is_ok() {
         Ok(())
     } else {
         Err("计划时间格式无效".to_string())
     }
+}
+
+pub fn backup_app_data(
+    app: &tauri::AppHandle,
+    backup_path: String,
+    password: String,
+) -> Result<String, String> {
+    let database_path = app_db_path(app)?;
+    create_encrypted_backup(&database_path, Path::new(&backup_path), &password)?;
+    Ok(backup_path)
+}
+
+pub fn restore_app_data(
+    app: &tauri::AppHandle,
+    backup_path: String,
+    password: String,
+) -> Result<String, String> {
+    let database_path = app_db_path(app)?;
+    let restored_bytes = decrypt_backup_file(Path::new(&backup_path), &password)?;
+    let restore_path = temporary_database_path(&database_path, "restore");
+    write_new_file(&restore_path, &restored_bytes)?;
+    if let Err(error) = validate_database_file(&restore_path) {
+        let _ = fs::remove_file(&restore_path);
+        return Err(error);
+    }
+
+    let rollback_path =
+        backup_directory(app)?.join(format!("before-restore-{}.suitime-backup", now_millis()));
+    if let Err(error) = create_encrypted_backup(&database_path, &rollback_path, &password) {
+        let _ = fs::remove_file(&restore_path);
+        return Err(error);
+    }
+    replace_database_file(&database_path, &restore_path)?;
+    Ok(format!(
+        "数据已恢复，恢复前备份已保存到 {}",
+        rollback_path.display()
+    ))
+}
+
+fn backup_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let directory = app_db_path(app)?
+        .parent()
+        .ok_or_else(|| "无法确定本地数据目录".to_string())?
+        .join("backups");
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    Ok(directory)
+}
+
+fn create_encrypted_backup(
+    source: &Path,
+    destination: &Path,
+    password: &str,
+) -> Result<(), String> {
+    let snapshot = snapshot_database(source)?;
+    let encrypted = encrypt_backup(&snapshot, password)?;
+    write_new_file(destination, &encrypted)
+}
+
+fn snapshot_database(source: &Path) -> Result<Vec<u8>, String> {
+    if !source.is_file() {
+        return Err("当前没有可备份的本地数据".to_string());
+    }
+    let snapshot_path = temporary_database_path(source, "snapshot");
+    let result = (|| {
+        let conn = Connection::open(source).map_err(|error| error.to_string())?;
+        configure_connection(&conn)?;
+        let target = snapshot_path.to_string_lossy().replace('\'', "''");
+        conn.execute_batch(&format!("VACUUM INTO '{target}'"))
+            .map_err(|error| error.to_string())?;
+        fs::read(&snapshot_path).map_err(|error| error.to_string())
+    })();
+    let _ = fs::remove_file(&snapshot_path);
+    result
+}
+
+fn encrypt_backup(snapshot: &[u8], password: &str) -> Result<Vec<u8>, String> {
+    validate_backup_password(password)?;
+    if snapshot.len() as u64 > MAX_BACKUP_SIZE {
+        return Err("本地数据过大，暂不支持导出".to_string());
+    }
+    let mut salt = [0_u8; BACKUP_SALT_LENGTH];
+    let mut nonce = [0_u8; BACKUP_NONCE_LENGTH];
+    OsRng.fill_bytes(&mut salt);
+    OsRng.fill_bytes(&mut nonce);
+    let cipher = Aes256Gcm::new_from_slice(&backup_key(password, &salt)?)
+        .map_err(|_| "无法创建备份加密器".to_string())?;
+    let encrypted = cipher
+        .encrypt(Nonce::from_slice(&nonce), snapshot)
+        .map_err(|_| "备份加密失败".to_string())?;
+    let mut result =
+        Vec::with_capacity(BACKUP_MAGIC.len() + salt.len() + nonce.len() + encrypted.len());
+    result.extend_from_slice(BACKUP_MAGIC);
+    result.extend_from_slice(&salt);
+    result.extend_from_slice(&nonce);
+    result.extend_from_slice(&encrypted);
+    Ok(result)
+}
+
+fn decrypt_backup_file(path: &Path, password: &str) -> Result<Vec<u8>, String> {
+    let metadata = fs::metadata(path).map_err(|_| "无法读取备份文件".to_string())?;
+    if metadata.len()
+        > MAX_BACKUP_SIZE
+            + BACKUP_MAGIC.len() as u64
+            + BACKUP_SALT_LENGTH as u64
+            + BACKUP_NONCE_LENGTH as u64
+            + 16
+    {
+        return Err("备份文件过大，已拒绝恢复".to_string());
+    }
+    let encrypted = fs::read(path).map_err(|_| "无法读取备份文件".to_string())?;
+    decrypt_backup(&encrypted, password)
+}
+
+fn decrypt_backup(encrypted: &[u8], password: &str) -> Result<Vec<u8>, String> {
+    validate_backup_password(password)?;
+    let header_length = BACKUP_MAGIC.len() + BACKUP_SALT_LENGTH + BACKUP_NONCE_LENGTH;
+    if encrypted.len() <= header_length || !encrypted.starts_with(BACKUP_MAGIC) {
+        return Err("备份文件格式无效".to_string());
+    }
+    let salt_start = BACKUP_MAGIC.len();
+    let nonce_start = salt_start + BACKUP_SALT_LENGTH;
+    let cipher =
+        Aes256Gcm::new_from_slice(&backup_key(password, &encrypted[salt_start..nonce_start])?)
+            .map_err(|_| "无法创建备份解密器".to_string())?;
+    cipher
+        .decrypt(
+            Nonce::from_slice(&encrypted[nonce_start..header_length]),
+            &encrypted[header_length..],
+        )
+        .map_err(|_| "备份密码错误或文件已损坏".to_string())
+}
+
+fn backup_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
+    let mut key = [0_u8; 32];
+    Argon2::default()
+        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .map_err(|_| "无法生成备份密钥".to_string())?;
+    Ok(key)
+}
+
+fn validate_backup_password(password: &str) -> Result<(), String> {
+    if password.chars().count() < 8 {
+        return Err("备份密码至少需要 8 个字符".to_string());
+    }
+    Ok(())
+}
+
+fn validate_database_file(path: &Path) -> Result<(), String> {
+    let conn = Connection::open(path).map_err(|_| "备份中的数据库无法打开".to_string())?;
+    let check: String = conn
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|_| "备份中的数据库无法校验".to_string())?;
+    if check != "ok" {
+        return Err("备份中的数据库已损坏".to_string());
+    }
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|_| "备份中的数据库无法校验".to_string())?;
+    if version > SCHEMA_VERSION {
+        return Err("备份来自更高版本的客户端，请升级应用后再恢复".to_string());
+    }
+    for table in ["users", "app_settings", "tags", "tasks"] {
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(|_| "备份中的数据库无法校验".to_string())?
+            .is_some();
+        if !exists {
+            return Err("备份不属于岁岁时光或版本过旧".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn replace_database_file(database_path: &Path, restored_path: &Path) -> Result<(), String> {
+    let displaced_path = temporary_database_path(database_path, "previous");
+    fs::rename(database_path, &displaced_path).map_err(|error| error.to_string())?;
+    remove_sqlite_sidecars(database_path);
+    if let Err(error) = fs::rename(restored_path, database_path) {
+        let _ = fs::rename(&displaced_path, database_path);
+        return Err(error.to_string());
+    }
+    let _ = fs::remove_file(displaced_path);
+    Ok(())
+}
+
+fn temporary_database_path(database_path: &Path, purpose: &str) -> PathBuf {
+    let parent = database_path.parent().unwrap_or_else(|| Path::new("."));
+    parent.join(format!(".sui-time-{purpose}-{}.sqlite3", Uuid::new_v4()))
+}
+
+fn remove_sqlite_sidecars(database_path: &Path) {
+    for suffix in ["-wal", "-shm"] {
+        let _ = fs::remove_file(format!("{}{}", database_path.display(), suffix));
+    }
+}
+
+fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    file.write_all(bytes).map_err(|error| error.to_string())?;
+    file.sync_all().map_err(|error| error.to_string())
 }
 
 fn is_hex_color(value: &str) -> bool {
@@ -475,6 +721,15 @@ mod tests {
     }
 
     #[test]
+    fn migration_records_current_schema_version() {
+        let conn = memory_db();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
     fn deleting_tag_detaches_tasks() {
         let conn = memory_db();
         let user = create_initial_account(&conn, &account("用户甲")).unwrap();
@@ -508,6 +763,79 @@ mod tests {
             .unwrap()
             .tag_id
             .is_none());
+    }
+
+    #[test]
+    fn failed_tag_deletion_keeps_task_association() {
+        let conn = memory_db();
+        let user = create_initial_account(&conn, &account("用户甲")).unwrap();
+        let tag = save_tag(
+            &conn,
+            &user.id,
+            TagInput {
+                id: None,
+                name: "工作".to_string(),
+                color: "#4F8EF7".to_string(),
+                sort_order: 0,
+            },
+        )
+        .unwrap();
+        let task = save_task(
+            &conn,
+            &user.id,
+            TaskInput {
+                id: None,
+                title: "完成方案".to_string(),
+                tag_id: Some(tag.id.clone()),
+                planned_date: None,
+                planned_time: None,
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        conn.execute_batch("CREATE TRIGGER block_tag_delete BEFORE DELETE ON tags BEGIN SELECT RAISE(ABORT, 'blocked'); END;").unwrap();
+
+        assert!(delete_tag(&conn, &user.id, &tag.id).is_err());
+        assert_eq!(
+            get_task(&conn, &user.id, &task.id).unwrap().unwrap().tag_id,
+            Some(tag.id)
+        );
+    }
+
+    #[test]
+    fn invalid_dates_and_times_are_rejected() {
+        assert!(validate_date(Some("2026-02-29")).is_err());
+        assert!(validate_date(Some("2026/07/17")).is_err());
+        assert!(validate_time(Some("24:00")).is_err());
+        assert!(validate_time(Some("12:60")).is_err());
+    }
+
+    #[test]
+    fn encrypted_backup_can_be_verified_and_wrong_password_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("source.sqlite3");
+        let conn = Connection::open(&source_path).unwrap();
+        initialize(&conn).unwrap();
+        create_initial_account(&conn, &account("备份用户")).unwrap();
+
+        let snapshot = snapshot_database(&source_path).unwrap();
+        let encrypted = encrypt_backup(&snapshot, "backup-password").unwrap();
+        assert!(decrypt_backup(&encrypted, "wrong-password").is_err());
+
+        let restored_path = directory.path().join("restored.sqlite3");
+        write_new_file(
+            &restored_path,
+            &decrypt_backup(&encrypted, "backup-password").unwrap(),
+        )
+        .unwrap();
+        validate_database_file(&restored_path).unwrap();
+        let restored = Connection::open(restored_path).unwrap();
+        assert_eq!(
+            restored
+                .query_row("SELECT COUNT(*) FROM users", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
     }
 
     #[test]

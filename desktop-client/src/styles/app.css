@@ -157,6 +157,8 @@ input, textarea, select { outline: none; }
 .version-detail span { color: #75868a; font-size: 12px; }
 .version-detail span:last-child { margin-left: auto; text-align: right; }
 .version-detail strong { color: #284147; font-size: 13px; }
+.data-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.backup-tip { margin: -4px 0 20px; color: #75858a; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 13px; line-height: 1.65; }
 
 .modal-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(11, 23, 33, .48); }
 .modal-panel { width: min(590px, 100%); padding: 25px; border: 1px solid rgba(255,255,255,.35); border-radius: 8px; background: #f9fbf9; box-shadow: 0 24px 65px rgba(5, 16, 25, .27); }

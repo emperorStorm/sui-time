@@ -92,6 +92,7 @@
 
         <section v-else class="page settings-page">
           <section class="settings-block update-block"><div class="settings-heading"><div><p class="eyebrow">桌面客户端</p><h2>关于岁岁时光</h2><span>岁岁时光是一个本地优先的个人待办与时间规划应用。安装包发布后，可在此检查新版本。</span></div><button class="primary-button" :disabled="checkingUpdate || installingUpdate" @click="handleUpdate"><RefreshCw :class="{ spinning: checkingUpdate || installingUpdate }" :size="18" />{{ updateButtonLabel }}</button></div><div class="version-detail"><span>当前版本</span><strong>v{{ version }}</strong><span>{{ updateStatus }}</span></div></section>
+          <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">本地数据</p><h2>加密备份</h2><span>导出的备份包含本机账号、标签和事项。恢复前会自动保存一份加密回滚备份，恢复完成后应用将重新载入。</span></div><div class="data-actions"><button class="quiet-button" @click="openBackupModal('export')"><Download :size="17" />导出备份</button><button class="primary-button" @click="openBackupModal('restore')"><Upload :size="17" />恢复备份</button></div></div></section>
         </section>
       </section>
     </template>
@@ -100,14 +101,16 @@
 
     <div v-if="tagModalOpen" class="modal-backdrop" @mousedown.self="tagModalOpen = false"><form class="modal-panel tag-modal" @submit.prevent="saveTagForm"><header><div><p class="eyebrow">{{ tagDraft.id ? '编辑标签' : '新建标签' }}</p><h2>给生活一种颜色</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="tagModalOpen = false"><X :size="20" /></button></header><label class="field wide"><span>标签名称</span><input v-model.trim="tagDraft.name" maxlength="20" autofocus placeholder="例如：阅读" /></label><div class="color-picker"><span>标签颜色</span><button v-for="color in colors" :key="color" :class="['color-choice', { selected: tagDraft.color === color }]" type="button" :style="{ backgroundColor: color }" @click="tagDraft.color = color"><Check :size="15" /></button></div><footer><span></span><button class="quiet-button" type="button" @click="tagModalOpen = false">取消</button><button class="primary-button" :disabled="savingTag">{{ savingTag ? '正在保存' : '保存标签' }}</button></footer></form></div>
 
+    <div v-if="backupModalOpen" class="modal-backdrop" @mousedown.self="closeBackupModal"><form class="modal-panel backup-modal" @submit.prevent="submitBackup"><header><div><p class="eyebrow">{{ backupMode === 'export' ? '导出加密备份' : '恢复加密备份' }}</p><h2>{{ backupMode === 'export' ? '留一份安心的副本' : '从备份恢复数据' }}</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="closeBackupModal"><X :size="20" /></button></header><p class="backup-tip">{{ backupMode === 'export' ? '请设置至少 8 位的备份密码。密码无法找回。' : '请选择此前导出的备份文件，并输入它的备份密码。' }}</p><label class="field wide"><span>备份密码</span><input v-model="backupPassword" type="password" minlength="8" autocomplete="new-password" autofocus placeholder="至少 8 位" /></label><label v-if="backupMode === 'export'" class="field wide"><span>确认备份密码</span><input v-model="backupPasswordConfirmation" type="password" minlength="8" autocomplete="new-password" placeholder="再次输入备份密码" /></label><p v-if="backupError" class="form-error">{{ backupError }}</p><footer><span></span><button class="quiet-button" type="button" :disabled="backupInProgress" @click="closeBackupModal">取消</button><button class="primary-button" :disabled="backupInProgress">{{ backupInProgress ? '正在处理' : backupMode === 'export' ? '选择位置并导出' : '选择备份并恢复' }}</button></footer></form></div>
+
     <div v-if="notice" class="notice" :class="notice.type">{{ notice.text }}</div>
   </main>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowRight, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, Eye, EyeOff, Info, LayoutGrid, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, Tags, Trash2, X } from 'lucide-vue-next'
-import { checkAppUpdate, createAccount, currentVersion, getBootState, installAppUpdate, listTags, listTasks, loginUser, logoutUser, removeTag, removeTask, rescheduleTask, saveTag, saveTask, toggleTask } from './api/native'
+import { ArrowRight, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, Download, Eye, EyeOff, Info, LayoutGrid, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, Tags, Trash2, Upload, X } from 'lucide-vue-next'
+import { checkAppUpdate, createAccount, currentVersion, exportEncryptedBackup, getBootState, installAppUpdate, listTags, listTasks, loginUser, logoutUser, removeTag, removeTask, rescheduleTask, restoreEncryptedBackup, saveTag, saveTask, toggleTask } from './api/native'
 import type { BootState, Tag, Task, TaskInput, UserSession } from './types'
 
 type View = 'all' | 'week' | 'month' | 'tags' | 'about'
@@ -138,6 +141,12 @@ const installingUpdate = ref(false)
 const updateStatus = ref('尚未检查更新')
 const taskModalOpen = ref(false)
 const tagModalOpen = ref(false)
+const backupModalOpen = ref(false)
+const backupMode = ref<'export' | 'restore'>('export')
+const backupPassword = ref('')
+const backupPasswordConfirmation = ref('')
+const backupError = ref('')
+const backupInProgress = ref(false)
 const savingTask = ref(false)
 const savingTag = ref(false)
 const authForm = reactive({ username: '', password: '' })
@@ -327,6 +336,50 @@ async function handleUpdate() {
   } finally {
     checkingUpdate.value = false
     installingUpdate.value = false
+  }
+}
+
+function openBackupModal(mode: 'export' | 'restore') {
+  backupMode.value = mode
+  backupPassword.value = ''
+  backupPasswordConfirmation.value = ''
+  backupError.value = ''
+  backupModalOpen.value = true
+}
+
+function closeBackupModal() {
+  if (backupInProgress.value) return
+  backupModalOpen.value = false
+}
+
+async function submitBackup() {
+  if (backupInProgress.value) return
+  if (backupPassword.value.length < 8) {
+    backupError.value = '备份密码至少需要 8 位'
+    return
+  }
+  if (backupMode.value === 'export' && backupPassword.value !== backupPasswordConfirmation.value) {
+    backupError.value = '两次输入的备份密码不一致'
+    return
+  }
+  backupInProgress.value = true
+  backupError.value = ''
+  try {
+    const result = backupMode.value === 'export'
+      ? await exportEncryptedBackup(backupPassword.value)
+      : await restoreEncryptedBackup(backupPassword.value)
+    if (!result) return
+    backupModalOpen.value = false
+    if (backupMode.value === 'restore') {
+      showNotice('数据已恢复，正在重新载入应用')
+      window.setTimeout(() => window.location.reload(), 450)
+      return
+    }
+    showNotice('加密备份已导出')
+  } catch (error) {
+    backupError.value = messageOf(error)
+  } finally {
+    backupInProgress.value = false
   }
 }
 

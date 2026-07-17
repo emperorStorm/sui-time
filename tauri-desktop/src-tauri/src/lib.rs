@@ -2,8 +2,9 @@ mod db;
 mod models;
 
 use db::{
-    active_user, create_initial_account, delete_tag, delete_task, list_tags, list_tasks, login,
-    logout, needs_setup, open_app_db, reschedule_task, save_tag, save_task, toggle_task,
+    active_user, backup_app_data, create_initial_account, delete_tag, delete_task, list_tags,
+    list_tasks, login, logout, needs_setup, open_app_db, reschedule_task, restore_app_data,
+    save_tag, save_task, toggle_task,
 };
 use models::{AccountInput, BootState, Tag, TagInput, Task, TaskInput, TaskQuery, UserSession};
 
@@ -102,6 +103,24 @@ fn reschedule_user_task(
     reschedule_task(&conn, &require_user_id(&conn)?, &task_id, planned_date)
 }
 
+#[tauri::command]
+fn backup_app_data_command(
+    app: tauri::AppHandle,
+    backup_path: String,
+    password: String,
+) -> Result<String, String> {
+    backup_app_data(&app, backup_path, password)
+}
+
+#[tauri::command]
+fn restore_app_data_command(
+    app: tauri::AppHandle,
+    backup_path: String,
+    password: String,
+) -> Result<String, String> {
+    restore_app_data(&app, backup_path, password)
+}
+
 fn require_user_id(conn: &rusqlite::Connection) -> Result<String, String> {
     active_user(conn)?
         .map(|user| user.id)
@@ -110,6 +129,7 @@ fn require_user_id(conn: &rusqlite::Connection) -> Result<String, String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
@@ -124,7 +144,9 @@ pub fn run() {
             save_user_task,
             remove_user_task,
             toggle_user_task,
-            reschedule_user_task
+            reschedule_user_task,
+            backup_app_data_command,
+            restore_app_data_command
         ])
         .run(tauri::generate_context!())
         .expect("运行岁岁时光桌面端失败");
