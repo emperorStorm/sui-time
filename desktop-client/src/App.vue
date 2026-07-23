@@ -16,8 +16,16 @@
 
     <template v-else>
       <aside class="sidebar">
-        <div class="brand-lockup sidebar-brand"><img src="./assets/brand/sui-time-icon.svg" alt="岁岁时光" /><span>岁岁时光</span></div>
-        <div class="account-chip"><div class="avatar">{{ session.displayName.slice(0, 1) }}</div><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div><AppNotificationCenter ref="notificationCenter" /><button class="icon-button ghost" title="退出登录" @click="handleLogout"><LogOut :size="17" /></button></div>
+        <div ref="brandMenu" class="sidebar-top">
+          <button class="brand-menu-trigger" type="button" :aria-expanded="brandMenuOpen" title="账户与应用设置" @click="brandMenuOpen = !brandMenuOpen"><img src="./assets/brand/sui-time-icon.svg" alt="" /></button>
+          <span class="sidebar-brand-title">岁岁时光</span>
+          <AppNotificationCenter ref="notificationCenter" />
+          <section v-if="brandMenuOpen" class="brand-menu" aria-label="账户与应用设置">
+            <div class="brand-menu-profile"><span class="avatar">{{ session.displayName.slice(0, 1) }}</span><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div></div>
+            <div class="brand-menu-list"><button type="button" @click="openBrandMenuView('tags')"><Tags :size="16" />标签管理</button><button type="button" @click="openBrandMenuView('about')"><Info :size="16" />关于岁岁时光</button></div>
+            <button class="brand-menu-logout" type="button" @click="handleLogout"><LogOut :size="16" />退出登录</button>
+          </section>
+        </div>
         <nav aria-label="主导航">
           <p class="nav-group-title">事项</p>
           <button :class="['nav-item', { active: currentView === 'all' }]" @click="currentView = 'all'"><LayoutGrid :size="18" />全部事项</button>
@@ -38,7 +46,6 @@
           <div class="topbar-actions">
             <template v-if="currentView !== 'tags' && currentView !== 'about'">
               <button class="text-icon-button" @click="showCompleted = !showCompleted"><component :is="showCompleted ? EyeOff : Eye" :size="17" />{{ showCompleted ? '隐藏已完成' : '显示已完成' }}</button>
-              <button class="primary-button" @click="openTaskModal()"><Plus :size="18" />新建事项</button>
             </template>
           </div>
         </header>
@@ -53,7 +60,7 @@
           <div class="board-scroll">
             <div class="task-board">
               <section v-for="group in taskGroups" :key="group.id" class="task-column">
-                <header class="column-heading"><span class="color-dot" :style="{ backgroundColor: group.color }"></span><strong>{{ group.name }}</strong><small>{{ group.tasks.length }}</small><button class="icon-button ghost add-small" title="在此分类新增事项" @click="openTaskModal(group.id === 'inbox' ? null : group.id)"><Plus :size="17" /></button></header>
+                <header class="column-heading"><span class="color-dot" :style="{ backgroundColor: group.color }"></span><strong>{{ group.name }}</strong><small>{{ group.tasks.length }}</small><button class="icon-button ghost add-small" title="在此分类新增事项" @click="openTaskModal(group.id)"><Plus :size="17" /></button></header>
                 <div class="task-list" @dragover.prevent @drop="dropOnGroup(group.id)">
                   <button v-for="item in group.tasks" :key="item.id" class="task-card" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)">
                     <span :class="['task-check', { done: item.status === 'done' }]" @click.stop="toggleItem(item)"><Check :size="13" /></span>
@@ -95,13 +102,14 @@
           <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">本地数据</p><h2>加密备份</h2><span>导出的备份包含本机账号、标签和事项。恢复前会自动保存一份加密回滚备份，恢复完成后应用将重新载入。</span></div><div class="data-actions"><button class="quiet-button" @click="openBackupModal('export')"><Download :size="17" />导出备份</button><button class="primary-button" @click="openBackupModal('restore')"><Upload :size="17" />恢复备份</button></div></div></section>
         </section>
       </section>
+      <button class="floating-add" type="button" title="新建事项" aria-label="新建事项" @click="openTaskModal()"><Plus :size="28" /></button>
     </template>
 
     <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
       <form class="modal-panel task-modal" @submit.prevent="saveTaskForm">
         <header class="task-modal-head"><span class="task-check modal-check"><Check :size="14" /></span><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button class="priority-trigger" type="button" title="设置优先级" @click="priorityOpen = !priorityOpen"><Flag :size="18" />{{ priorityLabel(taskDraft.priority) }}</button><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
         <div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="option.value" type="button" @click="taskDraft.priority = option.value; priorityOpen = false"><span>{{ option.mark }}</span>{{ option.label }}<Check v-if="taskDraft.priority === option.value" :size="16" /></button></div>
-        <div class="task-quick-actions"><button type="button" @click="timeOpen = true"><AlarmClock :size="19" /><span>{{ timeSummary }}</span></button><button type="button" @click="repeatOpen = true"><CircleDot :size="19" /><span>{{ repeatSummary }}</span></button><label><Tags :size="18" /><select v-model="taskDraft.tagId"><option value="">未分类</option><option v-for="tag in tags" :key="tag.id" :value="tag.id">{{ tag.name }}</option></select></label></div>
+        <div class="task-quick-actions"><button type="button" @click="timeOpen = true"><AlarmClock :size="19" /><span>{{ timeSummary }}</span></button><button type="button" @click="repeatOpen = true"><CircleDot :size="19" /><span>{{ repeatSummary }}</span></button><label><Tags :size="18" /><select v-model="taskDraft.tagId"><option v-for="tag in tags" :key="tag.id" :value="tag.id">{{ tag.name }}</option></select></label></div>
         <section class="subtask-section"><div v-for="subtask in childDrafts" :key="subtask.id" class="subtask-row"><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" @click="subtask.status = subtask.status === 'done' ? 'todo' : 'done'"><Check :size="13" /></button><input v-model.trim="subtask.title" maxlength="120" placeholder="子事项" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><X :size="16" /></button></div><button type="button" class="add-subtask" @click="addChildDraft"><Plus :size="20" />添加子事项</button></section>
         <label class="notes-editor"><span>备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。"></textarea></label>
         <footer><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><span></span><button class="quiet-button" type="button" @click="closeTaskModal">取消</button><button class="primary-button" :disabled="savingTask">{{ savingTask ? '正在保存' : '保存' }}</button></footer>
@@ -121,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { AlarmClock, ArrowRight, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, Download, Eye, EyeOff, Flag, Info, LayoutGrid, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, Tags, Trash2, Upload, X } from 'lucide-vue-next'
 import { createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, listTags, listTasks, loginUser, logoutUser, removeTag, removeTask, rescheduleTask, restoreEncryptedBackup, saveTag, saveTask, toggleTask } from './api/native'
 import type { UpdateCheckResult } from './api/native'
@@ -154,6 +162,8 @@ const authError = ref('')
 const checkingUpdate = ref(false)
 const updateStatus = ref('尚未检查更新')
 const notificationCenter = ref<{ checkForUpdate: (openWhenFound?: boolean) => Promise<UpdateCheckResult | null> } | null>(null)
+const brandMenu = ref<HTMLElement | null>(null)
+const brandMenuOpen = ref(false)
 const taskModalOpen = ref(false)
 const tagModalOpen = ref(false)
 const backupModalOpen = ref(false)
@@ -190,8 +200,8 @@ const viewMeta = computed(() => ({
   about: { kicker: '应用', title: '关于岁岁时光' }
 }[currentView.value]))
 
-const visibleTasks = computed(() => tasks.value.filter(item => showCompleted.value || item.status !== 'done'))
-const taskGroups = computed(() => [{ id: 'inbox', name: '收集箱', color: '#8793A1', tasks: visibleTasks.value.filter(item => !item.tagId) }, ...tags.value.map(tag => ({ ...tag, tasks: visibleTasks.value.filter(item => item.tagId === tag.id) }))])
+const visibleTasks = computed(() => tasks.value.filter(item => !item.parentTaskId && (showCompleted.value || item.status !== 'done')))
+const taskGroups = computed(() => tags.value.map(tag => ({ ...tag, tasks: visibleTasks.value.filter(item => item.tagId === tag.id) })))
 const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) => ({ date, day: Number(date.slice(-2)), weekday: weekdayLabels[index] })))
 const monthDays = computed(() => calendarDays(monthAnchor.value))
 const weekLabel = computed(() => `${formatMonth(weekDays.value[0].date)} · ${formatMonth(weekDays.value[6].date)}`)
@@ -202,6 +212,7 @@ const repeatSummary = computed(() => repeatOptions.find(option => option.value =
 const needsInterval = computed(() => ['every_days', 'custom'].includes(repeatDraft.kind))
 
 onMounted(async () => {
+  document.addEventListener('mousedown', closeBrandMenuOnOutsideClick)
   try {
     version.value = await currentVersion()
     bootState.value = await getBootState()
@@ -213,6 +224,8 @@ onMounted(async () => {
     booting.value = false
   }
 })
+
+onBeforeUnmount(() => document.removeEventListener('mousedown', closeBrandMenuOnOutsideClick))
 
 let filterTimer: number | undefined
 watch([search, rangeStart, rangeEnd, showCompleted], () => {
@@ -245,6 +258,7 @@ async function refreshData() {
 }
 
 async function handleLogout() {
+  brandMenuOpen.value = false
   await logoutUser()
   session.value = null
   tasks.value = []
@@ -252,9 +266,18 @@ async function handleLogout() {
   authForm.password = ''
 }
 
+function openBrandMenuView(view: 'tags' | 'about') {
+  currentView.value = view
+  brandMenuOpen.value = false
+}
+
+function closeBrandMenuOnOutsideClick(event: MouseEvent) {
+  if (brandMenu.value && !brandMenu.value.contains(event.target as Node)) brandMenuOpen.value = false
+}
+
 function openTaskModal(tagId?: string | null, item?: Task, date?: string) {
   editingOccurrence.value = item?.id.includes('@') ? { source: tasks.value.find(task => task.id === item.id.split('@')[0]) || item, date: item.plannedDate || '' } : null
-  Object.assign(taskDraft, item ? { id: item.id, title: item.title, tagId: item.tagId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes } : { id: undefined, title: '', tagId: tagId ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes: '' })
+  Object.assign(taskDraft, item ? { id: item.id, title: item.title, tagId: item.tagId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes } : { id: undefined, title: '', tagId: tagId ?? tags.value[0]?.id ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes: '' })
   Object.assign(repeatDraft, parseRepeatRule(taskDraft.repeatRule))
   childDrafts.value = item ? tasks.value.filter(task => task.parentTaskId === item.id).map(task => ({ ...task })) : []
   priorityOpen.value = false
@@ -263,6 +286,10 @@ function openTaskModal(tagId?: string | null, item?: Task, date?: string) {
 
 async function saveTaskForm() {
   if (!taskDraft.title || savingTask.value) return
+  if (!taskDraft.parentTaskId && !taskDraft.tagId) {
+    showNotice('请先创建标签，再添加事项', 'error')
+    return
+  }
   savingTask.value = true
   try {
     if (taskDraft.scheduleKind === 'range' && (!taskDraft.plannedTime || !taskDraft.plannedEndTime || taskDraft.plannedTime >= taskDraft.plannedEndTime)) throw new Error('时间段的结束时间必须晚于开始时间')
@@ -361,7 +388,7 @@ async function dropOnGroup(groupId: string) {
   const item = tasks.value.find(task => task.id === draggedTaskId.value)
   if (!item) return
   try {
-    await saveTask({ id: item.id, title: item.title, tagId: groupId === 'inbox' ? null : groupId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes })
+    await saveTask({ id: item.id, title: item.title, tagId: groupId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes })
     await refreshData()
   } catch (error) {
     showNotice(messageOf(error), 'error')
