@@ -31,6 +31,12 @@ export interface Task {
   tagColor: string | null
   plannedDate: string | null
   plannedTime: string | null
+  plannedEndTime: string | null
+  scheduleKind: ScheduleKind
+  priority: Priority
+  repeatRule: string
+  occurrenceOverrides: string
+  parentTaskId: string | null
   status: 'todo' | 'done'
   notes: string
   createdAt: number
@@ -44,7 +50,27 @@ export interface TaskInput {
   tagId: string | null
   plannedDate: string | null
   plannedTime: string | null
+  plannedEndTime: string | null
+  scheduleKind: ScheduleKind
+  priority: Priority
+  repeatRule: string
+  occurrenceOverrides: string
+  parentTaskId: string | null
   notes: string
+}
+
+export type ScheduleKind = 'all_day' | 'point' | 'range'
+export type Priority = 'urgent_important' | 'important_not_urgent' | 'urgent_not_important' | 'not_urgent_not_important'
+
+export interface RepeatRule {
+  kind: 'none' | 'daily' | 'every_days' | 'weekly' | 'weekly_slots' | 'workdays' | 'monthly' | 'monthly_slots' | 'yearly' | 'memory' | 'custom'
+  interval?: number
+  weekdays?: number[]
+  monthDays?: number[]
+  slots?: Array<{ day: number; time?: string }>
+  endMode?: 'never' | 'date' | 'count'
+  endDate?: string
+  count?: number
 }
 
 export interface TaskQuery {

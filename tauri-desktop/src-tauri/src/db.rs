@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::models::{AccountInput, Tag, TagInput, Task, TaskInput, UserSession};
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -55,6 +55,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     }
     if version < 1 {
         migrate_to_v1(conn)?;
+    }
+    if version < 2 {
+        migrate_to_v2(conn)?;
     }
     Ok(())
 }
@@ -113,8 +116,23 @@ fn migrate_to_v1(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|error| error.to_string())?;
     transaction
-        .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
+        .execute_batch("PRAGMA user_version = 1;")
         .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn migrate_to_v2(conn: &Connection) -> Result<(), String> {
+    let transaction = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    transaction.execute_batch(
+        "ALTER TABLE tasks ADD COLUMN planned_end_time TEXT;
+         ALTER TABLE tasks ADD COLUMN schedule_kind TEXT NOT NULL DEFAULT 'all_day';
+         ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'not_urgent_not_important';
+         ALTER TABLE tasks ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT '{\"kind\":\"none\"}';
+         ALTER TABLE tasks ADD COLUMN occurrence_overrides TEXT NOT NULL DEFAULT '{}';
+         ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE;
+         CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);",
+    ).map_err(|error| error.to_string())?;
+    transaction.execute_batch("PRAGMA user_version = 2;").map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
 }
 
@@ -280,7 +298,7 @@ pub fn delete_tag(conn: &Connection, owner_id: &str, tag_id: &str) -> Result<(),
 
 pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String> {
     let mut statement = conn.prepare(
-        "SELECT tasks.id, tasks.title, tasks.tag_id, tags.name, tags.color, tasks.planned_date, tasks.planned_time, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
+        "SELECT tasks.id, tasks.title, tasks.tag_id, tags.name, tags.color, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
          FROM tasks LEFT JOIN tags ON tags.id = tasks.tag_id AND tags.owner_id = tasks.owner_id
          WHERE tasks.owner_id = ?1
          ORDER BY CASE WHEN tasks.planned_date IS NULL THEN 1 ELSE 0 END, tasks.planned_date, tasks.planned_time, tasks.created_at DESC",
@@ -299,14 +317,16 @@ pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<
     }
     validate_date(input.planned_date.as_deref())?;
     validate_time(input.planned_time.as_deref())?;
+    validate_time(input.planned_end_time.as_deref())?;
+    validate_task_options(&input)?;
     let tag_id = verify_tag(conn, owner_id, input.tag_id.as_deref())?;
     let now = now_millis();
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let changed = conn.execute(
-        "INSERT INTO tasks (id, owner_id, title, tag_id, planned_date, planned_time, status, notes, created_at, completed_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'todo', ?7, ?8, NULL, ?8)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, tag_id = excluded.tag_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
-        params![id, owner_id, title, tag_id, input.planned_date, input.planned_time, input.notes.trim(), now],
+        "INSERT INTO tasks (id, owner_id, title, tag_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, parent_task_id, status, notes, created_at, completed_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'todo', ?13, ?14, NULL, ?14)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, tag_id = excluded.tag_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, parent_task_id = excluded.parent_task_id, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
+        params![id, owner_id, title, tag_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, input.occurrence_overrides, input.parent_task_id, input.notes.trim(), now],
     ).map_err(|error| error.to_string())?;
     if changed == 0 {
         return Err("事项不存在或无权修改".to_string());
@@ -357,7 +377,7 @@ pub fn reschedule_task(
 
 fn get_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<Option<Task>, String> {
     conn.query_row(
-        "SELECT tasks.id, tasks.title, tasks.tag_id, tags.name, tags.color, tasks.planned_date, tasks.planned_time, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
+        "SELECT tasks.id, tasks.title, tasks.tag_id, tags.name, tags.color, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
          FROM tasks LEFT JOIN tags ON tags.id = tasks.tag_id AND tags.owner_id = tasks.owner_id WHERE tasks.id = ?1 AND tasks.owner_id = ?2",
         params![task_id, owner_id], task_from_row,
     ).optional().map_err(|error| error.to_string())
@@ -372,11 +392,17 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         tag_color: row.get(4)?,
         planned_date: row.get(5)?,
         planned_time: row.get(6)?,
-        status: row.get(7)?,
-        notes: row.get(8)?,
-        created_at: row.get(9)?,
-        completed_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        planned_end_time: row.get(7)?,
+        schedule_kind: row.get(8)?,
+        priority: row.get(9)?,
+        repeat_rule: row.get(10)?,
+        occurrence_overrides: row.get(11)?,
+        parent_task_id: row.get(12)?,
+        status: row.get(13)?,
+        notes: row.get(14)?,
+        created_at: row.get(15)?,
+        completed_at: row.get(16)?,
+        updated_at: row.get(17)?,
     })
 }
 
@@ -453,6 +479,22 @@ fn validate_time(value: Option<&str>) -> Result<(), String> {
     } else {
         Err("计划时间格式无效".to_string())
     }
+}
+
+fn validate_task_options(input: &TaskInput) -> Result<(), String> {
+    if !["all_day", "point", "range"].contains(&input.schedule_kind.as_str()) {
+        return Err("时间类型无效".to_string());
+    }
+    if !["urgent_important", "important_not_urgent", "urgent_not_important", "not_urgent_not_important"].contains(&input.priority.as_str()) {
+        return Err("优先级无效".to_string());
+    }
+    if input.schedule_kind == "range" && (input.planned_time.is_none() || input.planned_end_time.is_none() || input.planned_time >= input.planned_end_time) {
+        return Err("时间段的结束时间必须晚于开始时间".to_string());
+    }
+    if input.repeat_rule.len() > 4000 || input.occurrence_overrides.len() > 20000 {
+        return Err("重复事项配置过长".to_string());
+    }
+    Ok(())
 }
 
 pub fn backup_app_data(
@@ -753,6 +795,7 @@ mod tests {
                 tag_id: Some(tag.id.clone()),
                 planned_date: Some("2026-07-16".to_string()),
                 planned_time: None,
+                planned_end_time: None, schedule_kind: "all_day".to_string(), priority: "not_urgent_not_important".to_string(), repeat_rule: "{\"kind\":\"none\"}".to_string(), occurrence_overrides: "{}".to_string(), parent_task_id: None,
                 notes: String::new(),
             },
         )
@@ -789,6 +832,7 @@ mod tests {
                 tag_id: Some(tag.id.clone()),
                 planned_date: None,
                 planned_time: None,
+                planned_end_time: None, schedule_kind: "all_day".to_string(), priority: "not_urgent_not_important".to_string(), repeat_rule: "{\"kind\":\"none\"}".to_string(), occurrence_overrides: "{}".to_string(), parent_task_id: None,
                 notes: String::new(),
             },
         )
@@ -808,6 +852,18 @@ mod tests {
         assert!(validate_date(Some("2026/07/17")).is_err());
         assert!(validate_time(Some("24:00")).is_err());
         assert!(validate_time(Some("12:60")).is_err());
+    }
+
+    #[test]
+    fn time_ranges_and_task_options_are_validated() {
+        let mut input = TaskInput {
+            id: None, title: "时间段事项".to_string(), tag_id: None, planned_date: Some("2026-07-23".to_string()), planned_time: Some("18:00".to_string()), planned_end_time: Some("17:00".to_string()), schedule_kind: "range".to_string(), priority: "not_urgent_not_important".to_string(), repeat_rule: "{\"kind\":\"daily\"}".to_string(), occurrence_overrides: "{}".to_string(), parent_task_id: None, notes: String::new(),
+        };
+        assert!(validate_task_options(&input).is_err());
+        input.planned_end_time = Some("19:00".to_string());
+        assert!(validate_task_options(&input).is_ok());
+        input.priority = "invalid".to_string();
+        assert!(validate_task_options(&input).is_err());
     }
 
     #[test]
@@ -851,6 +907,7 @@ mod tests {
                 tag_id: None,
                 planned_date: None,
                 planned_time: None,
+                planned_end_time: None, schedule_kind: "all_day".to_string(), priority: "not_urgent_not_important".to_string(), repeat_rule: "{\"kind\":\"none\"}".to_string(), occurrence_overrides: "{}".to_string(), parent_task_id: None,
                 notes: String::new(),
             },
         )

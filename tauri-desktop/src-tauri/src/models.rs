@@ -50,6 +50,12 @@ pub struct Task {
     pub tag_color: Option<String>,
     pub planned_date: Option<String>,
     pub planned_time: Option<String>,
+    pub planned_end_time: Option<String>,
+    pub schedule_kind: String,
+    pub priority: String,
+    pub repeat_rule: String,
+    pub occurrence_overrides: String,
+    pub parent_task_id: Option<String>,
     pub status: String,
     pub notes: String,
     pub created_at: i64,
@@ -65,8 +71,25 @@ pub struct TaskInput {
     pub tag_id: Option<String>,
     pub planned_date: Option<String>,
     pub planned_time: Option<String>,
+    #[serde(default)]
+    pub planned_end_time: Option<String>,
+    #[serde(default = "default_schedule_kind")]
+    pub schedule_kind: String,
+    #[serde(default = "default_priority")]
+    pub priority: String,
+    #[serde(default = "default_repeat_rule")]
+    pub repeat_rule: String,
+    #[serde(default = "default_occurrence_overrides")]
+    pub occurrence_overrides: String,
+    #[serde(default)]
+    pub parent_task_id: Option<String>,
     pub notes: String,
 }
+
+fn default_schedule_kind() -> String { "all_day".to_string() }
+fn default_priority() -> String { "not_urgent_not_important".to_string() }
+fn default_repeat_rule() -> String { "{\"kind\":\"none\"}".to_string() }
+fn default_occurrence_overrides() -> String { "{}".to_string() }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
