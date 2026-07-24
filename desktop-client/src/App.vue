@@ -20,6 +20,7 @@
           <button class="brand-menu-trigger" type="button" :aria-expanded="brandMenuOpen" title="账户与应用设置" @click="brandMenuOpen = !brandMenuOpen"><img src="./assets/brand/sui-time-icon.svg" alt="" /></button>
           <span class="sidebar-brand-title">岁岁时光</span>
           <AppNotificationCenter ref="notificationCenter" />
+          <button class="icon-button sidebar-refresh" type="button" title="回到今天并刷新数据" @click="resetCurrentDate"><RefreshCw :size="16" /></button>
           <section v-if="brandMenuOpen" class="brand-menu" aria-label="账户与应用设置">
             <div class="brand-menu-profile"><span class="avatar">{{ session.displayName.slice(0, 1) }}</span><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div></div>
             <div class="brand-menu-list"><button type="button" @click="openBrandMenuView('tags')"><Tags :size="16" />标签管理</button><button type="button" @click="openBrandMenuView('about')"><Info :size="16" />关于岁岁时光</button></div>
@@ -34,15 +35,13 @@
           <button :class="['nav-item', { active: currentView === 'month' }]" @click="currentView = 'month'"><CalendarRange :size="18" />我的一月</button>
           <p class="nav-group-title planning-title">基础设置</p>
           <button :class="['nav-item', { active: currentView === 'tags' }]" @click="currentView = 'tags'"><Tags :size="18" />标签管理</button>
-          <p class="nav-group-title planning-title">应用</p>
-          <button :class="['nav-item', { active: currentView === 'about' }]" @click="currentView = 'about'"><Info :size="18" />关于岁岁时光</button>
         </nav>
         <div class="sidebar-foot"><span></span><small>Local-first · v{{ version }}</small></div>
       </aside>
 
       <section class="workspace">
         <header class="topbar">
-          <div><p class="eyebrow">{{ viewMeta.kicker }}</p><h1>{{ viewMeta.title }}</h1></div>
+          <div><h1>{{ viewMeta.title }}</h1></div>
           <div class="topbar-actions">
             <template v-if="currentView !== 'tags' && currentView !== 'about'">
               <button class="text-icon-button" @click="showCompleted = !showCompleted"><component :is="showCompleted ? EyeOff : Eye" :size="17" />{{ showCompleted ? '隐藏已完成' : '显示已完成' }}</button>
@@ -76,17 +75,17 @@
         </section>
 
         <section v-else-if="currentView === 'week'" class="page plan-page">
-          <div class="period-bar"><button class="icon-button bordered" title="上一周" @click="moveWeek(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="weekAnchor = todayDate">{{ weekLabel }}</button><button class="icon-button bordered" title="下一周" @click="moveWeek(1)"><ChevronRight :size="18" /></button><button class="quiet-button" @click="weekAnchor = todayDate">回到本周</button></div>
+          <div class="period-bar"><button class="icon-button bordered" title="上一周" @click="moveWeek(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate">{{ weekLabel }}</button><button class="icon-button bordered" title="下一周" @click="moveWeek(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate"><CalendarDays :size="15" />回到本周</button></div>
           <div class="week-grid">
             <section v-for="day in weekDays" :key="day.date" :class="['week-day', { today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
-              <header><div><strong>{{ day.weekday }}</strong><span>{{ day.day }}</span></div><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="17" /></button></header>
+              <header><span class="week-day-number">{{ day.day }}</span><strong>{{ day.weekday }}</strong><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="17" /></button></header>
               <div class="day-task-list"><button v-for="item in tasksForDate(day.date)" :key="item.id" :class="['schedule-card', { done: item.status === 'done' }]" :style="{ '--task-color': item.tagColor || '#7b8794' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><span :class="['task-check', { done: item.status === 'done' }]" @click.stop="toggleItem(item)"><Check :size="12" /></span><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button></div>
             </section>
           </div>
         </section>
 
         <section v-else-if="currentView === 'month'" class="page plan-page">
-          <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="monthAnchor = todayDate">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="quiet-button" @click="monthAnchor = todayDate">回到本月</button></div>
+          <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate"><CalendarRange :size="15" />回到本月</button></div>
           <div class="month-weekdays"><span v-for="label in weekdayLabels" :key="label">{{ label }}</span></div>
           <div class="month-grid">
             <section v-for="day in monthDays" :key="day.date" :class="['month-day', { muted: !day.inMonth, today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)"><header><time>{{ day.day }}</time><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button></header><div class="month-items"><button v-for="item in tasksForDate(day.date).slice(0, 4)" :key="item.id" :class="['month-item', { done: item.status === 'done' }]" :style="{ backgroundColor: item.tagColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" />{{ item.title }}<time v-if="item.plannedTime">{{ item.plannedTime }}</time></button><button v-if="tasksForDate(day.date).length > 4" class="more-items" @click="openTaskModal(undefined, tasksForDate(day.date)[4])">还有 {{ tasksForDate(day.date).length - 4 }} 项</button></div></section>
@@ -153,7 +152,7 @@ const rangeEnd = ref('')
 const showCompleted = ref(false)
 const weekAnchor = ref(todayString())
 const monthAnchor = ref(todayString())
-const todayDate = todayString()
+const todayDate = ref(todayString())
 const draggedTaskId = ref<string | null>(null)
 const version = ref('0.1.0')
 const notice = ref<Notice | null>(null)
@@ -193,18 +192,18 @@ const repeatDraft = reactive<RepeatRule>({ kind: 'none', interval: 1, endMode: '
 const editingOccurrence = ref<{ source: Task; date: string } | null>(null)
 
 const viewMeta = computed(() => ({
-  all: { kicker: '事项', title: '全部事项' },
-  week: { kicker: '规划', title: '我的一周' },
-  month: { kicker: '规划', title: '我的一月' },
-  tags: { kicker: '基础设置', title: '标签管理' },
-  about: { kicker: '应用', title: '关于岁岁时光' }
+  all: { title: '全部事项' },
+  week: { title: '我的一周' },
+  month: { title: '我的一月' },
+  tags: { title: '标签管理' },
+  about: { title: '关于岁岁时光' }
 }[currentView.value]))
 
 const visibleTasks = computed(() => tasks.value.filter(item => !item.parentTaskId && (showCompleted.value || item.status !== 'done')))
 const taskGroups = computed(() => tags.value.map(tag => ({ ...tag, tasks: visibleTasks.value.filter(item => item.tagId === tag.id) })))
 const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) => ({ date, day: Number(date.slice(-2)), weekday: weekdayLabels[index] })))
 const monthDays = computed(() => calendarDays(monthAnchor.value))
-const weekLabel = computed(() => `${formatMonth(weekDays.value[0].date)} · ${formatMonth(weekDays.value[6].date)}`)
+const weekLabel = computed(() => formatMonth(weekAnchor.value))
 const monthLabel = computed(() => formatMonth(monthAnchor.value))
 const updateButtonLabel = computed(() => checkingUpdate.value ? '正在检查' : '检查更新')
 const timeSummary = computed(() => taskDraft.scheduleKind === 'all_day' ? (taskDraft.plannedDate || '设置时间') : taskDraft.scheduleKind === 'range' ? `${taskDraft.plannedDate || '未设日期'} ${taskDraft.plannedTime || '--:--'}-${taskDraft.plannedEndTime || '--:--'}` : `${taskDraft.plannedDate || '未设日期'} ${taskDraft.plannedTime || '未设时间'}`)
@@ -273,6 +272,19 @@ function openBrandMenuView(view: 'tags' | 'about') {
 
 function closeBrandMenuOnOutsideClick(event: MouseEvent) {
   if (brandMenu.value && !brandMenu.value.contains(event.target as Node)) brandMenuOpen.value = false
+}
+
+async function resetCurrentDate() {
+  const currentDate = todayString()
+  todayDate.value = currentDate
+  weekAnchor.value = currentDate
+  monthAnchor.value = currentDate
+  try {
+    await refreshData()
+    showNotice('已回到今天')
+  } catch (error) {
+    showNotice(messageOf(error), 'error')
+  }
 }
 
 function openTaskModal(tagId?: string | null, item?: Task, date?: string) {

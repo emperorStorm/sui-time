@@ -56,6 +56,7 @@ input, textarea, select { outline: none; }
 .avatar { display: grid; flex: 0 0 auto; width: 31px; height: 31px; place-items: center; border-radius: 50%; background: #e5f1ff; color: #2d7ddf; font-size: 13px; font-weight: 700; }
 .brand-menu-profile strong, .brand-menu-profile small { display: block; }.brand-menu-profile strong { color: #343c47; font-size: 12px; }.brand-menu-profile small { margin-top: 3px; color: #969faa; font-size: 10px; }
 .brand-menu-list { padding: 5px 0; border-bottom: 1px solid #edf0f3; }.brand-menu-list button, .brand-menu-logout { display: flex; width: 100%; height: 35px; align-items: center; padding: 0 9px; border-radius: 4px; background: transparent; color: #5f6975; gap: 9px; font-size: 12px; text-align: left; }.brand-menu-list button:hover { background: #f1f7ff; color: #287ee1; }.brand-menu-logout { margin-top: 5px; color: #cf5964; }.brand-menu-logout:hover { background: #fff3f4; }
+.sidebar-refresh { flex: 0 0 auto; color: #7d8793; }.sidebar-refresh:hover { background: #edf4fd; color: #287ee1; }
 .sidebar nav { z-index: 1; padding-top: 8px; }
 .nav-group-title { margin: 0 10px 7px; color: #a1a8b2; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }
 .planning-title { margin-top: 22px; }
@@ -106,7 +107,7 @@ input, textarea, select { outline: none; }
 .task-arrow { margin-top: 2px; color: #b6bdc6; }
 .task-check { display: grid; flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; place-items: center; border: 1.5px solid #aab3bf; border-radius: 50%; color: transparent; transition: .16s; }
 .task-check:hover, .task-check.done { border-color: #3185ed; background: #3185ed; color: #fff; }
-.task-card:has(.task-check.done) .task-copy strong, .schedule-card.done, .month-item.done { text-decoration: line-through; opacity: .55; }
+.task-card:has(.task-check.done) .task-copy strong, .schedule-card.done, .month-item.done { opacity: .55; }
 .empty-column { margin: 18px 5px; color: #adb4bc; font-size: 12px; line-height: 1.6; text-align: center; }
 .add-category { align-self: flex-start; display: inline-flex; width: 142px; height: 52px; align-items: center; justify-content: center; border: 1px dashed #b4cde9; border-radius: 6px; background: #f8fbff; color: #3989e8; gap: 7px; font-size: 12px; }
 .add-category:hover { background: #eef6ff; }
@@ -115,15 +116,16 @@ input, textarea, select { outline: none; }
 .period-bar { display: flex; align-items: center; margin-bottom: 15px; gap: 6px; }
 .period-label { min-width: 142px; height: 34px; border-radius: 5px; background: transparent; color: #303842; font-size: 16px; font-weight: 700; }
 .period-label:hover { background: #edf4fd; color: #287ee1; }
+.period-today-button { display: inline-flex; min-height: 34px; align-items: center; padding: 0 10px; border: 1px solid #bfdafa; border-radius: 5px; background: #f1f7ff; color: #287ee1; gap: 6px; font-size: 12px; font-weight: 600; transition: background .16s, border-color .16s, transform .16s; }.period-today-button:hover { border-color: #76aceb; background: #e4f1ff; transform: translateY(-1px); }
 .week-grid { display: grid; min-height: 540px; grid-template-columns: repeat(7, minmax(120px, 1fr)); overflow: hidden; border: 1px solid #e0e5eb; border-radius: 7px; background: #fff; }
 .week-day { min-width: 0; border-right: 1px solid #ecf0f3; background: #fff; }
 .week-day:last-child { border-right: 0; }
 .week-day.today { background: #f9fbff; box-shadow: inset 0 3px #5da0f2; }
-.week-day header { display: flex; height: 60px; align-items: center; justify-content: space-between; padding: 0 9px 0 12px; border-bottom: 1px solid #edf0f3; }
-.week-day header div { display: flex; align-items: baseline; gap: 7px; }
-.week-day header strong { color: #7c8591; font-size: 11px; font-weight: 600; }
-.week-day header span { color: #323943; font-size: 21px; font-weight: 700; }
-.week-day.today header span { color: #2a80e4; }
+.week-day header { display: grid; height: 60px; align-items: center; grid-template-columns: 1fr auto 1fr; padding: 0 9px 0 12px; border-bottom: 1px solid #edf0f3; }
+.week-day-number { justify-self: start; color: #323943; font-size: 21px; font-weight: 700; }
+.week-day header strong { justify-self: center; color: #7c8591; font-size: 11px; font-weight: 600; }
+.week-day header .icon-button { justify-self: end; }
+.week-day.today .week-day-number { color: #2a80e4; }
 .day-task-list { padding: 7px; }
 .schedule-card { display: flex; width: 100%; min-height: 33px; align-items: center; margin-bottom: 5px; padding: 5px 6px; border-radius: 4px; border-left: 3px solid var(--task-color); background: color-mix(in srgb, var(--task-color) 12%, white); color: #34404d; gap: 6px; text-align: left; }
 .schedule-card:hover { background: color-mix(in srgb, var(--task-color) 19%, white); }
