@@ -1,11 +1,13 @@
 <template>
   <div ref="root" class="notification-center">
-    <button class="notification-trigger" type="button" aria-label="通知" title="通知" @click="popoverOpen = !popoverOpen">
+    <button ref="trigger" class="notification-trigger" type="button" aria-label="通知" title="通知" @click="togglePopover">
       <Bell :size="19" />
       <span v-if="unreadCount" class="notification-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
     </button>
+  </div>
 
-    <section v-if="popoverOpen" class="notification-panel" aria-label="通知列表">
+  <Teleport to="body">
+    <section v-if="popoverOpen" ref="panel" class="notification-panel" :style="popoverStyle" aria-label="通知列表">
       <header class="notification-header">
         <div><strong>通知</strong><span>{{ unreadCount ? `${unreadCount} 条未读` : '全部已读' }}</span></div>
         <button class="quiet-button notification-read-all" type="button" :disabled="!unreadCount" @click="markAllAsRead">全部已读</button>
@@ -19,7 +21,7 @@
       </div>
       <p v-else class="notification-empty">暂无通知</p>
     </section>
-  </div>
+  </Teleport>
 
   <div v-if="updateModalOpen && activeNotification" class="modal-backdrop update-modal-backdrop" @mousedown.self="closeUpdateModal">
     <section class="modal-panel update-modal" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
@@ -66,7 +68,10 @@ interface AppNotification {
 }
 
 const root = ref<HTMLElement | null>(null)
+const trigger = ref<HTMLButtonElement | null>(null)
+const panel = ref<HTMLElement | null>(null)
 const popoverOpen = ref(false)
+const popoverStyle = ref<Record<string, string>>({})
 const notifications = ref<AppNotification[]>(loadNotifications())
 const currentAppVersion = ref('')
 const activeNotification = ref<AppNotification | null>(null)
@@ -82,10 +87,14 @@ const activeInstalled = computed(() => Boolean(activeNotification.value && (acti
 
 onMounted(() => {
   document.addEventListener('mousedown', closePopoverOnOutsideClick)
+  window.addEventListener('resize', updatePopoverPosition)
   void initializeNotifications()
 })
 
-onBeforeUnmount(() => document.removeEventListener('mousedown', closePopoverOnOutsideClick))
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', closePopoverOnOutsideClick)
+  window.removeEventListener('resize', updatePopoverPosition)
+})
 
 async function initializeNotifications() {
   try {
@@ -245,7 +254,26 @@ function updateNotifications(mapper: (item: AppNotification) => AppNotification)
 }
 
 function closePopoverOnOutsideClick(event: MouseEvent) {
-  if (root.value && !root.value.contains(event.target as Node)) popoverOpen.value = false
+  const target = event.target as Node
+  if (root.value && !root.value.contains(target) && !panel.value?.contains(target)) popoverOpen.value = false
+}
+
+function togglePopover() {
+  popoverOpen.value = !popoverOpen.value
+  if (popoverOpen.value) updatePopoverPosition()
+}
+
+function updatePopoverPosition() {
+  const rect = trigger.value?.getBoundingClientRect()
+  if (!rect) return
+  const horizontalMargin = 12
+  const panelWidth = Math.min(350, window.innerWidth - horizontalMargin * 2)
+  const left = Math.min(Math.max(horizontalMargin, rect.right - panelWidth), window.innerWidth - panelWidth - horizontalMargin)
+  popoverStyle.value = {
+    top: `${rect.bottom + 9}px`,
+    left: `${left}px`,
+    width: `${panelWidth}px`
+  }
 }
 
 function loadNotifications(): AppNotification[] {
