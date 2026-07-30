@@ -126,8 +126,20 @@ jobs:
           const path = 'release-assets/latest.json';
           const json = JSON.parse(fs.readFileSync(path, 'utf8'));
           const root = `${process.env.OSS_BASE_URL.replace(/\/+$/, '')}/sui-time/releases/${process.env.TAG}`;
-          for (const platform of Object.values(json.platforms || {})) {
-            platform.url = `${root}/${platform.url.split('/').pop()}`;
+          const assetNames = fs.readdirSync('release-assets');
+          const findAsset = (platform) => {
+            const isMac = platform.startsWith('darwin-');
+            const isWindows = platform.startsWith('windows-');
+            const extension = isMac ? '.app.tar.gz' : isWindows ? '.exe' : '';
+            const architecture = platform.includes('aarch64') ? 'aarch64' : platform.includes('x86_64') ? 'x64' : '';
+            const asset = assetNames.find(name => name.endsWith(extension) && name.includes(architecture));
+            if (!asset) {
+              throw new Error(`找不到 ${platform} 对应的更新安装包`);
+            }
+            return asset;
+          };
+          for (const [platformName, platform] of Object.entries(json.platforms || {})) {
+            platform.url = `${root}/${encodeURIComponent(findAsset(platformName))}`;
           }
           fs.writeFileSync(path, JSON.stringify(json, null, 2) + '\n');
           NODE
