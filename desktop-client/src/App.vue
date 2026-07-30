@@ -41,7 +41,7 @@
 
       <section class="workspace">
         <header class="topbar">
-          <div><h1>{{ viewMeta.title }}</h1></div>
+          <div class="topbar-title"><p>{{ viewMeta.subtitle }}</p><h1>{{ viewMeta.title }}</h1></div>
           <div class="topbar-actions">
             <template v-if="currentView !== 'tags' && currentView !== 'about'">
               <button class="text-icon-button" @click="showCompleted = !showCompleted"><component :is="showCompleted ? EyeOff : Eye" :size="17" />{{ showCompleted ? '隐藏已完成' : '显示已完成' }}</button>
@@ -138,7 +138,7 @@ import type { BootState, Priority, RepeatRule, ScheduleKind, Tag, Task, TaskInpu
 type View = 'all' | 'week' | 'month' | 'tags' | 'about'
 type Notice = { text: string; type: 'success' | 'error' }
 
-const colors = ['#4D82D5', '#13A66A', '#E97B47', '#B16FC8', '#C79B31', '#D2546D']
+const colors = ['#6C9E7E', '#7598A6', '#E69A62', '#BC7C93', '#B79B52', '#639D98']
 const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const booting = ref(true)
 const bootState = ref<BootState | null>(null)
@@ -192,11 +192,11 @@ const repeatDraft = reactive<RepeatRule>({ kind: 'none', interval: 1, endMode: '
 const editingOccurrence = ref<{ source: Task; date: string } | null>(null)
 
 const viewMeta = computed(() => ({
-  all: { title: '全部事项' },
-  week: { title: '我的一周' },
-  month: { title: '我的一月' },
-  tags: { title: '标签管理' },
-  about: { title: '关于岁岁时光' }
+  all: { title: '全部事项', subtitle: 'TODAY, TAKE IT GENTLY' },
+  week: { title: '我的一周', subtitle: 'A WEEK AT A GLANCE' },
+  month: { title: '我的一月', subtitle: 'MAKE ROOM FOR WHAT MATTERS' },
+  tags: { title: '标签管理', subtitle: 'COLOR YOUR EVERYDAY' },
+  about: { title: '关于岁岁时光', subtitle: 'YOUR LOCAL TIMEBOOK' }
 }[currentView.value]))
 
 const visibleTasks = computed(() => tasks.value.filter(item => !item.parentTaskId && (showCompleted.value || item.status !== 'done')))
