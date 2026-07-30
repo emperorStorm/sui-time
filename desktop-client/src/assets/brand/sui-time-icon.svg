@@ -1,14 +1,57 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">岁岁时光图标</title>
-  <desc id="desc">浅色圆角底座上的时钟与待办勾选标识</desc>
-  <rect width="1024" height="1024" rx="218" fill="#F2F8F0"/>
-  <rect x="56" y="56" width="912" height="912" rx="178" fill="none" stroke="#D5E7D8" stroke-width="28"/>
-  <circle cx="512" cy="472" r="278" fill="#FDFEFC" stroke="#6C9E7E" stroke-width="46"/>
-  <path d="M512 294v183l121 74" fill="none" stroke="#355E49" stroke-width="39" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M322 435a196 196 0 0 1 95-128" fill="none" stroke="#9FC9AD" stroke-width="34" stroke-linecap="round"/>
-  <circle cx="704" cy="284" r="39" fill="#E9A16A"/>
-  <rect x="262" y="622" width="500" height="172" rx="62" fill="#FFFFFF" stroke="#D5E7D8" stroke-width="26"/>
-  <circle cx="356" cy="708" r="49" fill="#5F9774"/>
-  <path d="m330 709 19 19 36-42" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M455 680h202M455 736h128" stroke="#779184" stroke-width="25" stroke-linecap="round"/>
+  <desc id="desc">浅绿背景上的立体半透明绿玉沙漏与悬浮内芯</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fbfdfb"/>
+      <stop offset="1" stop-color="#d9e8dd"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffffff" stop-opacity=".78"/>
+      <stop offset=".24" stop-color="#ddf3e3" stop-opacity=".40"/>
+      <stop offset=".62" stop-color="#6cab80" stop-opacity=".20"/>
+      <stop offset="1" stop-color="#315f4b" stop-opacity=".50"/>
+    </linearGradient>
+    <radialGradient id="core">
+      <stop stop-color="#effff3"/>
+      <stop offset=".27" stop-color="#b9ebc7"/>
+      <stop offset=".70" stop-color="#5da778"/>
+      <stop offset="1" stop-color="#2c614b"/>
+    </radialGradient>
+    <filter id="tile-shadow" x="-30%" y="-30%" width="160%" height="185%">
+      <feDropShadow dx="0" dy="24" stdDeviation="18" flood-color="#315544" flood-opacity=".18"/>
+    </filter>
+    <filter id="object-shadow" x="-45%" y="-40%" width="190%" height="190%">
+      <feDropShadow dx="7" dy="16" stdDeviation="10" flood-color="#183d2f" flood-opacity=".29"/>
+    </filter>
+    <filter id="ground-blur" x="-40%" y="-300%" width="180%" height="700%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <filter id="core-glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g transform="scale(3.10303)">
+    <rect width="330" height="330" rx="82" fill="url(#tile)" filter="url(#tile-shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="70" fill="#fff" fill-opacity=".58"/>
+    <circle cx="176" cy="154" r="112" fill="#d9ede0" fill-opacity=".72"/>
+    <circle cx="164" cy="145" r="99" fill="#eff8f1" fill-opacity=".72"/>
+    <ellipse cx="165" cy="269" rx="113" ry="18" fill="#285b45" fill-opacity=".27" filter="url(#ground-blur)"/>
+    <g transform="translate(165 157)" filter="url(#object-shadow)">
+      <path d="M-115-111H114L42-8l72 108H-115L-42-8z" fill="#245940" fill-opacity=".74" transform="translate(23 18)"/>
+      <path d="M-115-111H114L42-8l72 108H-115L-42-8z" fill="#edfff1" fill-opacity=".33" stroke="#80bd94" stroke-opacity=".92" stroke-width="8"/>
+      <path d="M-101-98H99L32-8l67 95H-101l67-95z" fill="url(#glass)" fill-opacity=".52"/>
+      <path d="M-115-111H114L99-86H-99z" fill="#4f9270"/>
+      <path d="M-115 100H114L99 124H-99z" fill="#3a7659"/>
+      <path d="M-43-8h86L17 23h-34z" fill="#f5fff6" fill-opacity=".75"/>
+      <circle r="51" fill="#b5e4c2" fill-opacity=".47" filter="url(#core-glow)"/>
+      <circle r="36" fill="url(#core)"/>
+      <path d="M-13-25c18-15 39-7 44 8-13-8-26-4-37 10z" fill="#f7fff8" fill-opacity=".94"/>
+      <path d="M-83-87-36-19-86 68" stroke="#fff" stroke-opacity=".68" stroke-width="9" stroke-linecap="round" fill="none"/>
+      <path d="M70-74 105-108 38-8l68 108" stroke="#214e3b" stroke-opacity=".62" stroke-width="15" fill="none"/>
+      <path d="M-83-98H52" stroke="#f7fff8" stroke-opacity=".72" stroke-width="8" stroke-linecap="round"/>
+    </g>
+    <circle cx="270" cy="59" r="13" fill="#76af88"/>
+  </g>
 </svg>
