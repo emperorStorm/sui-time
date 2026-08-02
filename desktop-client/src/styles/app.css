@@ -375,6 +375,18 @@ body, .app-shell, .workspace, .loading-screen { background: var(--garden-canvas)
 .notice { border-radius: 8px; box-shadow: 0 14px 30px rgba(39, 69, 50, .2); }
 .notice.success { background: var(--garden-primary); }
 
+/* 任务编辑在有限窗口高度内滚动，操作区保持可见。 */
+.task-modal { display: flex; max-height: min(720px, calc(100dvh - 32px)); flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.task-modal > header, .task-modal > .task-meta-list, .task-modal > .subtask-section, .task-modal > .notes-editor, .task-modal > footer { flex: 0 0 auto; }
+.task-modal > footer { position: sticky; z-index: 3; bottom: -22px; margin-top: 14px; padding: 13px 0 4px; border-top: 1px solid #e6eee8; background: var(--garden-surface); box-shadow: 0 -8px 14px rgba(252, 253, 251, .92); }
+.subtask-section { padding: 14px 0 10px; }
+.subtask-list { max-height: min(196px, 27dvh); overflow-y: auto; padding-right: 3px; }
+.subtask-row { min-height: 38px; }
+.subtask-row .task-check { width: 21px; height: 21px; border: 1.5px solid var(--subtask-color, var(--garden-primary)); background: transparent; color: transparent; }
+.subtask-row .task-check:hover, .subtask-row .task-check.done { border-color: var(--subtask-color, var(--garden-primary)); background: var(--subtask-color, var(--garden-primary)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--subtask-color, var(--garden-primary)) 14%, transparent); color: #fff; }
+.notes-editor { padding-top: 14px; }
+.notes-editor textarea { min-height: 92px; max-height: min(136px, 18dvh); }
+
 @media (max-width: 980px) {
   .sidebar { width: 198px; }
   .workspace { left: 198px; }
@@ -389,4 +401,7 @@ body, .app-shell, .workspace, .loading-screen { background: var(--garden-canvas)
   .topbar h1 { font-size: 22px; }
   .toolbar, .board-scroll, .plan-page, .settings-page { padding-left: 16px; padding-right: 16px; }
   .settings-block { padding: 19px; }
+  .task-modal { max-height: calc(100dvh - 24px); padding: 20px; }
+  .task-modal > footer { bottom: -20px; }
+  .subtask-list { max-height: min(176px, 25dvh); }
 }
