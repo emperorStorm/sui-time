@@ -31,7 +31,7 @@
       </header>
       <dl class="update-version-list"><div><dt>当前版本</dt><dd>v{{ activeNotification.updateInfo.currentVersion }}</dd></div><div><dt>最新版本</dt><dd>v{{ activeNotification.updateInfo.latestVersion }}</dd></div></dl>
       <p v-if="activeInstalled" class="update-installed-tip">当前客户端已更新到该版本，无需重复更新。</p>
-      <section class="update-notes"><strong>更新内容</strong><pre>{{ activeNotification.updateInfo.body }}</pre></section>
+      <section class="update-notes"><strong>更新内容</strong><div class="update-notes-content" v-html="activeUpdateNotes" /></section>
       <section v-if="installing || installError" class="update-install-state" :class="{ error: installError }"><div><span>{{ installError || installStatus }}</span><strong v-if="installing">{{ installProgress }}%</strong></div><div v-if="installing" class="update-progress-track"><span :style="{ width: `${installProgress}%` }" /></div></section>
       <footer><span></span><button class="quiet-button" type="button" :disabled="installing" @click="closeUpdateModal">{{ activeInstalled ? '关闭' : '暂不更新' }}</button><button class="primary-button" type="button" :disabled="activeInstalled || installing" @click="installActiveUpdate"><RefreshCw v-if="installing" class="spinning" :size="16" /><Download v-else :size="16" />{{ installing ? '正在更新' : '立即更新' }}</button></footer>
     </section>
@@ -40,9 +40,11 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import DOMPurify from 'dompurify'
 import { Bell, Download, RefreshCw, X } from 'lucide-vue-next'
-import { checkAppUpdate, currentVersion, formatUpdateError, installAppUpdate, isTauriRuntime } from '../api/native'
-import type { UpdateCheckResult } from '../api/native'
+import { marked } from 'marked'
+import { checkAppUpdate, currentVersion, formatUpdateError, getUpdateCommits, installAppUpdate, isTauriRuntime } from '../api/native'
+import type { UpdateCheckResult, UpdateCommit } from '../api/native'
 
 const STORAGE_KEY = 'sui-time:notifications'
 const UPDATE_NOTIFICATION_PREFIX = 'app-update:'
@@ -84,6 +86,7 @@ const updateCache = new Map<string, AvailableUpdate>()
 let updateCheckPromise: Promise<UpdateCheckResult> | null = null
 const unreadCount = computed(() => notifications.value.filter(item => !item.read).length)
 const activeInstalled = computed(() => Boolean(activeNotification.value && (activeNotification.value.updateInfo.installed || isVersionInstalled(currentAppVersion.value || activeNotification.value.updateInfo.currentVersion, activeNotification.value.updateInfo.latestVersion))))
+const activeUpdateNotes = computed(() => renderMarkdown(activeNotification.value?.updateInfo.body || '本次更新暂无详细说明。'))
 
 onMounted(() => {
   document.addEventListener('mousedown', closePopoverOnOutsideClick)
@@ -135,10 +138,28 @@ async function performUpdateCheck(): Promise<UpdateCheckResult> {
   upsertUpdateNotification(id, {
     currentVersion: result.currentVersion,
     latestVersion: result.update.version,
-    body: result.update.body || '本次更新暂无详细说明。',
+    body: await loadUpdateNotes(result.currentVersion, result.update.version, result.update.body),
     checkedAt: new Date().toISOString()
   })
   return result
+}
+
+async function loadUpdateNotes(currentVersion: string, latestVersion: string, releaseNotes?: string | null) {
+  try {
+    const commits = await getUpdateCommits(currentVersion, latestVersion)
+    if (commits.length) return formatCommitNotes(commits)
+  } catch {
+    // GitHub 接口不可用时仍保留更新包自身携带的说明。
+  }
+  return releaseNotes?.trim() || '暂未获取到 GitHub 提交记录，请稍后重新检查更新。'
+}
+
+function formatCommitNotes(commits: UpdateCommit[]) {
+  return commits.map(commit => `### ${commit.sha.slice(0, 7)}\n\n${commit.message}\n\n[查看此提交](${commit.url})`).join('\n\n---\n\n')
+}
+
+function renderMarkdown(value: string) {
+  return DOMPurify.sanitize(marked.parse(value, { breaks: true, gfm: true }) as string)
 }
 
 function upsertUpdateNotification(id: string, updateInfo: UpdateNotificationPayload) {

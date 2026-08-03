@@ -3,12 +3,15 @@ import { getVersion } from '@tauri-apps/api/app'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
-import type { BootState, Tag, TagInput, Task, TaskInput, TaskQuery, UserSession } from '../types'
+import type { BootState, Category, CategoryInput, Task, TaskInput, TaskQuery, UserSession } from '../types'
 
-const demoTags: Tag[] = [
-  { id: 'work', name: '工作', color: '#4D82D5', sortOrder: 1 },
-  { id: 'growth', name: '成长', color: '#13A66A', sortOrder: 2 },
-  { id: 'life', name: '生活', color: '#EE7B48', sortOrder: 3 }
+const GITHUB_REPOSITORY = 'emperorStorm/sui-time'
+const GITHUB_REQUEST_TIMEOUT = 8000
+
+const demoCategories: Category[] = [
+  { id: 'work', name: '工作', color: '#4D82D5', icon: 'briefcase-business', sortOrder: 1 },
+  { id: 'growth', name: '成长', color: '#13A66A', icon: 'book-open', sortOrder: 2 },
+  { id: 'life', name: '生活', color: '#EE7B48', icon: 'house', sortOrder: 3 }
 ]
 
 let demoTasks: Task[] = [
@@ -19,10 +22,10 @@ let demoTasks: Task[] = [
   task('写一封感谢信', null, null, null, '')
 ]
 
-function task(title: string, tagId: string | null, plannedDate: string | null, plannedTime: string | null, notes: string): Task {
-  const tag = demoTags.find(item => item.id === tagId)
+function task(title: string, categoryId: string | null, plannedDate: string | null, plannedTime: string | null, notes: string): Task {
+  const category = demoCategories.find(item => item.id === categoryId)
   const now = Date.now()
-  return { id: crypto.randomUUID(), title, tagId, tagName: tag?.name ?? null, tagColor: tag?.color ?? null, plannedDate, plannedTime, plannedEndTime: null, scheduleKind: plannedTime ? 'point' : 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes, status: 'todo', createdAt: now, completedAt: null, updatedAt: now }
+  return { id: crypto.randomUUID(), title, categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate, plannedTime, plannedEndTime: null, scheduleKind: plannedTime ? 'point' : 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes, status: 'todo', createdAt: now, completedAt: null, updatedAt: now }
 }
 
 function today() {
@@ -68,26 +71,26 @@ export async function logoutUser() {
   if (isTauriRuntime()) await invoke('logout_user')
 }
 
-export async function listTags(): Promise<Tag[]> {
-  if (isTauriRuntime()) return invoke('list_user_tags')
-  return [...demoTags]
+export async function listCategories(): Promise<Category[]> {
+  if (isTauriRuntime()) return invoke('list_user_categories')
+  return [...demoCategories]
 }
 
-export async function saveTag(input: TagInput): Promise<Tag> {
-  if (isTauriRuntime()) return invoke('save_user_tag', { input })
+export async function saveCategory(input: CategoryInput): Promise<Category> {
+  if (isTauriRuntime()) return invoke('save_user_category', { input })
   const id = input.id || crypto.randomUUID()
-  const tag = { ...input, id }
-  const index = demoTags.findIndex(item => item.id === id)
-  if (index >= 0) demoTags.splice(index, 1, tag)
-  else demoTags.push(tag)
-  return tag
+  const category = { ...input, id }
+  const index = demoCategories.findIndex(item => item.id === id)
+  if (index >= 0) demoCategories.splice(index, 1, category)
+  else demoCategories.push(category)
+  return category
 }
 
-export async function removeTag(tagId: string) {
-  if (isTauriRuntime()) return invoke<void>('remove_user_tag', { tagId })
-  demoTasks = demoTasks.map(item => item.tagId === tagId ? { ...item, tagId: null, tagName: null, tagColor: null } : item)
-  const index = demoTags.findIndex(item => item.id === tagId)
-  if (index >= 0) demoTags.splice(index, 1)
+export async function removeCategory(categoryId: string) {
+  if (isTauriRuntime()) return invoke<void>('remove_user_category', { categoryId })
+  demoTasks = demoTasks.map(item => item.categoryId === categoryId ? { ...item, categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null } : item)
+  const index = demoCategories.findIndex(item => item.id === categoryId)
+  if (index >= 0) demoCategories.splice(index, 1)
 }
 
 export async function listTasks(query: TaskQuery): Promise<Task[]> {
@@ -104,10 +107,10 @@ export async function listTasks(query: TaskQuery): Promise<Task[]> {
 
 export async function saveTask(input: TaskInput): Promise<Task> {
   if (isTauriRuntime()) return invoke('save_user_task', { input })
-  const tag = demoTags.find(item => item.id === input.tagId)
+  const category = demoCategories.find(item => item.id === input.categoryId)
   const now = Date.now()
   const existing = input.id ? demoTasks.find(item => item.id === input.id) : undefined
-  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, tagId: input.tagId, tagName: tag?.name ?? null, tagColor: tag?.color ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, parentTaskId: input.parentTaskId, notes: input.notes, status: existing?.status || 'todo', createdAt: existing?.createdAt || now, completedAt: existing?.completedAt || null, updatedAt: now }
+  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, parentTaskId: input.parentTaskId, notes: input.notes, status: existing?.status || 'todo', createdAt: existing?.createdAt || now, completedAt: existing?.completedAt || null, updatedAt: now }
   if (existing) demoTasks = demoTasks.map(item => item.id === result.id ? result : item)
   else demoTasks.push(result)
   return result
@@ -146,6 +149,22 @@ export interface UpdateCheckResult {
   update?: Update
 }
 
+interface GitHubCompareResponse {
+  commits?: Array<{
+    sha?: string
+    html_url?: string
+    commit?: {
+      message?: string
+    }
+  }>
+}
+
+export interface UpdateCommit {
+  sha: string
+  message: string
+  url: string
+}
+
 export function formatUpdateError(error: unknown) {
   const text = String(error).replace(/^Error:\s*/, '')
   if (text.includes('error sending request') || text.includes('timed out') || text.includes('timeout')) {
@@ -161,6 +180,38 @@ export async function checkAppUpdate(): Promise<UpdateCheckResult> {
     currentVersion: update?.currentVersion || await currentVersion(),
     update: update || undefined
   }
+}
+
+export async function getUpdateCommits(currentVersion: string, latestVersion: string): Promise<UpdateCommit[]> {
+  const currentTag = toReleaseTag(currentVersion)
+  const latestTag = toReleaseTag(latestVersion)
+  if (currentTag === latestTag) return []
+
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), GITHUB_REQUEST_TIMEOUT)
+  try {
+    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/compare/${encodeURIComponent(currentTag)}...${encodeURIComponent(latestTag)}`, {
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: controller.signal
+    })
+    if (!response.ok) throw new Error(`GitHub 提交记录请求失败（${response.status}）`)
+    const data = await response.json() as GitHubCompareResponse
+    return (data.commits || []).flatMap(commit => {
+      const sha = commit.sha?.trim()
+      const message = commit.commit?.message?.trim()
+      if (!sha || !message) return []
+      return [{ sha, message, url: commit.html_url || `https://github.com/${GITHUB_REPOSITORY}/commit/${sha}` }]
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw new Error('GitHub 提交记录请求超时')
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+function toReleaseTag(version: string) {
+  return `v${version.trim().replace(/^v/i, '')}`
 }
 
 export async function installAppUpdate(update: Update, onEvent: (event: DownloadEvent) => void) {

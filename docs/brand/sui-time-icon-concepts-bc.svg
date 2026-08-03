@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="620" viewBox="0 0 1920 620" role="img" aria-labelledby="title description">
+  <title id="title">岁岁时光 B C 方向扩展</title>
+  <desc id="description">基于时间轨道和晨雾沙漏的四个清新抽象三维图标方案。</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f7fbf9"/><stop offset="1" stop-color="#edf5f3"/></linearGradient>
+    <linearGradient id="mint-tile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fcfffe"/><stop offset="1" stop-color="#dcefe9"/></linearGradient>
+    <linearGradient id="blue-tile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fcfdff"/><stop offset="1" stop-color="#e1eafb"/></linearGradient>
+    <linearGradient id="lilac-tile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fefcff"/><stop offset="1" stop-color="#ece6f8"/></linearGradient>
+    <linearGradient id="pearl-tile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fffffd"/><stop offset="1" stop-color="#f2ece0"/></linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#a5eee1"/><stop offset=".52" stop-color="#45b6aa"/><stop offset="1" stop-color="#177c7c"/></linearGradient>
+    <linearGradient id="ocean" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b6e9ff"/><stop offset=".48" stop-color="#5eabea"/><stop offset="1" stop-color="#3866c4"/></linearGradient>
+    <linearGradient id="navy" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#5182d7"/><stop offset="1" stop-color="#243d91"/></linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e2d3ff"/><stop offset=".52" stop-color="#a276e6"/><stop offset="1" stop-color="#6548b2"/></linearGradient>
+    <linearGradient id="rose" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffd5d7"/><stop offset=".5" stop-color="#e98ea2"/><stop offset="1" stop-color="#b65b82"/></linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff4b9"/><stop offset=".55" stop-color="#f4be64"/><stop offset="1" stop-color="#ce7d47"/></linearGradient>
+    <filter id="tile-shadow" x="-35%" y="-35%" width="170%" height="190%"><feDropShadow dx="0" dy="22" stdDeviation="18" flood-color="#25463d" flood-opacity=".18"/></filter>
+    <filter id="object-shadow" x="-35%" y="-35%" width="170%" height="190%"><feDropShadow dx="0" dy="11" stdDeviation="9" flood-color="#183c36" flood-opacity=".23"/></filter>
+  </defs>
+  <rect width="1920" height="620" fill="url(#page)"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif">
+    <text x="90" y="88" font-size="37" font-weight="700" fill="#29413a">岁岁时光 · B/C 方向扩展</text>
+    <text x="90" y="129" font-size="22" fill="#6c8179">保留时间的流动与容器感，分别探索环绕、节律、流砂与折面。</text>
+  </g>
+
+  <!-- B1: tidal loops -->
+  <g transform="translate(90 180)">
+    <rect width="330" height="330" rx="82" fill="url(#mint-tile)" filter="url(#tile-shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="70" fill="#fff" fill-opacity=".64"/>
+    <g transform="translate(165 165) rotate(-24)" filter="url(#object-shadow)">
+      <path d="M-112 8c13-86 135-111 200-46 41 41 36 98-5 129l-32-41c23-19 22-50 1-71-37-37-106-20-115 29z" fill="url(#teal)"/>
+      <path d="M-62 79c-50-35-57-100-13-145l35 38c-25 26-20 64 8 83 24 17 57 11 74-12l44 28c-32 53-98 54-148 8z" fill="url(#ocean)"/>
+      <path d="M-70-62c40-37 104-32 141 10l-39 34c-22-25-57-27-81-5z" fill="#a7e8e0"/>
+    </g>
+    <circle cx="165" cy="165" r="20" fill="#fff"/>
+    <circle cx="165" cy="165" r="10" fill="#245fae"/>
+    <circle cx="272" cy="61" r="13" fill="#f6b46c"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#29413a">B1. 潮汐双环</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#72837d">更柔和，适合日常陪伴感</text>
+  </g>
+
+  <!-- B2: loop compass -->
+  <g transform="translate(540 180)">
+    <rect width="330" height="330" rx="82" fill="url(#blue-tile)" filter="url(#tile-shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="70" fill="#fff" fill-opacity=".64"/>
+    <g transform="translate(165 164)" filter="url(#object-shadow)">
+      <circle r="98" fill="none" stroke="#d7e9fd" stroke-width="38"/>
+      <path d="M0-117a117 117 0 0 1 113 148l-40-14A75 75 0 0 0 0-75z" fill="url(#ocean)"/>
+      <path d="M114 31A117 117 0 0 1-75 102l15-39a75 75 0 0 0 120-46z" fill="url(#navy)"/>
+      <path d="M-75 102A117 117 0 0 1-101-76l38 16a75 75 0 0 0 48 120z" fill="#78c9e7"/>
+      <path d="M-101-76A117 117 0 0 1 0-117v42a75 75 0 0 0-61 45z" fill="#9bd6fb"/>
+      <path d="M0-57 38 0 0 57-38 0z" fill="#fff"/>
+      <path d="M0-57 38 0H0z" fill="#4e8cdd"/>
+      <path d="M0 57-38 0H0z" fill="#26479b"/>
+    </g>
+    <circle cx="60" cy="69" r="12" fill="#7ed8cd"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#29413a">B2. 回环罗盘</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#72837d">更秩序，具效率工具感</text>
+  </g>
+
+  <!-- C1: flowing sand vessel -->
+  <g transform="translate(990 180)">
+    <rect width="330" height="330" rx="82" fill="url(#lilac-tile)" filter="url(#tile-shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="70" fill="#fff" fill-opacity=".65"/>
+    <g transform="translate(165 160)" filter="url(#object-shadow)">
+      <path d="M-84-98H84L54-52c-18 28-18 48 0 76l30 46H-84l30-46c18-28 18-48 0-76z" fill="url(#violet)"/>
+      <path d="M-84-98H84L54-52H-54z" fill="#f5edff" fill-opacity=".88"/>
+      <path d="M-54 24h108L84 70H-84z" fill="url(#rose)"/>
+      <path d="M-38-50h76L0 10z" fill="#c5b4ef"/>
+      <path d="m-60 48 60-38 60 38z" fill="#fff1f3" fill-opacity=".75"/>
+      <rect x="-107" y="-119" width="214" height="28" rx="14" fill="#8364c8"/>
+      <rect x="-107" y="63" width="214" height="28" rx="14" fill="#6c4da9"/>
+    </g>
+    <circle cx="270" cy="68" r="13" fill="#e997ae"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#29413a">C1. 流砂容器</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#72837d">更梦幻，带有治愈与收藏感</text>
+  </g>
+
+  <!-- C2: folded hourglass -->
+  <g transform="translate(1440 180)">
+    <rect width="330" height="330" rx="82" fill="url(#pearl-tile)" filter="url(#tile-shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="70" fill="#fff" fill-opacity=".65"/>
+    <g transform="translate(165 164)" filter="url(#object-shadow)">
+      <path d="M-89-108H89L27-14l62 94H-89l62-94z" fill="url(#amber)"/>
+      <path d="M-89-108H89L27-14h-54z" fill="#fff4c9"/>
+      <path d="M-27-14h54L89 80H35z" fill="#d37a54"/>
+      <path d="M-89 80-27-14h54L-35 80z" fill="#f19c60"/>
+      <path d="M-46-65h92L0-14z" fill="#fff9e3" fill-opacity=".93"/>
+      <path d="m-46 37 46-51 46 51z" fill="#a45667"/>
+      <rect x="-112" y="-129" width="224" height="26" rx="13" fill="#e5a355"/>
+      <rect x="-112" y="69" width="224" height="26" rx="13" fill="#c56e51"/>
+    </g>
+    <circle cx="66" cy="68" r="13" fill="#8ad3cc"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#29413a">C2. 折叠沙漏</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#72837d">更成熟，稳定且具有应用感</text>
+  </g>
+</svg>

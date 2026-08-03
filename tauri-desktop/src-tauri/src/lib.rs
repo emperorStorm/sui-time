@@ -2,11 +2,13 @@ mod db;
 mod models;
 
 use db::{
-    active_user, backup_app_data, create_initial_account, delete_tag, delete_task, list_tags,
-    list_tasks, login, logout, needs_setup, open_app_db, reschedule_task, restore_app_data,
-    save_tag, save_task, toggle_task,
+    active_user, backup_app_data, create_initial_account, delete_category, delete_task,
+    list_categories, list_tasks, login, logout, needs_setup, open_app_db, reschedule_overdue_tasks,
+    reschedule_task, restore_app_data, save_category, save_task, today_string, toggle_task,
 };
-use models::{AccountInput, BootState, Tag, TagInput, Task, TaskInput, TaskQuery, UserSession};
+use models::{
+    AccountInput, BootState, Category, CategoryInput, Task, TaskInput, TaskQuery, UserSession,
+};
 
 #[tauri::command]
 fn get_boot_state(app: tauri::AppHandle) -> Result<BootState, String> {
@@ -33,27 +35,29 @@ fn logout_user(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn list_user_tags(app: tauri::AppHandle) -> Result<Vec<Tag>, String> {
+fn list_user_categories(app: tauri::AppHandle) -> Result<Vec<Category>, String> {
     let conn = open_app_db(&app)?;
-    list_tags(&conn, &require_user_id(&conn)?)
+    list_categories(&conn, &require_user_id(&conn)?)
 }
 
 #[tauri::command]
-fn save_user_tag(app: tauri::AppHandle, input: TagInput) -> Result<Tag, String> {
+fn save_user_category(app: tauri::AppHandle, input: CategoryInput) -> Result<Category, String> {
     let conn = open_app_db(&app)?;
-    save_tag(&conn, &require_user_id(&conn)?, input)
+    save_category(&conn, &require_user_id(&conn)?, input)
 }
 
 #[tauri::command]
-fn remove_user_tag(app: tauri::AppHandle, tag_id: String) -> Result<(), String> {
+fn remove_user_category(app: tauri::AppHandle, category_id: String) -> Result<(), String> {
     let conn = open_app_db(&app)?;
-    delete_tag(&conn, &require_user_id(&conn)?, &tag_id)
+    delete_category(&conn, &require_user_id(&conn)?, &category_id)
 }
 
 #[tauri::command]
 fn list_user_tasks(app: tauri::AppHandle, query: TaskQuery) -> Result<Vec<Task>, String> {
     let conn = open_app_db(&app)?;
-    let mut tasks = list_tasks(&conn, &require_user_id(&conn)?)?;
+    let owner_id = require_user_id(&conn)?;
+    reschedule_overdue_tasks(&conn, &owner_id, &today_string())?;
+    let mut tasks = list_tasks(&conn, &owner_id)?;
     let search = query.search.unwrap_or_default().trim().to_lowercase();
     tasks.retain(|task| {
         let matches_status = query.include_completed || task.status != "done";
@@ -137,9 +141,9 @@ pub fn run() {
             create_account,
             login_user,
             logout_user,
-            list_user_tags,
-            save_user_tag,
-            remove_user_tag,
+            list_user_categories,
+            save_user_category,
+            remove_user_category,
             list_user_tasks,
             save_user_task,
             remove_user_task,

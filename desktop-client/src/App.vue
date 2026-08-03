@@ -1,5 +1,5 @@
 <template>
-  <main class="app-shell">
+  <main class="app-shell" data-sidebar-skin="morning-garden">
     <section v-if="booting" class="loading-screen"><span class="loading-mark"></span><p>正在打开岁岁时光</p></section>
 
     <section v-else-if="!session" class="auth-screen">
@@ -20,10 +20,10 @@
           <button class="brand-menu-trigger" type="button" :aria-expanded="brandMenuOpen" title="账户与应用设置" @click="brandMenuOpen = !brandMenuOpen"><img src="./assets/brand/sui-time-icon.svg" alt="" /></button>
           <span class="sidebar-brand-title">岁岁时光</span>
           <AppNotificationCenter ref="notificationCenter" />
-          <button class="icon-button sidebar-refresh" type="button" title="回到今天并刷新数据" @click="resetCurrentDate"><RefreshCw :size="16" /></button>
+          <button class="icon-button sidebar-refresh" type="button" title="回到今天并刷新数据" @click="resetCurrentDate()"><RefreshCw :size="16" /></button>
           <section v-if="brandMenuOpen" class="brand-menu" aria-label="账户与应用设置">
             <div class="brand-menu-profile"><span class="avatar">{{ session.displayName.slice(0, 1) }}</span><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div></div>
-            <div class="brand-menu-list"><button type="button" @click="openBrandMenuView('tags')"><Tags :size="16" />标签管理</button><button type="button" @click="openBrandMenuView('about')"><Info :size="16" />关于岁岁时光</button></div>
+            <div class="brand-menu-list"><button type="button" @click="openBrandMenuView('categories')"><CategoryIcon :size="16" />分类管理</button><button type="button" @click="openBrandMenuView('about')"><Info :size="16" />关于岁岁时光</button></div>
             <button class="brand-menu-logout" type="button" @click="handleLogout"><LogOut :size="16" />退出登录</button>
           </section>
         </div>
@@ -34,16 +34,16 @@
           <button :class="['nav-item', { active: currentView === 'week' }]" @click="currentView = 'week'"><CalendarDays :size="18" />我的一周</button>
           <button :class="['nav-item', { active: currentView === 'month' }]" @click="currentView = 'month'"><CalendarRange :size="18" />我的一月</button>
           <p class="nav-group-title planning-title">基础设置</p>
-          <button :class="['nav-item', { active: currentView === 'tags' }]" @click="currentView = 'tags'"><Tags :size="18" />标签管理</button>
+          <button :class="['nav-item', { active: currentView === 'categories' }]" @click="currentView = 'categories'"><CategoryIcon :size="18" />分类管理</button>
         </nav>
         <div class="sidebar-foot"><span></span><small>Local-first · v{{ version }}</small></div>
       </aside>
 
       <section class="workspace">
         <header class="topbar">
-          <div class="topbar-title"><p>{{ viewMeta.subtitle }}</p><h1>{{ viewMeta.title }}</h1></div>
+          <div class="topbar-title"><p v-if="viewMeta.subtitle">{{ viewMeta.subtitle }}</p><h1>{{ viewMeta.title }}</h1></div>
           <div class="topbar-actions">
-            <template v-if="currentView !== 'tags' && currentView !== 'about'">
+            <template v-if="currentView !== 'categories' && currentView !== 'about'">
               <button class="text-icon-button" @click="showCompleted = !showCompleted"><component :is="showCompleted ? EyeOff : Eye" :size="17" />{{ showCompleted ? '隐藏已完成' : '显示已完成' }}</button>
             </template>
           </div>
@@ -69,36 +69,36 @@
                   <p v-if="!group.tasks.length" class="empty-column">拖入事项，或点击上方加号</p>
                 </div>
               </section>
-              <button class="add-category" @click="openTagModal()"><Plus :size="18" />添加标签</button>
+              <button class="add-category" @click="openCategoryModal()"><Plus :size="18" />添加分类</button>
             </div>
           </div>
         </section>
 
         <section v-else-if="currentView === 'week'" class="page plan-page">
-          <div class="period-bar"><button class="icon-button bordered" title="上一周" @click="moveWeek(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate">{{ weekLabel }}</button><button class="icon-button bordered" title="下一周" @click="moveWeek(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate"><CalendarDays :size="15" />回到本周</button></div>
+          <div class="period-bar"><button class="icon-button bordered" title="上一周" @click="moveWeek(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ weekLabel }}</button><button class="icon-button bordered" title="下一周" @click="moveWeek(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate(false)"><CalendarDays :size="15" />回到本周</button></div>
           <div class="week-grid">
             <section v-for="day in weekDays" :key="day.date" :class="['week-day', { today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
               <header><span class="week-day-number">{{ day.day }}</span><strong>{{ day.weekday }}</strong><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="17" /></button></header>
-              <div class="day-task-list"><button v-for="item in tasksForDate(day.date)" :key="item.id" :class="['schedule-card', { done: item.status === 'done' }]" :style="{ '--task-color': item.tagColor || '#7b8794' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><span :class="['task-check', { done: item.status === 'done' }]" @click.stop="toggleItem(item)"><Check :size="12" /></span><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button></div>
+              <div class="day-task-list"><button v-for="item in tasksForDate(day.date)" :key="item.id" :class="['schedule-card', { done: item.status === 'done' }]" :style="{ '--task-color': item.categoryColor || '#7b8794' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><span :class="['task-check', { done: item.status === 'done' }]" @click.stop="toggleItem(item)"><Check :size="12" /></span><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button></div>
             </section>
           </div>
         </section>
 
         <section v-else-if="currentView === 'month'" class="page plan-page">
-          <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate"><CalendarRange :size="15" />回到本月</button></div>
+          <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate()"><CalendarRange :size="15" />回到本月</button></div>
           <div class="month-weekdays"><span v-for="label in weekdayLabels" :key="label">{{ label }}</span></div>
           <div class="month-grid">
-            <section v-for="day in monthDays" :key="day.date" :class="['month-day', { muted: !day.inMonth, today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)"><header><time>{{ day.day }}</time><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button></header><div class="month-items"><button v-for="item in tasksForDate(day.date).slice(0, 4)" :key="item.id" :class="['month-item', { done: item.status === 'done' }]" :style="{ backgroundColor: item.tagColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" />{{ item.title }}<time v-if="item.plannedTime">{{ item.plannedTime }}</time></button><button v-if="tasksForDate(day.date).length > 4" class="more-items" @click="openTaskModal(undefined, tasksForDate(day.date)[4])">还有 {{ tasksForDate(day.date).length - 4 }} 项</button></div></section>
+            <section v-for="day in monthDays" :key="day.date" :class="['month-day', { muted: !day.inMonth, today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)"><header><time>{{ day.day }}</time><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button></header><div class="month-items"><button v-for="item in tasksForDate(day.date).slice(0, 4)" :key="item.id" :class="['month-item', { done: item.status === 'done' }]" :style="{ backgroundColor: item.categoryColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" />{{ item.title }}<time v-if="item.plannedTime">{{ item.plannedTime }}</time></button><button v-if="tasksForDate(day.date).length > 4" class="more-items" @click="openTaskModal(undefined, tasksForDate(day.date)[4])">还有 {{ tasksForDate(day.date).length - 4 }} 项</button></div></section>
           </div>
         </section>
 
-        <section v-else-if="currentView === 'tags'" class="page settings-page">
-          <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">分类方式</p><h2>标签管理</h2><span>用颜色区分不同生活主题，删除标签不会删除关联事项。</span></div><button class="primary-button" @click="openTagModal()"><Plus :size="18" />新增标签</button></div><div v-if="tags.length" class="tag-table"><div v-for="tag in tags" :key="tag.id" class="tag-row"><span class="tag-swatch" :style="{ backgroundColor: tag.color }"></span><strong>{{ tag.name }}</strong><small>{{ tagTaskCount(tag.id) }} 项事项</small><div><button class="icon-button ghost" title="编辑标签" @click="openTagModal(tag)"><Pencil :size="16" /></button><button class="icon-button ghost danger" title="删除标签" @click="deleteTag(tag)"><Trash2 :size="16" /></button></div></div></div><p v-else class="empty-state">还没有标签。先为工作、生活或兴趣添加一种颜色。</p></section>
+        <section v-else-if="currentView === 'categories'" class="page settings-page">
+          <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">生活分类</p><h2>分类管理</h2><span>用颜色和图标区分不同生活主题，删除分类不会删除关联事项。</span></div><button class="primary-button" @click="openCategoryModal()"><Plus :size="18" />新增分类</button></div><div v-if="categories.length" class="category-table"><div v-for="category in categories" :key="category.id" class="category-row"><span class="category-icon" :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="17" /></span><strong>{{ category.name }}</strong><small>{{ categoryTaskCount(category.id) }} 项事项</small><div><button class="icon-button ghost" title="编辑分类" @click="openCategoryModal(category)"><Pencil :size="16" /></button><button class="icon-button ghost danger" title="删除分类" @click="deleteCategory(category)"><Trash2 :size="16" /></button></div></div></div><p v-else class="empty-state">还没有分类。先为工作、生活或兴趣添加一个分类。</p></section>
         </section>
 
         <section v-else class="page settings-page">
           <section class="settings-block update-block"><div class="settings-heading"><div><p class="eyebrow">桌面客户端</p><h2>关于岁岁时光</h2><span>岁岁时光是一个本地优先的个人待办与时间规划应用。安装包发布后，可在此检查新版本。</span></div><button class="primary-button" :disabled="checkingUpdate" @click="handleUpdate"><RefreshCw :class="{ spinning: checkingUpdate }" :size="18" />{{ updateButtonLabel }}</button></div><div class="version-detail"><span>当前版本</span><strong>v{{ version }}</strong><span>{{ updateStatus }}</span></div></section>
-          <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">本地数据</p><h2>加密备份</h2><span>导出的备份包含本机账号、标签和事项。恢复前会自动保存一份加密回滚备份，恢复完成后应用将重新载入。</span></div><div class="data-actions"><button class="quiet-button" @click="openBackupModal('export')"><Download :size="17" />导出备份</button><button class="primary-button" @click="openBackupModal('restore')"><Upload :size="17" />恢复备份</button></div></div></section>
+          <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">本地数据</p><h2>加密备份</h2><span>导出的备份包含本机账号、分类和事项。恢复前会自动保存一份加密回滚备份，恢复完成后应用将重新载入。</span></div><div class="data-actions"><button class="quiet-button" @click="openBackupModal('export')"><Download :size="17" />导出备份</button><button class="primary-button" @click="openBackupModal('restore')"><Upload :size="17" />恢复备份</button></div></div></section>
         </section>
       </section>
       <button class="floating-add" type="button" title="新建事项" aria-label="新建事项" @click="openTaskModal()"><Plus :size="28" /></button>
@@ -106,10 +106,10 @@
 
     <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
       <form class="modal-panel task-modal" @submit.prevent="saveTaskForm">
-        <header class="task-modal-head"><span class="task-check modal-check"><Check :size="14" /></span><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${priorityLabel(taskDraft.priority)}`" :aria-label="`设置优先级，当前${priorityLabel(taskDraft.priority)}`" @click="priorityOpen = !priorityOpen"><Flag :size="18" /><span></span></button><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
-        <div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="option.value" type="button" @click="taskDraft.priority = option.value; priorityOpen = false"><span>{{ option.mark }}</span>{{ option.label }}<Check v-if="taskDraft.priority === option.value" :size="16" /></button></div>
-        <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button><label class="task-meta-row"><Tags :size="20" /><span><small>标签</small></span><select v-model="taskDraft.tagId" aria-label="选择标签"><option v-for="tag in tags" :key="tag.id" :value="tag.id">{{ tag.name }}</option></select></label></section>
-        <section class="subtask-section" :style="{ '--subtask-color': tags.find(tag => tag.id === taskDraft.tagId)?.color || '#51886D' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" class="subtask-row"><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" @click="subtask.status = subtask.status === 'done' ? 'todo' : 'done'"><Check :size="13" /></button><input v-model.trim="subtask.title" maxlength="120" placeholder="子事项" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><X :size="16" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft"><Plus :size="20" />添加子事项</button></section>
+        <header class="task-modal-head"><span class="task-check modal-check"><Check :size="14" /></span><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><span v-if="selectedTaskCategory" class="task-category-indicator" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`分类：${selectedTaskCategory.name}`"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></span><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
+        <div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="taskDraft.priority = option.value; priorityOpen = false"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div>
+        <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button><label class="task-meta-row"><CategoryIcon :size="20" /><span><small>分类</small></span><select v-model="taskDraft.categoryId" aria-label="选择分类"><option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option></select></label></section>
+        <section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#51886D' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" class="subtask-row"><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" @click="subtask.status = subtask.status === 'done' ? 'todo' : 'done'"><Check :size="13" /></button><input v-model.trim="subtask.title" maxlength="120" placeholder="子事项" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><X :size="16" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft"><Plus :size="20" />添加子事项</button></section>
         <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。"></textarea></label>
         <footer><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><span></span><button class="quiet-button" type="button" @click="closeTaskModal">取消</button><button class="primary-button" :disabled="savingTask">{{ savingTask ? '正在保存' : '保存' }}</button></footer>
       </form>
@@ -119,7 +119,7 @@
 
     <div v-if="repeatOpen" class="modal-backdrop nested-backdrop" @mousedown.self="repeatOpen = false"><section class="repeat-sheet"><header><button class="quiet-button" @click="repeatOpen = false">取消</button><h2>选择重复</h2><span></span></header><div class="repeat-list"><button v-for="option in repeatOptions" :key="option.value" :class="{ selected: repeatDraft.kind === option.value }" @click="chooseRepeat(option.value)"><div><strong>{{ option.label }}</strong><small>{{ option.hint }}</small></div><Check v-if="repeatDraft.kind === option.value" :size="18" /></button></div><div v-if="repeatDraft.kind !== 'none'" class="repeat-config"><label v-if="needsInterval">每隔<input v-model.number="repeatDraft.interval" min="1" max="365" type="number" />天</label><label>结束<select v-model="repeatDraft.endMode"><option value="never">永不结束</option><option value="date">指定日期</option><option value="count">固定次数</option></select></label><label v-if="repeatDraft.endMode === 'date'">结束日期<input v-model="repeatDraft.endDate" type="date" /></label><label v-if="repeatDraft.endMode === 'count'">次数<input v-model.number="repeatDraft.count" min="1" max="999" type="number" /></label></div><footer><span></span><button class="primary-button" @click="applyRepeat">保存规则</button></footer></section></div>
 
-    <div v-if="tagModalOpen" class="modal-backdrop" @mousedown.self="tagModalOpen = false"><form class="modal-panel tag-modal" @submit.prevent="saveTagForm"><header><div><p class="eyebrow">{{ tagDraft.id ? '编辑标签' : '新建标签' }}</p><h2>给生活一种颜色</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="tagModalOpen = false"><X :size="20" /></button></header><label class="field wide"><span>标签名称</span><input v-model.trim="tagDraft.name" maxlength="20" autofocus placeholder="例如：阅读" /></label><div class="color-picker"><span>标签颜色</span><button v-for="color in colors" :key="color" :class="['color-choice', { selected: tagDraft.color === color }]" type="button" :style="{ backgroundColor: color }" @click="tagDraft.color = color"><Check :size="15" /></button></div><footer><span></span><button class="quiet-button" type="button" @click="tagModalOpen = false">取消</button><button class="primary-button" :disabled="savingTag">{{ savingTag ? '正在保存' : '保存标签' }}</button></footer></form></div>
+    <div v-if="categoryModalOpen" class="modal-backdrop" @mousedown.self="categoryModalOpen = false"><form class="modal-panel category-modal" @submit.prevent="saveCategoryForm"><header><div><p class="eyebrow">{{ categoryDraft.id ? '编辑分类' : '新建分类' }}</p><h2>给生活一份秩序</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="categoryModalOpen = false"><X :size="20" /></button></header><label class="field wide"><span>分类名称</span><input v-model.trim="categoryDraft.name" maxlength="20" autofocus placeholder="例如：阅读" /></label><div class="icon-picker"><span>分类图标</span><div><button v-for="option in categoryIconOptions" :key="option.value" :class="['icon-choice', { selected: categoryDraft.icon === option.value }]" type="button" :title="option.label" :aria-label="option.label" @click="categoryDraft.icon = option.value"><component :is="option.icon" :size="18" /></button></div></div><div class="color-picker"><span>分类颜色</span><button v-for="color in colors" :key="color" :class="['color-choice', { selected: categoryDraft.color === color }]" type="button" :style="{ backgroundColor: color }" @click="categoryDraft.color = color"><Check :size="15" /></button></div><footer><span></span><button class="quiet-button" type="button" @click="categoryModalOpen = false">取消</button><button class="primary-button" :disabled="savingCategory">{{ savingCategory ? '正在保存' : '保存分类' }}</button></footer></form></div>
 
     <div v-if="backupModalOpen" class="modal-backdrop" @mousedown.self="closeBackupModal"><form class="modal-panel backup-modal" @submit.prevent="submitBackup"><header><div><p class="eyebrow">{{ backupMode === 'export' ? '导出加密备份' : '恢复加密备份' }}</p><h2>{{ backupMode === 'export' ? '留一份安心的副本' : '从备份恢复数据' }}</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="closeBackupModal"><X :size="20" /></button></header><p class="backup-tip">{{ backupMode === 'export' ? '请设置至少 8 位的备份密码。密码无法找回。' : '请选择此前导出的备份文件，并输入它的备份密码。' }}</p><label class="field wide"><span>备份密码</span><input v-model="backupPassword" type="password" minlength="8" autocomplete="new-password" autofocus placeholder="至少 8 位" /></label><label v-if="backupMode === 'export'" class="field wide"><span>确认备份密码</span><input v-model="backupPasswordConfirmation" type="password" minlength="8" autocomplete="new-password" placeholder="再次输入备份密码" /></label><p v-if="backupError" class="form-error">{{ backupError }}</p><footer><span></span><button class="quiet-button" type="button" :disabled="backupInProgress" @click="closeBackupModal">取消</button><button class="primary-button" :disabled="backupInProgress">{{ backupInProgress ? '正在处理' : backupMode === 'export' ? '选择位置并导出' : '选择备份并恢复' }}</button></footer></form></div>
 
@@ -129,22 +129,22 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { AlarmClock, ArrowRight, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, Download, Eye, EyeOff, Flag, Info, LayoutGrid, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, Tags, Trash2, Upload, X } from 'lucide-vue-next'
-import { createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, listTags, listTasks, loginUser, logoutUser, removeTag, removeTask, rescheduleTask, restoreEncryptedBackup, saveTag, saveTask, toggleTask } from './api/native'
+import { AlarmClock, ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, Dumbbell, Download, Eye, EyeOff, HeartPulse, House, Info, Lightbulb, LayoutGrid, LogOut, Pencil, Plane, Plus, RefreshCw, RotateCcw, Search, ShoppingBag, Tags as CategoryIcon, Target, Trash2, Upload, UsersRound, Utensils, WalletCards, X } from 'lucide-vue-next'
+import { createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, listCategories, listTasks, loginUser, logoutUser, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveTask, toggleTask } from './api/native'
 import type { UpdateCheckResult } from './api/native'
 import AppNotificationCenter from './components/AppNotificationCenter.vue'
-import type { BootState, Priority, RepeatRule, ScheduleKind, Tag, Task, TaskInput, UserSession } from './types'
+import type { BootState, Category, Priority, RepeatRule, ScheduleKind, Task, TaskInput, UserSession } from './types'
 
-type View = 'all' | 'week' | 'month' | 'tags' | 'about'
+type View = 'all' | 'week' | 'month' | 'categories' | 'about'
 type Notice = { text: string; type: 'success' | 'error' }
 
-const colors = ['#6C9E7E', '#7598A6', '#E69A62', '#BC7C93', '#B79B52', '#639D98']
+const colors = ['#4D82D5', '#13A66A', '#E96E4D', '#C65376', '#DE9A22', '#7457D9', '#3489C5', '#D95B8D', '#2DAD96', '#D66A3A', '#70964A', '#8A6B54', '#557DCC', '#D3505A', '#599F82', '#7A7FBE']
 const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const booting = ref(true)
 const bootState = ref<BootState | null>(null)
 const session = ref<UserSession | null>(null)
 const currentView = ref<View>('all')
-const tags = ref<Tag[]>([])
+const categories = ref<Category[]>([])
 const tasks = ref<Task[]>([])
 const search = ref('')
 const rangeStart = ref('')
@@ -164,7 +164,7 @@ const notificationCenter = ref<{ checkForUpdate: (openWhenFound?: boolean) => Pr
 const brandMenu = ref<HTMLElement | null>(null)
 const brandMenuOpen = ref(false)
 const taskModalOpen = ref(false)
-const tagModalOpen = ref(false)
+const categoryModalOpen = ref(false)
 const backupModalOpen = ref(false)
 const backupMode = ref<'export' | 'restore'>('export')
 const backupPassword = ref('')
@@ -172,10 +172,10 @@ const backupPasswordConfirmation = ref('')
 const backupError = ref('')
 const backupInProgress = ref(false)
 const savingTask = ref(false)
-const savingTag = ref(false)
+const savingCategory = ref(false)
 const authForm = reactive({ username: '', password: '' })
-const taskDraft = reactive<TaskInput>({ title: '', tagId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes: '' })
-const tagDraft = reactive<{ id?: string; name: string; color: string; sortOrder: number }>({ name: '', color: colors[0], sortOrder: 0 })
+const taskDraft = reactive<TaskInput>({ title: '', categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes: '' })
+const categoryDraft = reactive<{ id?: string; name: string; color: string; icon: string; sortOrder: number }>({ name: '', color: colors[0], icon: 'briefcase-business', sortOrder: 0 })
 const priorityOpen = ref(false)
 const timeOpen = ref(false)
 const repeatOpen = ref(false)
@@ -184,6 +184,19 @@ const priorityOptions: Array<{ value: Priority; label: string; mark: string }> =
   { value: 'urgent_important', label: '重要且紧急', mark: 'I' }, { value: 'important_not_urgent', label: '重要不紧急', mark: 'II' },
   { value: 'urgent_not_important', label: '不重要但紧急', mark: 'III' }, { value: 'not_urgent_not_important', label: '不重要不紧急', mark: 'IV' }
 ]
+const categoryIconOptions = [
+  { value: 'tags', label: '通用分类', icon: CategoryIcon }, { value: 'briefcase-business', label: '工作', icon: BriefcaseBusiness },
+  { value: 'house', label: '生活', icon: House },
+  { value: 'book-open', label: '学习成长', icon: BookOpen }, { value: 'heart-pulse', label: '健康', icon: HeartPulse },
+  { value: 'dumbbell', label: '运动', icon: Dumbbell }, { value: 'wallet-cards', label: '财务', icon: WalletCards },
+  { value: 'users-round', label: '家庭', icon: UsersRound }, { value: 'plane', label: '出行', icon: Plane },
+  { value: 'utensils', label: '餐饮', icon: Utensils }, { value: 'shopping-bag', label: '购物', icon: ShoppingBag },
+  { value: 'target', label: '目标', icon: Target }, { value: 'lightbulb', label: '灵感', icon: Lightbulb }
+]
+function categoryIconComponent(icon: string | null) {
+  return categoryIconOptions.find(option => option.value === icon)?.icon || CategoryIcon
+}
+const selectedPriorityOption = computed(() => priorityOptions.find(option => option.value === taskDraft.priority) || priorityOptions[0])
 const scheduleOptions: Array<{ value: ScheduleKind; label: string }> = [{ value: 'point', label: '时间点' }, { value: 'range', label: '时间段' }, { value: 'all_day', label: '全天' }]
 const repeatOptions: Array<{ value: RepeatRule['kind']; label: string; hint: string }> = [
   { value: 'none', label: '不重复', hint: '' }, { value: 'daily', label: '每天', hint: '每天重复' }, { value: 'every_days', label: '任意多天', hint: '按天数间隔' }, { value: 'weekly', label: '每周', hint: '每周同一天' }, { value: 'weekly_slots', label: '每周（不同天、不同时间）', hint: '可配置多个时段' }, { value: 'workdays', label: '每周工作日', hint: '周一至周五' }, { value: 'monthly', label: '每月', hint: '每月同一天' }, { value: 'monthly_slots', label: '每月（不同天、不同时间）', hint: '可配置多个日期' }, { value: 'yearly', label: '每年', hint: '每年同一天' }, { value: 'memory', label: '记忆曲线', hint: '1、2、4、7、15 天' }, { value: 'custom', label: '自定义', hint: '按自定义周期重复' }
@@ -193,14 +206,15 @@ const editingOccurrence = ref<{ source: Task; date: string } | null>(null)
 
 const viewMeta = computed(() => ({
   all: { title: '全部事项', subtitle: 'TODAY, TAKE IT GENTLY' },
-  week: { title: '我的一周', subtitle: 'A WEEK AT A GLANCE' },
+  week: { title: '我的一周', subtitle: '' },
   month: { title: '我的一月', subtitle: 'MAKE ROOM FOR WHAT MATTERS' },
-  tags: { title: '标签管理', subtitle: 'COLOR YOUR EVERYDAY' },
+  categories: { title: '分类管理', subtitle: 'COLOR YOUR EVERYDAY' },
   about: { title: '关于岁岁时光', subtitle: 'YOUR LOCAL TIMEBOOK' }
 }[currentView.value]))
 
 const visibleTasks = computed(() => tasks.value.filter(item => !item.parentTaskId && (showCompleted.value || item.status !== 'done')))
-const taskGroups = computed(() => tags.value.map(tag => ({ ...tag, tasks: visibleTasks.value.filter(item => item.tagId === tag.id) })))
+const taskGroups = computed(() => categories.value.map(category => ({ ...category, tasks: visibleTasks.value.filter(item => item.categoryId === category.id) })))
+const selectedTaskCategory = computed(() => categories.value.find(category => category.id === taskDraft.categoryId))
 const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) => ({ date, day: Number(date.slice(-2)), weekday: weekdayLabels[index] })))
 const monthDays = computed(() => calendarDays(monthAnchor.value))
 const weekLabel = computed(() => formatMonth(weekAnchor.value))
@@ -216,7 +230,10 @@ onMounted(async () => {
     version.value = await currentVersion()
     bootState.value = await getBootState()
     session.value = bootState.value.session
-    if (session.value) await refreshData()
+    if (session.value) {
+      await refreshData()
+      scheduleMidnightRefresh()
+    }
   } catch (error) {
     authError.value = messageOf(error)
   } finally {
@@ -224,9 +241,14 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => document.removeEventListener('mousedown', closeBrandMenuOnOutsideClick))
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', closeBrandMenuOnOutsideClick)
+  window.clearTimeout(filterTimer)
+  window.clearTimeout(midnightRefreshTimer)
+})
 
 let filterTimer: number | undefined
+let midnightRefreshTimer: number | undefined
 watch([search, rangeStart, rangeEnd, showCompleted], () => {
   if (!session.value) return
   window.clearTimeout(filterTimer)
@@ -242,6 +264,7 @@ async function submitAuth() {
     session.value = bootState.value?.needsSetup ? await createAccount(input) : await loginUser(input)
     if (bootState.value) bootState.value.needsSetup = false
     await refreshData()
+    scheduleMidnightRefresh()
   } catch (error) {
     authError.value = messageOf(error)
   } finally {
@@ -251,21 +274,35 @@ async function submitAuth() {
 
 async function refreshData() {
   const query = { search: search.value || undefined, startDate: rangeStart.value || undefined, endDate: rangeEnd.value || undefined, includeCompleted: showCompleted.value }
-  const [nextTags, nextTasks] = await Promise.all([listTags(), listTasks(query)])
-  tags.value = nextTags
+  const [nextCategories, nextTasks] = await Promise.all([listCategories(), listTasks(query)])
+  categories.value = nextCategories
   tasks.value = nextTasks
+}
+
+function scheduleMidnightRefresh() {
+  window.clearTimeout(midnightRefreshTimer)
+  if (!session.value) return
+  const now = new Date()
+  const nextDay = new Date(now)
+  nextDay.setHours(24, 0, 1, 0)
+  midnightRefreshTimer = window.setTimeout(() => {
+    todayDate.value = todayString()
+    void refreshData().catch(error => showNotice(messageOf(error), 'error'))
+    scheduleMidnightRefresh()
+  }, Math.max(1000, nextDay.getTime() - now.getTime()))
 }
 
 async function handleLogout() {
   brandMenuOpen.value = false
+  window.clearTimeout(midnightRefreshTimer)
   await logoutUser()
   session.value = null
   tasks.value = []
-  tags.value = []
+  categories.value = []
   authForm.password = ''
 }
 
-function openBrandMenuView(view: 'tags' | 'about') {
+function openBrandMenuView(view: 'categories' | 'about') {
   currentView.value = view
   brandMenuOpen.value = false
 }
@@ -274,22 +311,22 @@ function closeBrandMenuOnOutsideClick(event: MouseEvent) {
   if (brandMenu.value && !brandMenu.value.contains(event.target as Node)) brandMenuOpen.value = false
 }
 
-async function resetCurrentDate() {
+async function resetCurrentDate(showSuccess = true) {
   const currentDate = todayString()
   todayDate.value = currentDate
   weekAnchor.value = currentDate
   monthAnchor.value = currentDate
   try {
     await refreshData()
-    showNotice('已回到今天')
+    if (showSuccess) showNotice('已回到今天')
   } catch (error) {
     showNotice(messageOf(error), 'error')
   }
 }
 
-function openTaskModal(tagId?: string | null, item?: Task, date?: string) {
+function openTaskModal(categoryId?: string | null, item?: Task, date?: string) {
   editingOccurrence.value = item?.id.includes('@') ? { source: tasks.value.find(task => task.id === item.id.split('@')[0]) || item, date: item.plannedDate || '' } : null
-  Object.assign(taskDraft, item ? { id: item.id, title: item.title, tagId: item.tagId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes } : { id: undefined, title: '', tagId: tagId ?? tags.value[0]?.id ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes: '' })
+  Object.assign(taskDraft, item ? { id: item.id, title: item.title, categoryId: item.categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes } : { id: undefined, title: '', categoryId: categoryId ?? categories.value[0]?.id ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes: '' })
   Object.assign(repeatDraft, parseRepeatRule(taskDraft.repeatRule))
   childDrafts.value = item ? tasks.value.filter(task => task.parentTaskId === item.id).map(task => ({ ...task })) : []
   priorityOpen.value = false
@@ -298,16 +335,16 @@ function openTaskModal(tagId?: string | null, item?: Task, date?: string) {
 
 async function saveTaskForm() {
   if (!taskDraft.title || savingTask.value) return
-  if (!taskDraft.parentTaskId && !taskDraft.tagId) {
-    showNotice('请先创建标签，再添加事项', 'error')
+  if (!taskDraft.parentTaskId && !taskDraft.categoryId) {
+    showNotice('请先创建分类，再添加事项', 'error')
     return
   }
   savingTask.value = true
   try {
     if (taskDraft.scheduleKind === 'range' && (!taskDraft.plannedTime || !taskDraft.plannedEndTime || taskDraft.plannedTime >= taskDraft.plannedEndTime)) throw new Error('时间段的结束时间必须晚于开始时间')
-    const taskInput = { ...taskDraft, tagId: taskDraft.tagId || null, plannedDate: taskDraft.plannedDate || null, plannedTime: taskDraft.scheduleKind === 'all_day' ? null : taskDraft.plannedTime || null, plannedEndTime: taskDraft.scheduleKind === 'range' ? taskDraft.plannedEndTime || null : null, repeatRule: JSON.stringify(repeatDraft) }
+    const taskInput = { ...taskDraft, categoryId: taskDraft.categoryId || null, plannedDate: taskDraft.plannedDate || null, plannedTime: taskDraft.scheduleKind === 'all_day' ? null : taskDraft.plannedTime || null, plannedEndTime: taskDraft.scheduleKind === 'range' ? taskDraft.plannedEndTime || null : null, repeatRule: JSON.stringify(repeatDraft) }
     const saved = editingOccurrence.value ? await saveOccurrence(editingOccurrence.value.source, editingOccurrence.value.date, taskInput) : await saveTask(taskInput)
-    await Promise.all(childDrafts.value.filter(item => item.title.trim()).map(item => saveTask({ id: item.id, title: item.title, tagId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: saved.id, notes: '', })))
+    await Promise.all(childDrafts.value.filter(item => item.title.trim()).map(item => saveTask({ id: item.id, title: item.title, categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: saved.id, notes: '', })))
     taskModalOpen.value = false
     await refreshData()
     showNotice('事项已保存')
@@ -346,32 +383,32 @@ async function toggleItem(item: Task) {
   }
 }
 
-function openTagModal(item?: Tag) {
-  Object.assign(tagDraft, item ? { id: item.id, name: item.name, color: item.color, sortOrder: item.sortOrder } : { id: undefined, name: '', color: colors[tags.value.length % colors.length], sortOrder: tags.value.length })
-  tagModalOpen.value = true
+function openCategoryModal(item?: Category) {
+  Object.assign(categoryDraft, item ? { id: item.id, name: item.name, color: item.color, icon: item.icon, sortOrder: item.sortOrder } : { id: undefined, name: '', color: colors[categories.value.length % colors.length], icon: 'briefcase-business', sortOrder: categories.value.length })
+  categoryModalOpen.value = true
 }
 
-async function saveTagForm() {
-  if (!tagDraft.name || savingTag.value) return
-  savingTag.value = true
+async function saveCategoryForm() {
+  if (!categoryDraft.name || savingCategory.value) return
+  savingCategory.value = true
   try {
-    await saveTag({ ...tagDraft })
-    tagModalOpen.value = false
+    await saveCategory({ ...categoryDraft })
+    categoryModalOpen.value = false
     await refreshData()
-    showNotice('标签已保存')
+    showNotice('分类已保存')
   } catch (error) {
     showNotice(messageOf(error), 'error')
   } finally {
-    savingTag.value = false
+    savingCategory.value = false
   }
 }
 
-async function deleteTag(tag: Tag) {
-  if (!window.confirm(`删除“${tag.name}”后，关联事项将变为未分类。是否继续？`)) return
+async function deleteCategory(category: Category) {
+  if (!window.confirm(`删除“${category.name}”后，关联事项将变为未分类。是否继续？`)) return
   try {
-    await removeTag(tag.id)
+    await removeCategory(category.id)
     await refreshData()
-    showNotice('标签已删除，关联事项已保留')
+    showNotice('分类已删除，关联事项已保留')
   } catch (error) {
     showNotice(messageOf(error), 'error')
   }
@@ -396,11 +433,11 @@ async function dropOnDate(date: string) {
   }
 }
 
-async function dropOnGroup(groupId: string) {
+async function dropOnGroup(categoryId: string) {
   const item = tasks.value.find(task => task.id === draggedTaskId.value)
   if (!item) return
   try {
-    await saveTask({ id: item.id, title: item.title, tagId: groupId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes })
+    await saveTask({ id: item.id, title: item.title, categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes })
     await refreshData()
   } catch (error) {
     showNotice(messageOf(error), 'error')
@@ -477,18 +514,17 @@ function tasksForDate(date: string) { return visibleTasks.value.flatMap(item => 
   Object.entries(overrides).forEach(([sourceDate, override]) => { if (override.plannedDate === date && sourceDate !== date && occursOn(item, sourceDate)) result.push({ ...item, ...override, id: `${item.id}@${sourceDate}`, plannedDate: date }) })
   return result
 }) }
-function tagTaskCount(tagId: string) { return tasks.value.filter(item => item.tagId === tagId).length }
+function categoryTaskCount(categoryId: string) { return tasks.value.filter(item => item.categoryId === categoryId).length }
 function taskSummary(item: Task) { return [item.plannedDate ? item.plannedDate.slice(5).replace('-', '月') + '日' : '未安排日期', item.plannedTime || '', item.notes ? '有备注' : ''].filter(Boolean).join(' · ') }
 function clearFilters() { search.value = ''; rangeStart.value = ''; rangeEnd.value = ''; refreshData() }
 function closeTaskModal() { taskModalOpen.value = false; priorityOpen.value = false; timeOpen.value = false; repeatOpen.value = false }
 function clearTime() { taskDraft.plannedDate = null; taskDraft.plannedTime = null; taskDraft.plannedEndTime = null; taskDraft.scheduleKind = 'all_day' }
-function priorityLabel(priority: Priority) { return priorityOptions.find(option => option.value === priority)?.label || '设置优先级' }
 function parseRepeatRule(value: string): RepeatRule { try { const rule = JSON.parse(value) as RepeatRule; return rule?.kind ? { interval: 1, endMode: 'never', ...rule } : { kind: 'none' } } catch { return { kind: 'none' } } }
 function parseOverrides(item: Task): Record<string, Partial<Task> & { deleted?: boolean }> { try { return JSON.parse(item.occurrenceOverrides || '{}') } catch { return {} } }
-async function saveOccurrence(source: Task, date: string, input: TaskInput) { const overrides = parseOverrides(source); overrides[date] = { ...overrides[date], title: input.title, tagId: input.tagId, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, notes: input.notes }; return saveTask({ ...source, occurrenceOverrides: JSON.stringify(overrides) }) }
+async function saveOccurrence(source: Task, date: string, input: TaskInput) { const overrides = parseOverrides(source); overrides[date] = { ...overrides[date], title: input.title, categoryId: input.categoryId, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, notes: input.notes }; return saveTask({ ...source, occurrenceOverrides: JSON.stringify(overrides) }) }
 function chooseRepeat(kind: RepeatRule['kind']) { repeatDraft.kind = kind; if (!repeatDraft.endMode) repeatDraft.endMode = 'never' }
 function applyRepeat() { taskDraft.repeatRule = JSON.stringify(repeatDraft); repeatOpen.value = false }
-function addChildDraft() { const now = Date.now(); childDrafts.value.push({ id: crypto.randomUUID(), title: '', tagId: null, tagName: null, tagColor: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: taskDraft.id || null, status: 'todo', notes: '', createdAt: now, completedAt: null, updatedAt: now }) }
+function addChildDraft() { const now = Date.now(); childDrafts.value.push({ id: crypto.randomUUID(), title: '', categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: taskDraft.id || null, status: 'todo', notes: '', createdAt: now, completedAt: null, updatedAt: now }) }
 function removeChildDraft(id: string) { childDrafts.value = childDrafts.value.filter(item => item.id !== id) }
 function moveWeek(offset: number) { weekAnchor.value = addDays(weekAnchor.value, offset * 7) }
 function moveMonth(offset: number) { const date = parseDate(monthAnchor.value); date.setMonth(date.getMonth() + offset); monthAnchor.value = dateString(date) }

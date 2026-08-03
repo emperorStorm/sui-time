@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="620" viewBox="0 0 1920 620" role="img" aria-labelledby="title description">
+  <title id="title">岁岁时光绿色 3D 沙漏图标方案</title>
+  <desc id="description">三款以绿色半透明绿玉为主题的立体抽象沙漏图标：流动绿玉、厚切折面和悬浮内芯。</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f4f9f5"/>
+      <stop offset="1" stop-color="#eaf1ec"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fbfdfb"/>
+      <stop offset="1" stop-color="#d9e8dd"/>
+    </linearGradient>
+    <linearGradient id="jade" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#d9f4df"/>
+      <stop offset=".34" stop-color="#83c89a"/>
+      <stop offset=".68" stop-color="#51886d"/>
+      <stop offset="1" stop-color="#285746"/>
+    </linearGradient>
+    <linearGradient id="jade-deep" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#4e9170"/>
+      <stop offset=".48" stop-color="#3e7359"/>
+      <stop offset="1" stop-color="#183c30"/>
+    </linearGradient>
+    <linearGradient id="jade-light" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f5fff6" stop-opacity=".95"/>
+      <stop offset=".42" stop-color="#c9ecd2" stop-opacity=".74"/>
+      <stop offset="1" stop-color="#77b98b" stop-opacity=".20"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffffff" stop-opacity=".78"/>
+      <stop offset=".24" stop-color="#ddf3e3" stop-opacity=".40"/>
+      <stop offset=".62" stop-color="#6cab80" stop-opacity=".20"/>
+      <stop offset="1" stop-color="#315f4b" stop-opacity=".50"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#d9ffe3"/>
+      <stop offset=".44" stop-color="#7bce96"/>
+      <stop offset="1" stop-color="#2f7759"/>
+    </linearGradient>
+    <radialGradient id="core">
+      <stop stop-color="#effff3"/>
+      <stop offset=".27" stop-color="#b9ebc7"/>
+      <stop offset=".70" stop-color="#5da778"/>
+      <stop offset="1" stop-color="#2c614b"/>
+    </radialGradient>
+    <filter id="tile-shadow" x="-30%" y="-30%" width="160%" height="185%">
+      <feDropShadow dx="0" dy="24" stdDeviation="18" flood-color="#315544" flood-opacity=".18"/>
+    </filter>
+    <filter id="object-shadow" x="-45%" y="-40%" width="190%" height="190%">
+      <feDropShadow dx="7" dy="16" stdDeviation="10" flood-color="#183d2f" flood-opacity=".29"/>
+    </filter>
+    <filter id="ground-blur" x="-40%" y="-300%" width="180%" height="700%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <filter id="core-glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1920" height="620" fill="url(#canvas)"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif">
+    <text x="90" y="88" font-size="37" font-weight="700" fill="#26372e">岁岁时光 · 绿玉 3D 沙漏</text>
+    <text x="90" y="129" font-size="22" fill="#718178">与花园主题同色，但通过厚度、反射、折射与投影建立体积。</text>
+  </g>
+
+  <!-- C3: flowing jade -->
+  <g transform="translate(180 180)">
+    <rect width="330" height="330" rx="82" fill="url(#tile)" filter="url(#tile-shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="70" fill="#fff" fill-opacity=".58"/>
+    <ellipse cx="165" cy="267" rx="111" ry="19" fill="#2b634b" fill-opacity=".28" filter="url(#ground-blur)"/>
+    <g transform="translate(165 155)" filter="url(#object-shadow)">
+      <path d="M-118-114H118L43-9l75 112H-118L-43-9z" fill="#1f513e" transform="translate(15 14)"/>
+      <path d="M-118-114H118L43-9l75 112H-118L-43-9z" fill="url(#glass)" stroke="#d9f5e0" stroke-opacity=".55" stroke-width="5"/>
+      <path d="M-91-81H91L34-9l57 80H-91l57-80z" fill="#effcf2" fill-opacity=".14"/>
+      <path d="M-78-78H78L31-16H-31z" fill="url(#jade-light)"/>
+      <path d="M-31-16H31L91 71H-91z" fill="url(#sand)"/>
+      <path d="M-31-16 0 26 31-16H-31z" fill="#eaffee" fill-opacity=".75"/>
+      <path d="M-118-114H118L105-91H-105z" fill="url(#jade-deep)"/>
+      <path d="M-118 103H118l-13 23H-105z" fill="#2f674f"/>
+      <path d="M-105-91H-79L-20-9l-59 80h-26L-43-9z" fill="#d6f3dd" fill-opacity=".25"/>
+      <path d="M78-78 118-114 43-9 118 103 91 71 31-16z" fill="#285943" fill-opacity=".53"/>
+      <path d="M-82-99H46" stroke="#fff" stroke-opacity=".65" stroke-width="8" stroke-linecap="round"/>
+    </g>
+    <circle cx="271" cy="57" r="13" fill="#8dc9a0"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#26372e">C3. 流动绿玉</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#718178">透明外壳包裹流动内芯，最轻盈</text>
+  </g>
+
+  <!-- C4: thick-cut facets -->
+  <g transform="translate(795 180)">
+    <rect width="330" height="330" rx="82" fill="url(#tile)" filter="url(#tile-shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="70" fill="#fff" fill-opacity=".58"/>
+    <ellipse cx="165" cy="269" rx="115" ry="18" fill="#285b45" fill-opacity=".27" filter="url(#ground-blur)"/>
+    <g transform="translate(165 158)" filter="url(#object-shadow)">
+      <path d="M-120-116 16-116 120-71 42-7 120 105-16 105-120 60-42-7z" fill="#214e3b" transform="translate(18 15)"/>
+      <path d="M-120-116H16L120-71 42-7 120 105H-16L-120 60-42-7z" fill="url(#jade)"/>
+      <path d="m-120-116 104 45L-42-7l-78-53z" fill="#c7efd2"/>
+      <path d="M16-116 120-71 42-7-16-71z" fill="#78bb8b"/>
+      <path d="M-42-7 42-7 120 105H-16z" fill="#2e6c50"/>
+      <path d="m-120 60 78-67 26 45-104 22z" fill="#9bd6a9"/>
+      <path d="M-16 38 42-7l78 112H-16z" fill="#215640"/>
+      <path d="M-73-85-16-61-50-22-96-52z" fill="#f1fff3" fill-opacity=".73"/>
+      <path d="M-16 38 42-7l-22 55z" fill="#d9f7df" fill-opacity=".64"/>
+      <path d="M-112-132H9l22 16H-95z" fill="#4b8b66"/>
+      <path d="M-9 105h128l17 18H7z" fill="#214c39"/>
+      <path d="M-81-102H-8" stroke="#fff" stroke-opacity=".72" stroke-width="7" stroke-linecap="round"/>
+    </g>
+    <circle cx="72" cy="59" r="13" fill="#a8d8b4"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#26372e">C4. 厚切折面</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#718178">厚度和深切面最明显，最有图标张力</text>
+  </g>
+
+  <!-- C5: suspended core -->
+  <g transform="translate(1410 180)">
+    <rect width="330" height="330" rx="82" fill="url(#tile)" filter="url(#tile-shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="70" fill="#fff" fill-opacity=".58"/>
+    <circle cx="176" cy="154" r="112" fill="#d9ede0" fill-opacity=".72"/>
+    <circle cx="164" cy="145" r="99" fill="#eff8f1" fill-opacity=".72"/>
+    <ellipse cx="165" cy="269" rx="113" ry="18" fill="#285b45" fill-opacity=".27" filter="url(#ground-blur)"/>
+    <g transform="translate(165 157)" filter="url(#object-shadow)">
+      <path d="M-115-111H114L42-8l72 108H-115L-42-8z" fill="#245940" fill-opacity=".74" transform="translate(23 18)"/>
+      <path d="M-115-111H114L42-8l72 108H-115L-42-8z" fill="#edfff1" fill-opacity=".33" stroke="#80bd94" stroke-opacity=".92" stroke-width="8"/>
+      <path d="M-101-98H99L32-8l67 95H-101l67-95z" fill="url(#glass)" fill-opacity=".52"/>
+      <path d="M-115-111H114L99-86H-99z" fill="#4f9270"/>
+      <path d="M-115 100H114L99 124H-99z" fill="#3a7659"/>
+      <path d="M-43-8h86L17 23h-34z" fill="#f5fff6" fill-opacity=".75"/>
+      <circle r="51" fill="#b5e4c2" fill-opacity=".47" filter="url(#core-glow)"/>
+      <circle r="36" fill="url(#core)"/>
+      <path d="M-13-25c18-15 39-7 44 8-13-8-26-4-37 10z" fill="#f7fff8" fill-opacity=".94"/>
+      <path d="M-83-87-36-19-86 68" stroke="#fff" stroke-opacity=".68" stroke-width="9" stroke-linecap="round" fill="none"/>
+      <path d="M70-74 105-108 38-8l68 108" stroke="#214e3b" stroke-opacity=".62" stroke-width="15" fill="none"/>
+      <path d="M-83-98H52" stroke="#f7fff8" stroke-opacity=".72" stroke-width="8" stroke-linecap="round"/>
+    </g>
+    <circle cx="270" cy="59" r="13" fill="#76af88"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#26372e">C5. 悬浮内芯</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#718178">最抽象，玻璃框架与核心层次最强</text>
+  </g>
+</svg>

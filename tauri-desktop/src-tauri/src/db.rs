@@ -14,16 +14,16 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{Local, NaiveDate, NaiveTime};
 use rand_core::{OsRng, RngCore};
 use rusqlite::{params, Connection, OptionalExtension};
 use tauri::Manager;
 use uuid::Uuid;
 
-use crate::models::{AccountInput, Tag, TagInput, Task, TaskInput, UserSession};
+use crate::models::{AccountInput, Category, CategoryInput, Task, TaskInput, UserSession};
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -59,6 +59,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     if version < 2 {
         migrate_to_v2(conn)?;
     }
+    if version < 3 {
+        migrate_to_v3(conn)?;
+    }
     Ok(())
 }
 
@@ -88,11 +91,12 @@ fn migrate_to_v1(conn: &Connection) -> Result<(), String> {
            setting_key TEXT PRIMARY KEY,
            setting_value TEXT NOT NULL
          );
-         CREATE TABLE IF NOT EXISTS tags (
+         CREATE TABLE IF NOT EXISTS categories (
            id TEXT PRIMARY KEY,
            owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
            name TEXT NOT NULL,
            color TEXT NOT NULL,
+           icon TEXT NOT NULL DEFAULT 'tags',
            sort_order INTEGER NOT NULL DEFAULT 0,
            created_at INTEGER NOT NULL,
            updated_at INTEGER NOT NULL,
@@ -102,7 +106,7 @@ fn migrate_to_v1(conn: &Connection) -> Result<(), String> {
            id TEXT PRIMARY KEY,
            owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
            title TEXT NOT NULL,
-           tag_id TEXT REFERENCES tags(id) ON DELETE SET NULL,
+           category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
            planned_date TEXT,
            planned_time TEXT,
            status TEXT NOT NULL CHECK(status IN ('todo', 'done')),
@@ -112,7 +116,7 @@ fn migrate_to_v1(conn: &Connection) -> Result<(), String> {
            updated_at INTEGER NOT NULL
          );
          CREATE INDEX IF NOT EXISTS idx_tasks_owner_date ON tasks(owner_id, planned_date);
-         CREATE INDEX IF NOT EXISTS idx_tags_owner_sort ON tags(owner_id, sort_order);",
+         CREATE INDEX IF NOT EXISTS idx_categories_owner_sort ON categories(owner_id, sort_order);",
         )
         .map_err(|error| error.to_string())?;
     transaction
@@ -122,18 +126,99 @@ fn migrate_to_v1(conn: &Connection) -> Result<(), String> {
 }
 
 fn migrate_to_v2(conn: &Connection) -> Result<(), String> {
-    let transaction = conn.unchecked_transaction().map_err(|error| error.to_string())?;
-    transaction.execute_batch(
-        "ALTER TABLE tasks ADD COLUMN planned_end_time TEXT;
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch(
+            "ALTER TABLE tasks ADD COLUMN planned_end_time TEXT;
          ALTER TABLE tasks ADD COLUMN schedule_kind TEXT NOT NULL DEFAULT 'all_day';
          ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'not_urgent_not_important';
          ALTER TABLE tasks ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT '{\"kind\":\"none\"}';
          ALTER TABLE tasks ADD COLUMN occurrence_overrides TEXT NOT NULL DEFAULT '{}';
          ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE;
          CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id);",
-    ).map_err(|error| error.to_string())?;
-    transaction.execute_batch("PRAGMA user_version = 2;").map_err(|error| error.to_string())?;
+        )
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch("PRAGMA user_version = 2;")
+        .map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
+}
+
+fn migrate_to_v3(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    if table_exists(&transaction, "tags")? {
+        transaction
+            .execute_batch(
+                "ALTER TABLE tags RENAME TO categories;
+                 DROP INDEX IF EXISTS idx_tags_owner_sort;
+                 CREATE INDEX IF NOT EXISTS idx_categories_owner_sort ON categories(owner_id, sort_order);",
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    if column_exists(&transaction, "tasks", "tag_id")? {
+        transaction
+            .execute_batch("ALTER TABLE tasks RENAME COLUMN tag_id TO category_id;")
+            .map_err(|error| error.to_string())?;
+    }
+    if !column_exists(&transaction, "categories", "icon")? {
+        transaction
+            .execute_batch("ALTER TABLE categories ADD COLUMN icon TEXT NOT NULL DEFAULT 'tags';")
+            .map_err(|error| error.to_string())?;
+    }
+    transaction
+        .execute(
+            "UPDATE categories SET icon = CASE
+                WHEN name LIKE '%工作%' THEN 'briefcase-business'
+                WHEN name LIKE '%生活%' THEN 'house'
+                WHEN name LIKE '%成长%' OR name LIKE '%自增%' OR name LIKE '%学习%' OR name LIKE '%阅读%' THEN 'book-open'
+                WHEN name LIKE '%健康%' THEN 'heart-pulse'
+                WHEN name LIKE '%运动%' THEN 'dumbbell'
+                WHEN name LIKE '%财务%' OR name LIKE '%理财%' THEN 'wallet-cards'
+                WHEN name LIKE '%家庭%' THEN 'users-round'
+                WHEN name LIKE '%出行%' OR name LIKE '%旅行%' THEN 'plane'
+                WHEN name LIKE '%餐%' THEN 'utensils'
+                WHEN name LIKE '%购物%' THEN 'shopping-bag'
+                WHEN name LIKE '%目标%' THEN 'target'
+                WHEN name LIKE '%灵感%' THEN 'lightbulb'
+                ELSE 'tags'
+             END WHERE icon = 'tags'",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch("PRAGMA user_version = 3;")
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [table],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|value| value.is_some())
+    .map_err(|error| error.to_string())
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let mut statement = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|error| error.to_string())?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?;
+    for value in columns {
+        if value.map_err(|error| error.to_string())? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn needs_setup(conn: &Connection) -> Result<bool, String> {
@@ -231,16 +316,17 @@ pub fn logout(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-pub fn list_tags(conn: &Connection, owner_id: &str) -> Result<Vec<Tag>, String> {
-    let mut statement = conn.prepare("SELECT id, name, color, sort_order FROM tags WHERE owner_id = ?1 ORDER BY sort_order, name COLLATE NOCASE")
+pub fn list_categories(conn: &Connection, owner_id: &str) -> Result<Vec<Category>, String> {
+    let mut statement = conn.prepare("SELECT id, name, color, icon, sort_order FROM categories WHERE owner_id = ?1 ORDER BY sort_order, name COLLATE NOCASE")
         .map_err(|error| error.to_string())?;
     let rows = statement
         .query_map([owner_id], |row| {
-            Ok(Tag {
+            Ok(Category {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 color: row.get(2)?,
-                sort_order: row.get(3)?,
+                icon: row.get(3)?,
+                sort_order: row.get(4)?,
             })
         })
         .map_err(|error| error.to_string())?;
@@ -248,58 +334,66 @@ pub fn list_tags(conn: &Connection, owner_id: &str) -> Result<Vec<Tag>, String> 
         .map_err(|error| error.to_string())
 }
 
-pub fn save_tag(conn: &Connection, owner_id: &str, input: TagInput) -> Result<Tag, String> {
+pub fn save_category(
+    conn: &Connection,
+    owner_id: &str,
+    input: CategoryInput,
+) -> Result<Category, String> {
     let name = input.name.trim();
     if name.is_empty() || name.chars().count() > 20 {
-        return Err("标签名称需为 1 至 20 个字符".to_string());
+        return Err("分类名称需为 1 至 20 个字符".to_string());
     }
     if !is_hex_color(&input.color) {
-        return Err("请选择有效的标签颜色".to_string());
+        return Err("请选择有效的分类颜色".to_string());
+    }
+    if !is_category_icon(&input.icon) {
+        return Err("请选择有效的分类图标".to_string());
     }
     let now = now_millis();
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let changed = conn.execute(
-        "INSERT INTO tags (id, owner_id, name, color, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-         ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color, sort_order = excluded.sort_order, updated_at = excluded.updated_at WHERE tags.owner_id = excluded.owner_id",
-        params![id, owner_id, name, input.color, input.sort_order, now],
-    ).map_err(map_tag_error)?;
+        "INSERT INTO categories (id, owner_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color, icon = excluded.icon, sort_order = excluded.sort_order, updated_at = excluded.updated_at WHERE categories.owner_id = excluded.owner_id",
+        params![id, owner_id, name, input.color, input.icon, input.sort_order, now],
+    ).map_err(map_category_error)?;
     if changed == 0 {
-        return Err("标签不存在或无权修改".to_string());
+        return Err("分类不存在或无权修改".to_string());
     }
-    Ok(Tag {
+    Ok(Category {
         id,
         name: name.to_string(),
         color: input.color,
+        icon: input.icon,
         sort_order: input.sort_order,
     })
 }
 
-pub fn delete_tag(conn: &Connection, owner_id: &str, tag_id: &str) -> Result<(), String> {
+pub fn delete_category(conn: &Connection, owner_id: &str, category_id: &str) -> Result<(), String> {
     let transaction = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
     transaction
         .execute(
-            "UPDATE tasks SET tag_id = NULL, updated_at = ?1 WHERE owner_id = ?2 AND tag_id = ?3",
-            params![now_millis(), owner_id, tag_id],
+            "UPDATE tasks SET category_id = NULL, updated_at = ?1 WHERE owner_id = ?2 AND category_id = ?3",
+            params![now_millis(), owner_id, category_id],
         )
         .map_err(|error| error.to_string())?;
     let changed = transaction
         .execute(
-            "DELETE FROM tags WHERE id = ?1 AND owner_id = ?2",
-            params![tag_id, owner_id],
+            "DELETE FROM categories WHERE id = ?1 AND owner_id = ?2",
+            params![category_id, owner_id],
         )
         .map_err(|error| error.to_string())?;
     if changed == 0 {
-        return Err("标签不存在或无权删除".to_string());
+        return Err("分类不存在或无权删除".to_string());
     }
     transaction.commit().map_err(|error| error.to_string())
 }
 
 pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String> {
     let mut statement = conn.prepare(
-        "SELECT tasks.id, tasks.title, tasks.tag_id, tags.name, tags.color, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
-         FROM tasks LEFT JOIN tags ON tags.id = tasks.tag_id AND tags.owner_id = tasks.owner_id
+        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
+         FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id
          WHERE tasks.owner_id = ?1
          ORDER BY CASE WHEN tasks.planned_date IS NULL THEN 1 ELSE 0 END, tasks.planned_date, tasks.planned_time, tasks.created_at DESC",
     ).map_err(|error| error.to_string())?;
@@ -308,6 +402,33 @@ pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String
         .map_err(|error| error.to_string())?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())
+}
+
+pub fn reschedule_overdue_tasks(
+    conn: &Connection,
+    owner_id: &str,
+    today: &str,
+) -> Result<usize, String> {
+    validate_date(Some(today))?;
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let changed = transaction
+        .execute(
+            "UPDATE tasks
+             SET planned_date = ?1, updated_at = ?2
+             WHERE owner_id = ?3
+               AND status = 'todo'
+               AND planned_date IS NOT NULL
+               AND planned_date < ?1
+               AND parent_task_id IS NULL
+               AND json_valid(repeat_rule) = 1
+               AND json_extract(repeat_rule, '$.kind') = 'none'",
+            params![today, now_millis(), owner_id],
+        )
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(changed)
 }
 
 pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<Task, String> {
@@ -319,14 +440,14 @@ pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<
     validate_time(input.planned_time.as_deref())?;
     validate_time(input.planned_end_time.as_deref())?;
     validate_task_options(&input)?;
-    let tag_id = verify_tag(conn, owner_id, input.tag_id.as_deref())?;
+    let category_id = verify_category(conn, owner_id, input.category_id.as_deref())?;
     let now = now_millis();
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let changed = conn.execute(
-        "INSERT INTO tasks (id, owner_id, title, tag_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, parent_task_id, status, notes, created_at, completed_at, updated_at)
+        "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, parent_task_id, status, notes, created_at, completed_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'todo', ?13, ?14, NULL, ?14)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, tag_id = excluded.tag_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, parent_task_id = excluded.parent_task_id, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
-        params![id, owner_id, title, tag_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, input.occurrence_overrides, input.parent_task_id, input.notes.trim(), now],
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, parent_task_id = excluded.parent_task_id, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
+        params![id, owner_id, title, category_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, input.occurrence_overrides, input.parent_task_id, input.notes.trim(), now],
     ).map_err(|error| error.to_string())?;
     if changed == 0 {
         return Err("事项不存在或无权修改".to_string());
@@ -377,8 +498,8 @@ pub fn reschedule_task(
 
 fn get_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<Option<Task>, String> {
     conn.query_row(
-        "SELECT tasks.id, tasks.title, tasks.tag_id, tags.name, tags.color, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
-         FROM tasks LEFT JOIN tags ON tags.id = tasks.tag_id AND tags.owner_id = tasks.owner_id WHERE tasks.id = ?1 AND tasks.owner_id = ?2",
+        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
+         FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id WHERE tasks.id = ?1 AND tasks.owner_id = ?2",
         params![task_id, owner_id], task_from_row,
     ).optional().map_err(|error| error.to_string())
 }
@@ -387,22 +508,23 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     Ok(Task {
         id: row.get(0)?,
         title: row.get(1)?,
-        tag_id: row.get(2)?,
-        tag_name: row.get(3)?,
-        tag_color: row.get(4)?,
-        planned_date: row.get(5)?,
-        planned_time: row.get(6)?,
-        planned_end_time: row.get(7)?,
-        schedule_kind: row.get(8)?,
-        priority: row.get(9)?,
-        repeat_rule: row.get(10)?,
-        occurrence_overrides: row.get(11)?,
-        parent_task_id: row.get(12)?,
-        status: row.get(13)?,
-        notes: row.get(14)?,
-        created_at: row.get(15)?,
-        completed_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        category_id: row.get(2)?,
+        category_name: row.get(3)?,
+        category_color: row.get(4)?,
+        category_icon: row.get(5)?,
+        planned_date: row.get(6)?,
+        planned_time: row.get(7)?,
+        planned_end_time: row.get(8)?,
+        schedule_kind: row.get(9)?,
+        priority: row.get(10)?,
+        repeat_rule: row.get(11)?,
+        occurrence_overrides: row.get(12)?,
+        parent_task_id: row.get(13)?,
+        status: row.get(14)?,
+        notes: row.get(15)?,
+        created_at: row.get(16)?,
+        completed_at: row.get(17)?,
+        updated_at: row.get(18)?,
     })
 }
 
@@ -411,27 +533,27 @@ fn set_active_user(conn: &Connection, user_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn verify_tag(
+fn verify_category(
     conn: &Connection,
     owner_id: &str,
-    tag_id: Option<&str>,
+    category_id: Option<&str>,
 ) -> Result<Option<String>, String> {
-    let Some(tag_id) = tag_id.filter(|value| !value.trim().is_empty()) else {
+    let Some(category_id) = category_id.filter(|value| !value.trim().is_empty()) else {
         return Ok(None);
     };
     let exists = conn
         .query_row(
-            "SELECT 1 FROM tags WHERE id = ?1 AND owner_id = ?2",
-            params![tag_id, owner_id],
+            "SELECT 1 FROM categories WHERE id = ?1 AND owner_id = ?2",
+            params![category_id, owner_id],
             |_| Ok(()),
         )
         .optional()
         .map_err(|error| error.to_string())?
         .is_some();
     if !exists {
-        return Err("所选标签不存在或无权使用".to_string());
+        return Err("所选分类不存在或无权使用".to_string());
     }
-    Ok(Some(tag_id.to_string()))
+    Ok(Some(category_id.to_string()))
 }
 
 fn validate_account(input: &AccountInput) -> Result<(), String> {
@@ -485,10 +607,21 @@ fn validate_task_options(input: &TaskInput) -> Result<(), String> {
     if !["all_day", "point", "range"].contains(&input.schedule_kind.as_str()) {
         return Err("时间类型无效".to_string());
     }
-    if !["urgent_important", "important_not_urgent", "urgent_not_important", "not_urgent_not_important"].contains(&input.priority.as_str()) {
+    if ![
+        "urgent_important",
+        "important_not_urgent",
+        "urgent_not_important",
+        "not_urgent_not_important",
+    ]
+    .contains(&input.priority.as_str())
+    {
         return Err("优先级无效".to_string());
     }
-    if input.schedule_kind == "range" && (input.planned_time.is_none() || input.planned_end_time.is_none() || input.planned_time >= input.planned_end_time) {
+    if input.schedule_kind == "range"
+        && (input.planned_time.is_none()
+            || input.planned_end_time.is_none()
+            || input.planned_time >= input.planned_end_time)
+    {
         return Err("时间段的结束时间必须晚于开始时间".to_string());
     }
     if input.repeat_rule.len() > 4000 || input.occurrence_overrides.len() > 20000 {
@@ -656,17 +789,10 @@ fn validate_database_file(path: &Path) -> Result<(), String> {
     if version > SCHEMA_VERSION {
         return Err("备份来自更高版本的客户端，请升级应用后再恢复".to_string());
     }
-    for table in ["users", "app_settings", "tags", "tasks"] {
-        let exists = conn
-            .query_row(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
-                [table],
-                |_| Ok(()),
-            )
-            .optional()
-            .map_err(|_| "备份中的数据库无法校验".to_string())?
-            .is_some();
-        if !exists {
+    let category_table = if version < 3 { "tags" } else { "categories" };
+    for table in ["users", "app_settings", category_table, "tasks"] {
+        if !table_exists(&conn, table).map_err(|_| "备份中的数据库无法校验".to_string())?
+        {
             return Err("备份不属于岁岁时光或版本过旧".to_string());
         }
     }
@@ -712,11 +838,34 @@ fn is_hex_color(value: &str) -> bool {
         && value.chars().skip(1).all(|char| char.is_ascii_hexdigit())
 }
 
+fn is_category_icon(value: &str) -> bool {
+    [
+        "tags",
+        "briefcase-business",
+        "house",
+        "book-open",
+        "heart-pulse",
+        "dumbbell",
+        "wallet-cards",
+        "users-round",
+        "plane",
+        "utensils",
+        "shopping-bag",
+        "target",
+        "lightbulb",
+    ]
+    .contains(&value)
+}
+
 fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
+}
+
+pub fn today_string() -> String {
+    Local::now().date_naive().format("%Y-%m-%d").to_string()
 }
 
 fn map_user_error(error: rusqlite::Error) -> String {
@@ -727,9 +876,9 @@ fn map_user_error(error: rusqlite::Error) -> String {
     }
 }
 
-fn map_tag_error(error: rusqlite::Error) -> String {
+fn map_category_error(error: rusqlite::Error) -> String {
     if error.to_string().contains("UNIQUE constraint failed") {
-        "已存在同名标签".to_string()
+        "已存在同名分类".to_string()
     } else {
         error.to_string()
     }
@@ -748,6 +897,33 @@ mod tests {
         AccountInput {
             username: name.to_string(),
             password: "password123".to_string(),
+        }
+    }
+
+    fn task_input(
+        title: &str,
+        planned_date: Option<&str>,
+        planned_time: Option<&str>,
+        repeat_rule: &str,
+        parent_task_id: Option<String>,
+    ) -> TaskInput {
+        TaskInput {
+            id: None,
+            title: title.to_string(),
+            category_id: None,
+            planned_date: planned_date.map(str::to_string),
+            planned_time: planned_time.map(str::to_string),
+            planned_end_time: None,
+            schedule_kind: if planned_time.is_some() {
+                "point".to_string()
+            } else {
+                "all_day".to_string()
+            },
+            priority: "not_urgent_not_important".to_string(),
+            repeat_rule: repeat_rule.to_string(),
+            occurrence_overrides: "{}".to_string(),
+            parent_task_id,
+            notes: String::new(),
         }
     }
 
@@ -772,16 +948,72 @@ mod tests {
     }
 
     #[test]
-    fn deleting_tag_detaches_tasks() {
+    fn legacy_tags_are_migrated_to_categories_with_icons() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL, password_hash TEXT NOT NULL, created_at INTEGER NOT NULL);
+             CREATE TABLE tags (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, color TEXT NOT NULL, sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+             CREATE TABLE tasks (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, title TEXT NOT NULL, tag_id TEXT, planned_date TEXT, planned_time TEXT, status TEXT NOT NULL, notes TEXT NOT NULL, created_at INTEGER NOT NULL, completed_at INTEGER, updated_at INTEGER NOT NULL);
+             INSERT INTO tags VALUES ('category-1', 'user-1', '工作安排', '#4F8EF7', 0, 0, 0);
+             INSERT INTO tasks VALUES ('task-1', 'user-1', '完成方案', 'category-1', NULL, NULL, 'todo', '', 0, NULL, 0);
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+
+        initialize(&conn).unwrap();
+
+        assert!(table_exists(&conn, "categories").unwrap());
+        assert!(!table_exists(&conn, "tags").unwrap());
+        assert_eq!(
+            conn.query_row(
+                "SELECT icon FROM categories WHERE id = 'category-1'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "briefcase-business"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT category_id FROM tasks WHERE id = 'task-1'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "category-1"
+        );
+    }
+
+    #[test]
+    fn legacy_backup_schema_is_accepted() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("legacy.sqlite3");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE users (id TEXT PRIMARY KEY);
+             CREATE TABLE app_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL);
+             CREATE TABLE tags (id TEXT PRIMARY KEY);
+             CREATE TABLE tasks (id TEXT PRIMARY KEY, tag_id TEXT);
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+        drop(conn);
+
+        assert!(validate_database_file(&path).is_ok());
+    }
+
+    #[test]
+    fn deleting_category_detaches_tasks() {
         let conn = memory_db();
         let user = create_initial_account(&conn, &account("用户甲")).unwrap();
-        let tag = save_tag(
+        let category = save_category(
             &conn,
             &user.id,
-            TagInput {
+            CategoryInput {
                 id: None,
                 name: "工作".to_string(),
                 color: "#4F8EF7".to_string(),
+                icon: "briefcase-business".to_string(),
                 sort_order: 0,
             },
         )
@@ -792,33 +1024,39 @@ mod tests {
             TaskInput {
                 id: None,
                 title: "完成方案".to_string(),
-                tag_id: Some(tag.id.clone()),
+                category_id: Some(category.id.clone()),
                 planned_date: Some("2026-07-16".to_string()),
                 planned_time: None,
-                planned_end_time: None, schedule_kind: "all_day".to_string(), priority: "not_urgent_not_important".to_string(), repeat_rule: "{\"kind\":\"none\"}".to_string(), occurrence_overrides: "{}".to_string(), parent_task_id: None,
+                planned_end_time: None,
+                schedule_kind: "all_day".to_string(),
+                priority: "not_urgent_not_important".to_string(),
+                repeat_rule: "{\"kind\":\"none\"}".to_string(),
+                occurrence_overrides: "{}".to_string(),
+                parent_task_id: None,
                 notes: String::new(),
             },
         )
         .unwrap();
-        delete_tag(&conn, &user.id, &tag.id).unwrap();
+        delete_category(&conn, &user.id, &category.id).unwrap();
         assert!(get_task(&conn, &user.id, &task.id)
             .unwrap()
             .unwrap()
-            .tag_id
+            .category_id
             .is_none());
     }
 
     #[test]
-    fn failed_tag_deletion_keeps_task_association() {
+    fn failed_category_deletion_keeps_task_association() {
         let conn = memory_db();
         let user = create_initial_account(&conn, &account("用户甲")).unwrap();
-        let tag = save_tag(
+        let category = save_category(
             &conn,
             &user.id,
-            TagInput {
+            CategoryInput {
                 id: None,
                 name: "工作".to_string(),
                 color: "#4F8EF7".to_string(),
+                icon: "briefcase-business".to_string(),
                 sort_order: 0,
             },
         )
@@ -829,20 +1067,28 @@ mod tests {
             TaskInput {
                 id: None,
                 title: "完成方案".to_string(),
-                tag_id: Some(tag.id.clone()),
+                category_id: Some(category.id.clone()),
                 planned_date: None,
                 planned_time: None,
-                planned_end_time: None, schedule_kind: "all_day".to_string(), priority: "not_urgent_not_important".to_string(), repeat_rule: "{\"kind\":\"none\"}".to_string(), occurrence_overrides: "{}".to_string(), parent_task_id: None,
+                planned_end_time: None,
+                schedule_kind: "all_day".to_string(),
+                priority: "not_urgent_not_important".to_string(),
+                repeat_rule: "{\"kind\":\"none\"}".to_string(),
+                occurrence_overrides: "{}".to_string(),
+                parent_task_id: None,
                 notes: String::new(),
             },
         )
         .unwrap();
-        conn.execute_batch("CREATE TRIGGER block_tag_delete BEFORE DELETE ON tags BEGIN SELECT RAISE(ABORT, 'blocked'); END;").unwrap();
+        conn.execute_batch("CREATE TRIGGER block_category_delete BEFORE DELETE ON categories BEGIN SELECT RAISE(ABORT, 'blocked'); END;").unwrap();
 
-        assert!(delete_tag(&conn, &user.id, &tag.id).is_err());
+        assert!(delete_category(&conn, &user.id, &category.id).is_err());
         assert_eq!(
-            get_task(&conn, &user.id, &task.id).unwrap().unwrap().tag_id,
-            Some(tag.id)
+            get_task(&conn, &user.id, &task.id)
+                .unwrap()
+                .unwrap()
+                .category_id,
+            Some(category.id)
         );
     }
 
@@ -857,13 +1103,154 @@ mod tests {
     #[test]
     fn time_ranges_and_task_options_are_validated() {
         let mut input = TaskInput {
-            id: None, title: "时间段事项".to_string(), tag_id: None, planned_date: Some("2026-07-23".to_string()), planned_time: Some("18:00".to_string()), planned_end_time: Some("17:00".to_string()), schedule_kind: "range".to_string(), priority: "not_urgent_not_important".to_string(), repeat_rule: "{\"kind\":\"daily\"}".to_string(), occurrence_overrides: "{}".to_string(), parent_task_id: None, notes: String::new(),
+            id: None,
+            title: "时间段事项".to_string(),
+            category_id: None,
+            planned_date: Some("2026-07-23".to_string()),
+            planned_time: Some("18:00".to_string()),
+            planned_end_time: Some("17:00".to_string()),
+            schedule_kind: "range".to_string(),
+            priority: "not_urgent_not_important".to_string(),
+            repeat_rule: "{\"kind\":\"daily\"}".to_string(),
+            occurrence_overrides: "{}".to_string(),
+            parent_task_id: None,
+            notes: String::new(),
         };
         assert!(validate_task_options(&input).is_err());
         input.planned_end_time = Some("19:00".to_string());
         assert!(validate_task_options(&input).is_ok());
         input.priority = "invalid".to_string();
         assert!(validate_task_options(&input).is_err());
+    }
+
+    #[test]
+    fn overdue_non_repeating_tasks_are_rescheduled_without_touching_excluded_tasks() {
+        let conn = memory_db();
+        let owner = create_initial_account(&conn, &account("用户甲")).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at) VALUES ('user-b', '用户乙', 'unused', 0)",
+            [],
+        )
+        .unwrap();
+        let overdue = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "逾期事项",
+                Some("2026-07-20"),
+                Some("09:30"),
+                r#"{"kind":"none"}"#,
+                None,
+            ),
+        )
+        .unwrap();
+        let completed = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "已完成事项",
+                Some("2026-07-20"),
+                None,
+                r#"{"kind":"none"}"#,
+                None,
+            ),
+        )
+        .unwrap();
+        toggle_task(&conn, &owner.id, &completed.id).unwrap();
+        let recurring = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "重复事项",
+                Some("2026-07-20"),
+                None,
+                r#"{"kind":"daily"}"#,
+                None,
+            ),
+        )
+        .unwrap();
+        let undated = save_task(
+            &conn,
+            &owner.id,
+            task_input("未安排事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let parent = save_task(
+            &conn,
+            &owner.id,
+            task_input("父事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let child = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "子事项",
+                Some("2026-07-20"),
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id),
+            ),
+        )
+        .unwrap();
+        let other_task = save_task(
+            &conn,
+            "user-b",
+            task_input(
+                "其他用户事项",
+                Some("2026-07-20"),
+                None,
+                r#"{"kind":"none"}"#,
+                None,
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(
+            reschedule_overdue_tasks(&conn, &owner.id, "2026-07-24").unwrap(),
+            1
+        );
+
+        let updated = get_task(&conn, &owner.id, &overdue.id).unwrap().unwrap();
+        assert_eq!(updated.planned_date.as_deref(), Some("2026-07-24"));
+        assert_eq!(updated.planned_time.as_deref(), Some("09:30"));
+        assert_eq!(
+            get_task(&conn, &owner.id, &completed.id)
+                .unwrap()
+                .unwrap()
+                .planned_date
+                .as_deref(),
+            Some("2026-07-20")
+        );
+        assert_eq!(
+            get_task(&conn, &owner.id, &recurring.id)
+                .unwrap()
+                .unwrap()
+                .planned_date
+                .as_deref(),
+            Some("2026-07-20")
+        );
+        assert!(get_task(&conn, &owner.id, &undated.id)
+            .unwrap()
+            .unwrap()
+            .planned_date
+            .is_none());
+        assert_eq!(
+            get_task(&conn, &owner.id, &child.id)
+                .unwrap()
+                .unwrap()
+                .planned_date
+                .as_deref(),
+            Some("2026-07-20")
+        );
+        assert_eq!(
+            get_task(&conn, "user-b", &other_task.id)
+                .unwrap()
+                .unwrap()
+                .planned_date
+                .as_deref(),
+            Some("2026-07-20")
+        );
     }
 
     #[test]
@@ -904,10 +1291,15 @@ mod tests {
             TaskInput {
                 id: None,
                 title: "私人事项".to_string(),
-                tag_id: None,
+                category_id: None,
                 planned_date: None,
                 planned_time: None,
-                planned_end_time: None, schedule_kind: "all_day".to_string(), priority: "not_urgent_not_important".to_string(), repeat_rule: "{\"kind\":\"none\"}".to_string(), occurrence_overrides: "{}".to_string(), parent_task_id: None,
+                planned_end_time: None,
+                schedule_kind: "all_day".to_string(),
+                priority: "not_urgent_not_important".to_string(),
+                repeat_rule: "{\"kind\":\"none\"}".to_string(),
+                occurrence_overrides: "{}".to_string(),
+                parent_task_id: None,
                 notes: String::new(),
             },
         )

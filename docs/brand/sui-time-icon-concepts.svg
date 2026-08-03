@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="620" viewBox="0 0 1920 620" role="img" aria-labelledby="title description">
+  <title id="title">岁岁时光 3D 图标方案</title>
+  <desc id="description">四个清新简约的抽象三维应用图标概念：折光时刻、时间轨道、晨雾沙漏和浮光棱镜。</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7fbf8"/>
+      <stop offset="1" stop-color="#eef5f4"/>
+    </linearGradient>
+    <linearGradient id="tile-a" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f8fdfc"/><stop offset="1" stop-color="#dcece5"/>
+    </linearGradient>
+    <linearGradient id="tile-b" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fbfbff"/><stop offset="1" stop-color="#e4eafa"/>
+    </linearGradient>
+    <linearGradient id="tile-c" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fbfefc"/><stop offset="1" stop-color="#e1f1e8"/>
+    </linearGradient>
+    <linearGradient id="tile-d" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fffdf9"/><stop offset="1" stop-color="#f3e9d8"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#b58bff"/><stop offset=".52" stop-color="#7955db"/><stop offset="1" stop-color="#4e309d"/>
+    </linearGradient>
+    <linearGradient id="lilac" x1="0" y1="0" x2=".85" y2="1">
+      <stop stop-color="#e6d8ff"/><stop offset=".5" stop-color="#a67bf3"/><stop offset="1" stop-color="#7350c2"/>
+    </linearGradient>
+    <linearGradient id="aqua" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#9ee8de"/><stop offset=".5" stop-color="#4bbbad"/><stop offset="1" stop-color="#167d78"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#b9eafe"/><stop offset=".56" stop-color="#5ca9ee"/><stop offset="1" stop-color="#3267c9"/>
+    </linearGradient>
+    <linearGradient id="peach" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ffd6a3"/><stop offset=".54" stop-color="#f59b6d"/><stop offset="1" stop-color="#ca5e6f"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fff0ad"/><stop offset=".5" stop-color="#f5c45d"/><stop offset="1" stop-color="#d2823e"/>
+    </linearGradient>
+    <filter id="shadow" x="-40%" y="-40%" width="180%" height="200%"><feDropShadow dx="0" dy="22" stdDeviation="18" flood-color="#304d45" flood-opacity=".18"/></filter>
+    <filter id="inner" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="9" stdDeviation="8" flood-color="#17362e" flood-opacity=".20"/></filter>
+  </defs>
+  <rect width="1920" height="620" fill="url(#page)"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" fill="#29413a">
+    <text x="90" y="88" font-size="37" font-weight="700">岁岁时光 · 3D 图标方向</text>
+    <text x="90" y="129" font-size="22" fill="#6c8179">清新、简约、抽象。点击确定方向后再继续精修。</text>
+  </g>
+
+  <!-- A: folded light -->
+  <g transform="translate(90 180)">
+    <rect width="330" height="330" rx="82" fill="url(#tile-a)" filter="url(#shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="71" fill="#ffffff" fill-opacity=".66"/>
+    <g transform="translate(48 40)" filter="url(#inner)">
+      <path d="M73 204 25 161 58 83 124 34l45 41-20 78z" fill="url(#violet)"/>
+      <path d="m124 34 40 51-15 82-46-20 1-58z" fill="url(#lilac)"/>
+      <path d="m73 204 76-37 63 36-50 36z" fill="#5b3ab6"/>
+      <path d="m58 83 46 6-1 58-45 14-33-1z" fill="#8a63df"/>
+      <path d="m124 34 20 14-26 47-14-6z" fill="#f4e9ff" fill-opacity=".7"/>
+    </g>
+    <circle cx="275" cy="57" r="13" fill="#f4b47b"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#29413a">A. 折光时刻</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#72837d">柔和、记忆感、辨识度最高</text>
+  </g>
+
+  <!-- B: orbital time -->
+  <g transform="translate(540 180)">
+    <rect width="330" height="330" rx="82" fill="url(#tile-b)" filter="url(#shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="71" fill="#ffffff" fill-opacity=".65"/>
+    <g transform="translate(165 165) rotate(-25)" fill="none" stroke-linecap="round">
+      <ellipse rx="112" ry="55" stroke="#2b8291" stroke-width="43"/>
+      <path d="M-98 5C-65-69 25-87 84-47" stroke="url(#aqua)" stroke-width="43"/>
+      <path d="M92-40C129 30 54 91-21 94" stroke="url(#sky)" stroke-width="43"/>
+      <path d="M-31 92C-90 81-121 49-119 12" stroke="#73d5c6" stroke-width="43"/>
+    </g>
+    <circle cx="165" cy="165" r="27" fill="#fff"/>
+    <circle cx="165" cy="165" r="16" fill="#3267c9"/>
+    <circle cx="274" cy="61" r="12" fill="#f4b47b"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#29413a">B. 时间轨道</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#72837d">轻盈、科技感、动态延展性强</text>
+  </g>
+
+  <!-- C: mist hourglass -->
+  <g transform="translate(990 180)">
+    <rect width="330" height="330" rx="82" fill="url(#tile-c)" filter="url(#shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="71" fill="#ffffff" fill-opacity=".65"/>
+    <g transform="translate(75 48)" filter="url(#inner)">
+      <path d="M26 17h129L119 78c-9 16-9 32 0 48l36 61H26l36-61c9-16 9-32 0-48z" fill="url(#aqua)"/>
+      <path d="M26 17h129l-36 61c-9 16-9 32 0 48l36 61H88l22-57c5-13 5-26 0-39L77 17z" fill="#77d6c5" fill-opacity=".78"/>
+      <path d="M58 47h67L93 99z" fill="#e5fff8" fill-opacity=".85"/>
+      <path d="m49 160 43-39 44 39z" fill="#265f76"/>
+      <rect x="7" y="0" width="167" height="26" rx="13" fill="#4d9d95"/>
+      <rect x="7" y="178" width="167" height="26" rx="13" fill="#357d77"/>
+    </g>
+    <circle cx="268" cy="67" r="14" fill="#f4c66b"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#29413a">C. 晨雾沙漏</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#72837d">最贴合时间主题，温柔克制</text>
+  </g>
+
+  <!-- D: prism bloom -->
+  <g transform="translate(1440 180)">
+    <rect width="330" height="330" rx="82" fill="url(#tile-d)" filter="url(#shadow)"/>
+    <rect x="13" y="13" width="304" height="304" rx="71" fill="#ffffff" fill-opacity=".66"/>
+    <g transform="translate(165 156)" filter="url(#inner)">
+      <path d="M0-104 86-29 0 95-86-29z" fill="url(#peach)"/>
+      <path d="M0-104 86-29 0-9z" fill="#ffe8bf"/>
+      <path d="M0-9 86-29 0 95z" fill="#cb6885"/>
+      <path d="M0-104v95l-86-20z" fill="url(#gold)"/>
+      <path d="M0-9v104l-86-124z" fill="#ea9b65"/>
+      <path d="M-86-29 0-9 86-29 0 10z" fill="#fff3d2" fill-opacity=".92"/>
+    </g>
+    <circle cx="65" cy="69" r="12" fill="#f5c45d"/>
+    <text x="0" y="383" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="26" font-weight="700" fill="#29413a">D. 浮光棱镜</text>
+    <text x="0" y="416" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="18" fill="#72837d">最抽象、明快，有生活方式气质</text>
+  </g>
+</svg>

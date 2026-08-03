@@ -24,19 +24,21 @@ pub struct AccountInput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Tag {
+pub struct Category {
     pub id: String,
     pub name: String,
     pub color: String,
+    pub icon: String,
     pub sort_order: i64,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TagInput {
+pub struct CategoryInput {
     pub id: Option<String>,
     pub name: String,
     pub color: String,
+    pub icon: String,
     pub sort_order: i64,
 }
 
@@ -45,9 +47,10 @@ pub struct TagInput {
 pub struct Task {
     pub id: String,
     pub title: String,
-    pub tag_id: Option<String>,
-    pub tag_name: Option<String>,
-    pub tag_color: Option<String>,
+    pub category_id: Option<String>,
+    pub category_name: Option<String>,
+    pub category_color: Option<String>,
+    pub category_icon: Option<String>,
     pub planned_date: Option<String>,
     pub planned_time: Option<String>,
     pub planned_end_time: Option<String>,
@@ -68,7 +71,7 @@ pub struct Task {
 pub struct TaskInput {
     pub id: Option<String>,
     pub title: String,
-    pub tag_id: Option<String>,
+    pub category_id: Option<String>,
     pub planned_date: Option<String>,
     pub planned_time: Option<String>,
     #[serde(default)]
@@ -86,10 +89,18 @@ pub struct TaskInput {
     pub notes: String,
 }
 
-fn default_schedule_kind() -> String { "all_day".to_string() }
-fn default_priority() -> String { "not_urgent_not_important".to_string() }
-fn default_repeat_rule() -> String { "{\"kind\":\"none\"}".to_string() }
-fn default_occurrence_overrides() -> String { "{}".to_string() }
+fn default_schedule_kind() -> String {
+    "all_day".to_string()
+}
+fn default_priority() -> String {
+    "not_urgent_not_important".to_string()
+}
+fn default_repeat_rule() -> String {
+    "{\"kind\":\"none\"}".to_string()
+}
+fn default_occurrence_overrides() -> String {
+    "{}".to_string()
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

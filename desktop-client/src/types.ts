@@ -9,26 +9,29 @@ export interface BootState {
   session: UserSession | null
 }
 
-export interface Tag {
+export interface Category {
   id: string
   name: string
   color: string
+  icon: string
   sortOrder: number
 }
 
-export interface TagInput {
+export interface CategoryInput {
   id?: string
   name: string
   color: string
+  icon: string
   sortOrder: number
 }
 
 export interface Task {
   id: string
   title: string
-  tagId: string | null
-  tagName: string | null
-  tagColor: string | null
+  categoryId: string | null
+  categoryName: string | null
+  categoryColor: string | null
+  categoryIcon: string | null
   plannedDate: string | null
   plannedTime: string | null
   plannedEndTime: string | null
@@ -47,7 +50,7 @@ export interface Task {
 export interface TaskInput {
   id?: string
   title: string
-  tagId: string | null
+  categoryId: string | null
   plannedDate: string | null
   plannedTime: string | null
   plannedEndTime: string | null

@@ -1,6 +1,6 @@
 [package]
 name = "sui-time-desktop"
-version = "0.1.10"
+version = "0.2.0"
 description = "岁岁时光桌面客户端"
 authors = ["wangjun"]
 edition = "2021"
@@ -15,7 +15,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 aes-gcm = "0.10"
 argon2 = "0.5"
-chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
