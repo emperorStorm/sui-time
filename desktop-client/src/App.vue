@@ -106,9 +106,10 @@
 
     <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
       <form class="modal-panel task-modal" @submit.prevent="saveTaskForm">
-        <header class="task-modal-head"><span class="task-check modal-check"><Check :size="14" /></span><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><span v-if="selectedTaskCategory" class="task-category-indicator" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`分类：${selectedTaskCategory.name}`"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></span><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
+        <header class="task-modal-head"><span class="task-check modal-check"><Check :size="14" /></span><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
         <div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="taskDraft.priority = option.value; priorityOpen = false"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div>
-        <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button><label class="task-meta-row"><CategoryIcon :size="20" /><span><small>分类</small></span><select v-model="taskDraft.categoryId" aria-label="选择分类"><option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option></select></label></section>
+        <div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div>
+        <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
         <section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#51886D' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" class="subtask-row"><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" @click="subtask.status = subtask.status === 'done' ? 'todo' : 'done'"><Check :size="13" /></button><input v-model.trim="subtask.title" maxlength="120" placeholder="子事项" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><X :size="16" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft"><Plus :size="20" />添加子事项</button></section>
         <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。"></textarea></label>
         <footer><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><span></span><button class="quiet-button" type="button" @click="closeTaskModal">取消</button><button class="primary-button" :disabled="savingTask">{{ savingTask ? '正在保存' : '保存' }}</button></footer>
@@ -116,6 +117,8 @@
     </div>
 
     <div v-if="timeOpen" class="modal-backdrop nested-backdrop" @mousedown.self="timeOpen = false"><section class="time-sheet"><div class="sheet-tabs"><button v-for="kind in scheduleOptions" :key="kind.value" :class="{ active: taskDraft.scheduleKind === kind.value }" @click="taskDraft.scheduleKind = kind.value">{{ kind.label }}</button></div><label>日期<input v-model="taskDraft.plannedDate" type="date" /></label><label v-if="taskDraft.scheduleKind === 'point'">时间<input v-model="taskDraft.plannedTime" type="time" /></label><div v-if="taskDraft.scheduleKind === 'range'" class="time-range"><label>开始<input v-model="taskDraft.plannedTime" type="time" /></label><label>结束<input v-model="taskDraft.plannedEndTime" type="time" /></label></div><footer><button class="quiet-button" @click="clearTime">清除时间</button><span></span><button class="quiet-button" @click="timeOpen = false">取消</button><button class="primary-button" @click="timeOpen = false">保存</button></footer></section></div>
+
+    <div v-if="reminderOpen" class="modal-backdrop nested-backdrop" @mousedown.self="reminderOpen = false"><section class="reminder-sheet" role="dialog" aria-modal="true" aria-label="设置提醒"><header><div><small>事项提醒</small><h2>提醒时间</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="reminderOpen = false"><X :size="19" /></button></header><div class="reminder-switch-row"><div><strong>是否提醒</strong><small>通过系统通知提醒你</small></div><button :class="['reminder-switch', { active: reminderEnabled }]" type="button" aria-label="开启或关闭提醒" :aria-pressed="reminderEnabled" @click="reminderEnabled = !reminderEnabled"><span></span></button></div><template v-if="reminderEnabled"><p class="reminder-hint">最多设置 3 个提醒</p><div class="reminder-options"><button v-for="option in reminderOptions" :key="option.value" :class="{ selected: taskDraft.reminderOffsets.includes(option.value) }" type="button" @click="toggleReminderOffset(option.value)">{{ option.label }}</button></div></template><p class="reminder-permission">{{ reminderPermissionMessage }}</p><footer><span></span><button class="quiet-button" type="button" @click="reminderOpen = false">取消</button><button class="primary-button" type="button" @click="reminderOpen = false">保存</button></footer></section></div>
 
     <div v-if="repeatOpen" class="modal-backdrop nested-backdrop" @mousedown.self="repeatOpen = false"><section class="repeat-sheet"><header><button class="quiet-button" @click="repeatOpen = false">取消</button><h2>选择重复</h2><span></span></header><div class="repeat-list"><button v-for="option in repeatOptions" :key="option.value" :class="{ selected: repeatDraft.kind === option.value }" @click="chooseRepeat(option.value)"><div><strong>{{ option.label }}</strong><small>{{ option.hint }}</small></div><Check v-if="repeatDraft.kind === option.value" :size="18" /></button></div><div v-if="repeatDraft.kind !== 'none'" class="repeat-config"><label v-if="needsInterval">每隔<input v-model.number="repeatDraft.interval" min="1" max="365" type="number" />天</label><label>结束<select v-model="repeatDraft.endMode"><option value="never">永不结束</option><option value="date">指定日期</option><option value="count">固定次数</option></select></label><label v-if="repeatDraft.endMode === 'date'">结束日期<input v-model="repeatDraft.endDate" type="date" /></label><label v-if="repeatDraft.endMode === 'count'">次数<input v-model.number="repeatDraft.count" min="1" max="999" type="number" /></label></div><footer><span></span><button class="primary-button" @click="applyRepeat">保存规则</button></footer></section></div>
 
@@ -129,11 +132,13 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { AlarmClock, ArrowRight, BookOpen, BriefcaseBusiness, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, Dumbbell, Download, Eye, EyeOff, HeartPulse, House, Info, Lightbulb, LayoutGrid, LogOut, Pencil, Plane, Plus, RefreshCw, RotateCcw, Search, ShoppingBag, Tags as CategoryIcon, Target, Trash2, Upload, UsersRound, Utensils, WalletCards, X } from 'lucide-vue-next'
+import { AlarmClock, ArrowRight, BellRing, BookOpen, BriefcaseBusiness, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, Dumbbell, Download, Eye, EyeOff, HeartPulse, House, Info, Lightbulb, LayoutGrid, LogOut, Pencil, Plane, Plus, RefreshCw, RotateCcw, Search, ShoppingBag, Tags as CategoryIcon, Target, Trash2, Upload, UsersRound, Utensils, WalletCards, X } from 'lucide-vue-next'
 import { createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, listCategories, listTasks, loginUser, logoutUser, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveTask, toggleTask } from './api/native'
 import type { UpdateCheckResult } from './api/native'
 import AppNotificationCenter from './components/AppNotificationCenter.vue'
+import { createTaskReminderScheduler, getReminderPermission, requestReminderPermission } from './composables/use-task-reminders'
 import type { BootState, Category, Priority, RepeatRule, ScheduleKind, Task, TaskInput, UserSession } from './types'
+import { parseOverrides, parseRepeatRule, tasksForDate as resolveTasksForDate } from './utils/task-occurrence'
 
 type View = 'all' | 'week' | 'month' | 'categories' | 'about'
 type Notice = { text: string; type: 'success' | 'error' }
@@ -174,11 +179,14 @@ const backupInProgress = ref(false)
 const savingTask = ref(false)
 const savingCategory = ref(false)
 const authForm = reactive({ username: '', password: '' })
-const taskDraft = reactive<TaskInput>({ title: '', categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes: '' })
+const taskDraft = reactive<TaskInput>({ title: '', categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, notes: '' })
 const categoryDraft = reactive<{ id?: string; name: string; color: string; icon: string; sortOrder: number }>({ name: '', color: colors[0], icon: 'briefcase-business', sortOrder: 0 })
 const priorityOpen = ref(false)
+const categoryMenuOpen = ref(false)
 const timeOpen = ref(false)
+const reminderOpen = ref(false)
 const repeatOpen = ref(false)
+const reminderPermission = ref<'granted' | 'denied' | 'unsupported'>('unsupported')
 const childDrafts = ref<Task[]>([])
 const priorityOptions: Array<{ value: Priority; label: string; mark: string }> = [
   { value: 'urgent_important', label: '重要且紧急', mark: 'I' }, { value: 'important_not_urgent', label: '重要不紧急', mark: 'II' },
@@ -203,6 +211,10 @@ const repeatOptions: Array<{ value: RepeatRule['kind']; label: string; hint: str
 ]
 const repeatDraft = reactive<RepeatRule>({ kind: 'none', interval: 1, endMode: 'never' })
 const editingOccurrence = ref<{ source: Task; date: string } | null>(null)
+const reminderOptions = [
+  { value: 0, label: '准时提醒' }, { value: 5, label: '提前 5 分钟' }, { value: 15, label: '提前 15 分钟' },
+  { value: 30, label: '提前 30 分钟' }, { value: 60, label: '提前 1 小时' }, { value: 120, label: '提前 2 小时' }
+]
 
 const viewMeta = computed(() => ({
   all: { title: '全部事项', subtitle: 'TODAY, TAKE IT GENTLY' },
@@ -215,6 +227,7 @@ const viewMeta = computed(() => ({
 const visibleTasks = computed(() => tasks.value.filter(item => !item.parentTaskId && (showCompleted.value || item.status !== 'done')))
 const taskGroups = computed(() => categories.value.map(category => ({ ...category, tasks: visibleTasks.value.filter(item => item.categoryId === category.id) })))
 const selectedTaskCategory = computed(() => categories.value.find(category => category.id === taskDraft.categoryId))
+const orderedCategories = computed(() => [...categories.value].sort((left, right) => left.sortOrder - right.sortOrder))
 const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) => ({ date, day: Number(date.slice(-2)), weekday: weekdayLabels[index] })))
 const monthDays = computed(() => calendarDays(monthAnchor.value))
 const weekLabel = computed(() => formatMonth(weekAnchor.value))
@@ -223,6 +236,23 @@ const updateButtonLabel = computed(() => checkingUpdate.value ? '正在检查' :
 const timeSummary = computed(() => taskDraft.scheduleKind === 'all_day' ? (taskDraft.plannedDate || '设置时间') : taskDraft.scheduleKind === 'range' ? `${taskDraft.plannedDate || '未设日期'} ${taskDraft.plannedTime || '--:--'}-${taskDraft.plannedEndTime || '--:--'}` : `${taskDraft.plannedDate || '未设日期'} ${taskDraft.plannedTime || '未设时间'}`)
 const repeatSummary = computed(() => repeatOptions.find(option => option.value === repeatDraft.kind)?.label || '添加重复')
 const needsInterval = computed(() => ['every_days', 'custom'].includes(repeatDraft.kind))
+const canSetReminder = computed(() => Boolean(!taskDraft.parentTaskId && taskDraft.plannedDate && taskDraft.plannedTime && taskDraft.scheduleKind !== 'all_day'))
+const reminderEnabled = computed({
+  get: () => taskDraft.reminderOffsets.length > 0,
+  set: enabled => { taskDraft.reminderOffsets = enabled ? [15] : [] }
+})
+const reminderSummary = computed(() => {
+  if (!canSetReminder.value) return '设置时间后可添加提醒'
+  if (!taskDraft.reminderOffsets.length) return '不提醒'
+  return taskDraft.reminderOffsets.map(formatReminderOffset).join('、')
+})
+const reminderPermissionMessage = computed(() => {
+  if (reminderPermission.value === 'granted') return '桌面通知已开启，提醒将在应用运行时送达。'
+  if (reminderPermission.value === 'unsupported') return '仅桌面客户端支持系统提醒。'
+  return '桌面通知尚未开启，保存时会请求系统授权；也可在系统设置中开启。'
+})
+
+let reminderScheduler: ReturnType<typeof createTaskReminderScheduler> | null = null
 
 onMounted(async () => {
   document.addEventListener('mousedown', closeBrandMenuOnOutsideClick)
@@ -233,6 +263,7 @@ onMounted(async () => {
     if (session.value) {
       await refreshData()
       scheduleMidnightRefresh()
+      startReminderScheduler()
     }
   } catch (error) {
     authError.value = messageOf(error)
@@ -245,6 +276,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', closeBrandMenuOnOutsideClick)
   window.clearTimeout(filterTimer)
   window.clearTimeout(midnightRefreshTimer)
+  reminderScheduler?.stop()
 })
 
 let filterTimer: number | undefined
@@ -265,6 +297,7 @@ async function submitAuth() {
     if (bootState.value) bootState.value.needsSetup = false
     await refreshData()
     scheduleMidnightRefresh()
+    startReminderScheduler()
   } catch (error) {
     authError.value = messageOf(error)
   } finally {
@@ -292,9 +325,18 @@ function scheduleMidnightRefresh() {
   }, Math.max(1000, nextDay.getTime() - now.getTime()))
 }
 
+function startReminderScheduler() {
+  reminderScheduler?.stop()
+  if (!session.value) return
+  reminderScheduler = createTaskReminderScheduler(session.value.id)
+  reminderScheduler.start()
+}
+
 async function handleLogout() {
   brandMenuOpen.value = false
   window.clearTimeout(midnightRefreshTimer)
+  reminderScheduler?.stop()
+  reminderScheduler = null
   await logoutUser()
   session.value = null
   tasks.value = []
@@ -326,10 +368,12 @@ async function resetCurrentDate(showSuccess = true) {
 
 function openTaskModal(categoryId?: string | null, item?: Task, date?: string) {
   editingOccurrence.value = item?.id.includes('@') ? { source: tasks.value.find(task => task.id === item.id.split('@')[0]) || item, date: item.plannedDate || '' } : null
-  Object.assign(taskDraft, item ? { id: item.id, title: item.title, categoryId: item.categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes } : { id: undefined, title: '', categoryId: categoryId ?? categories.value[0]?.id ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes: '' })
+  Object.assign(taskDraft, item ? { id: item.id, title: item.title, categoryId: item.categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: [...item.reminderOffsets], parentTaskId: item.parentTaskId, notes: item.notes } : { id: undefined, title: '', categoryId: categoryId ?? categories.value[0]?.id ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, notes: '' })
   Object.assign(repeatDraft, parseRepeatRule(taskDraft.repeatRule))
   childDrafts.value = item ? tasks.value.filter(task => task.parentTaskId === item.id).map(task => ({ ...task })) : []
   priorityOpen.value = false
+  categoryMenuOpen.value = false
+  reminderOpen.value = false
   taskModalOpen.value = true
 }
 
@@ -342,11 +386,13 @@ async function saveTaskForm() {
   savingTask.value = true
   try {
     if (taskDraft.scheduleKind === 'range' && (!taskDraft.plannedTime || !taskDraft.plannedEndTime || taskDraft.plannedTime >= taskDraft.plannedEndTime)) throw new Error('时间段的结束时间必须晚于开始时间')
-    const taskInput = { ...taskDraft, categoryId: taskDraft.categoryId || null, plannedDate: taskDraft.plannedDate || null, plannedTime: taskDraft.scheduleKind === 'all_day' ? null : taskDraft.plannedTime || null, plannedEndTime: taskDraft.scheduleKind === 'range' ? taskDraft.plannedEndTime || null : null, repeatRule: JSON.stringify(repeatDraft) }
+    const taskInput = { ...taskDraft, categoryId: taskDraft.categoryId || null, plannedDate: taskDraft.plannedDate || null, plannedTime: taskDraft.scheduleKind === 'all_day' ? null : taskDraft.plannedTime || null, plannedEndTime: taskDraft.scheduleKind === 'range' ? taskDraft.plannedEndTime || null : null, reminderOffsets: canSetReminder.value ? [...taskDraft.reminderOffsets] : [], repeatRule: JSON.stringify(repeatDraft) }
     const saved = editingOccurrence.value ? await saveOccurrence(editingOccurrence.value.source, editingOccurrence.value.date, taskInput) : await saveTask(taskInput)
-    await Promise.all(childDrafts.value.filter(item => item.title.trim()).map(item => saveTask({ id: item.id, title: item.title, categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: saved.id, notes: '', })))
+    if (taskInput.reminderOffsets.length) reminderPermission.value = await requestReminderPermission()
+    await Promise.all(childDrafts.value.filter(item => item.title.trim()).map(item => saveTask({ id: item.id, title: item.title, categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: saved.id, notes: '', })))
     taskModalOpen.value = false
     await refreshData()
+    void reminderScheduler?.check()
     showNotice('事项已保存')
   } catch (error) {
     showNotice(messageOf(error), 'error')
@@ -437,7 +483,7 @@ async function dropOnGroup(categoryId: string) {
   const item = tasks.value.find(task => task.id === draggedTaskId.value)
   if (!item) return
   try {
-    await saveTask({ id: item.id, title: item.title, categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, parentTaskId: item.parentTaskId, notes: item.notes })
+    await saveTask({ id: item.id, title: item.title, categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: item.reminderOffsets, parentTaskId: item.parentTaskId, notes: item.notes })
     await refreshData()
   } catch (error) {
     showNotice(messageOf(error), 'error')
@@ -506,26 +552,21 @@ async function submitBackup() {
   }
 }
 
-function tasksForDate(date: string) { return visibleTasks.value.flatMap(item => {
-  if (item.parentTaskId) return []
-  const overrides = parseOverrides(item)
-  const result: Task[] = []
-  if (occursOn(item, date) && !overrides[date]?.deleted) result.push({ ...item, ...overrides[date], id: item.plannedDate === date ? item.id : `${item.id}@${date}`, plannedDate: date })
-  Object.entries(overrides).forEach(([sourceDate, override]) => { if (override.plannedDate === date && sourceDate !== date && occursOn(item, sourceDate)) result.push({ ...item, ...override, id: `${item.id}@${sourceDate}`, plannedDate: date }) })
-  return result
-}) }
+function tasksForDate(date: string) { return resolveTasksForDate(visibleTasks.value, date) }
 function categoryTaskCount(categoryId: string) { return tasks.value.filter(item => item.categoryId === categoryId).length }
 function taskSummary(item: Task) { return [item.plannedDate ? item.plannedDate.slice(5).replace('-', '月') + '日' : '未安排日期', item.plannedTime || '', item.notes ? '有备注' : ''].filter(Boolean).join(' · ') }
 function clearFilters() { search.value = ''; rangeStart.value = ''; rangeEnd.value = ''; refreshData() }
-function closeTaskModal() { taskModalOpen.value = false; priorityOpen.value = false; timeOpen.value = false; repeatOpen.value = false }
+function closeTaskModal() { taskModalOpen.value = false; priorityOpen.value = false; categoryMenuOpen.value = false; timeOpen.value = false; reminderOpen.value = false; repeatOpen.value = false }
 function clearTime() { taskDraft.plannedDate = null; taskDraft.plannedTime = null; taskDraft.plannedEndTime = null; taskDraft.scheduleKind = 'all_day' }
-function parseRepeatRule(value: string): RepeatRule { try { const rule = JSON.parse(value) as RepeatRule; return rule?.kind ? { interval: 1, endMode: 'never', ...rule } : { kind: 'none' } } catch { return { kind: 'none' } } }
-function parseOverrides(item: Task): Record<string, Partial<Task> & { deleted?: boolean }> { try { return JSON.parse(item.occurrenceOverrides || '{}') } catch { return {} } }
-async function saveOccurrence(source: Task, date: string, input: TaskInput) { const overrides = parseOverrides(source); overrides[date] = { ...overrides[date], title: input.title, categoryId: input.categoryId, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, notes: input.notes }; return saveTask({ ...source, occurrenceOverrides: JSON.stringify(overrides) }) }
+async function saveOccurrence(source: Task, date: string, input: TaskInput) { const overrides = parseOverrides(source); overrides[date] = { ...overrides[date], title: input.title, categoryId: input.categoryId, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, reminderOffsets: input.reminderOffsets, notes: input.notes }; return saveTask({ ...source, occurrenceOverrides: JSON.stringify(overrides) }) }
 function chooseRepeat(kind: RepeatRule['kind']) { repeatDraft.kind = kind; if (!repeatDraft.endMode) repeatDraft.endMode = 'never' }
 function applyRepeat() { taskDraft.repeatRule = JSON.stringify(repeatDraft); repeatOpen.value = false }
-function addChildDraft() { const now = Date.now(); childDrafts.value.push({ id: crypto.randomUUID(), title: '', categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: taskDraft.id || null, status: 'todo', notes: '', createdAt: now, completedAt: null, updatedAt: now }) }
+function addChildDraft() { const now = Date.now(); childDrafts.value.push({ id: crypto.randomUUID(), title: '', categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: taskDraft.id || null, status: 'todo', notes: '', createdAt: now, completedAt: null, updatedAt: now }) }
 function removeChildDraft(id: string) { childDrafts.value = childDrafts.value.filter(item => item.id !== id) }
+function selectTaskCategory(categoryId: string) { taskDraft.categoryId = categoryId; categoryMenuOpen.value = false }
+async function openReminderSheet() { if (!canSetReminder.value) return; reminderPermission.value = await getReminderPermission(); reminderOpen.value = true }
+function toggleReminderOffset(offset: number) { if (taskDraft.reminderOffsets.includes(offset)) taskDraft.reminderOffsets = taskDraft.reminderOffsets.filter(value => value !== offset); else if (taskDraft.reminderOffsets.length >= 3) showNotice('最多设置 3 个提醒', 'error'); else taskDraft.reminderOffsets = [...taskDraft.reminderOffsets, offset].sort((left, right) => left - right) }
+function formatReminderOffset(offset: number) { return offset === 0 ? '准时提醒' : offset >= 60 ? `提前 ${offset / 60} 小时` : `提前 ${offset} 分钟` }
 function moveWeek(offset: number) { weekAnchor.value = addDays(weekAnchor.value, offset * 7) }
 function moveMonth(offset: number) { const date = parseDate(monthAnchor.value); date.setMonth(date.getMonth() + offset); monthAnchor.value = dateString(date) }
 function showNotice(text: string, type: Notice['type'] = 'success') { notice.value = { text, type }; window.setTimeout(() => { notice.value = null }, 2800) }
@@ -538,22 +579,4 @@ function addDays(value: string, amount: number) { const date = parseDate(value);
 function weekDates(value: string) { const anchor = parseDate(value); const offset = (anchor.getDay() + 6) % 7; anchor.setDate(anchor.getDate() - offset); return Array.from({ length: 7 }, (_, index) => { const day = new Date(anchor); day.setDate(anchor.getDate() + index); return dateString(day) }) }
 function calendarDays(value: string) { const anchor = parseDate(value); const year = anchor.getFullYear(); const month = anchor.getMonth(); const first = new Date(year, month, 1); const offset = (first.getDay() + 6) % 7; const start = new Date(year, month, 1 - offset); return Array.from({ length: 42 }, (_, index) => { const day = new Date(start); day.setDate(start.getDate() + index); return { date: dateString(day), day: day.getDate(), inMonth: day.getMonth() === month } }) }
 function formatMonth(value: string) { const date = parseDate(value); return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月` }
-function occursOn(item: Task, date: string) {
-  if (!item.plannedDate || item.parentTaskId || date < item.plannedDate) return false
-  const rule = parseRepeatRule(item.repeatRule)
-  if (rule.kind === 'none') return item.plannedDate === date
-  const start = parseDate(item.plannedDate); const target = parseDate(date); const days = Math.floor((target.getTime() - start.getTime()) / 86400000)
-  if (rule.endMode === 'date' && rule.endDate && date > rule.endDate) return false
-  const interval = Math.max(1, rule.interval || 1)
-  let matched = rule.kind === 'daily' || rule.kind === 'every_days' || rule.kind === 'custom' ? days % interval === 0
-    : rule.kind === 'weekly' ? target.getDay() === start.getDay()
-      : rule.kind === 'workdays' ? target.getDay() >= 1 && target.getDay() <= 5
-        : rule.kind === 'monthly' ? target.getDate() === start.getDate()
-          : rule.kind === 'yearly' ? target.getMonth() === start.getMonth() && target.getDate() === start.getDate()
-            : rule.kind === 'memory' ? [1, 3, 7, 14, 29].includes(days)
-              : rule.kind === 'weekly_slots' ? (rule.weekdays || [start.getDay()]).includes(target.getDay())
-                : rule.kind === 'monthly_slots' ? (rule.monthDays || [start.getDate()]).includes(target.getDate()) : false
-  if (rule.endMode === 'count' && rule.count) { const maxDays = rule.kind === 'memory' ? 29 : (rule.count - 1) * interval; matched &&= days <= maxDays }
-  return matched
-}
 </script>

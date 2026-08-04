@@ -331,7 +331,14 @@ body, .app-shell, .workspace, .loading-screen { background: var(--garden-canvas)
 .task-modal-head > input { color: var(--garden-ink); font-size: 25px; }
 .modal-check { width: 27px; height: 27px; border-color: var(--garden-primary); }
 .task-head-actions { gap: 8px; }
-.task-category-indicator { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; }
+.task-category-trigger { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; transition: box-shadow .18s ease, transform .18s ease; }
+.task-category-trigger:hover { box-shadow: 0 4px 10px rgba(62, 115, 89, .16); transform: translateY(-1px); }
+.task-category-menu { position: absolute; z-index: 5; top: 79px; right: 68px; display: grid; width: min(386px, calc(100vw - 72px)); grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 10px; border: 1px solid #d9e6dc; border-radius: 10px; background: var(--garden-surface); box-shadow: var(--garden-shadow); gap: 6px; }
+.task-category-menu button { display: grid; min-width: 0; min-height: 91px; place-items: center; padding: 9px 5px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #52665b; gap: 5px; }
+.task-category-menu button:hover, .task-category-menu button.selected { border-color: #c4ddcb; background: #f1f8f2; }
+.task-category-menu button > span { display: grid; width: 33px; height: 33px; place-items: center; border-radius: 50%; }
+.task-category-menu strong { min-width: 0; max-width: 100%; overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.task-category-menu button > svg { color: var(--garden-primary); }
 .priority-trigger { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: #fff4e9; color: #c77d3f; transition: transform .16s, box-shadow .16s; }
 .priority-trigger:hover { box-shadow: 0 5px 13px rgba(199, 125, 63, .24); transform: translateY(-1px); }
 .priority-trigger-mark, .priority-option-mark { display: inline-grid; place-items: center; font-family: Georgia, 'Times New Roman', serif; font-weight: 700; line-height: 1; }
@@ -366,7 +373,8 @@ body, .app-shell, .workspace, .loading-screen { background: var(--garden-canvas)
 .task-meta-row small { color: #8a9a91; font-size: 11px; font-weight: 600; }
 .task-meta-row strong { overflow: hidden; color: #3d5045; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .task-meta-row > svg:last-child { color: #a2b2a8; }
-.task-meta-row select { min-width: 0; flex: 1; padding: 6px 24px 6px 0; border: 0; outline: 0; background: transparent; color: #3d5045; font-size: 14px; font-weight: 600; }
+.task-meta-row:disabled { cursor: not-allowed; opacity: .58; }
+.task-meta-row:disabled:hover { background: transparent; box-shadow: none; color: #5f7167; }
 .subtask-section { padding: 18px 0 12px; border-bottom: 1px solid #e6eee8; }
 .section-label { display: block; margin-bottom: 8px; color: #7d8f84; font-size: 11px; font-weight: 700; letter-spacing: 1px; }
 .subtask-list { display: grid; gap: 2px; }
@@ -379,6 +387,25 @@ body, .app-shell, .workspace, .loading-screen { background: var(--garden-canvas)
 .notes-editor { padding-top: 18px; }
 .notes-editor textarea { min-height: 128px; padding: 12px 13px; line-height: 1.7; }
 .notes-editor textarea, .time-sheet input, .repeat-config input, .repeat-config select { border-color: var(--garden-line); border-radius: 7px; background: var(--garden-surface-soft); }
+.reminder-sheet { width: min(540px, calc(100vw - 36px)); padding: 24px 26px 20px; border: 1px solid rgba(220, 235, 223, .9); border-radius: 10px; background: var(--garden-surface); box-shadow: 0 24px 60px rgba(35, 63, 45, .18); }
+.reminder-sheet > header { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 17px; border-bottom: 1px solid #e7efe8; }
+.reminder-sheet header small, .reminder-switch-row small { display: block; color: #8a9a91; font-size: 11px; font-weight: 600; }
+.reminder-sheet h2 { margin: 3px 0 0; color: var(--garden-ink); font-size: 20px; }
+.reminder-switch-row { display: flex; align-items: center; justify-content: space-between; padding: 19px 0; border-bottom: 1px solid #e7efe8; }
+.reminder-switch-row strong { display: block; color: #3d5045; font-size: 15px; }
+.reminder-switch-row small { margin-top: 4px; }
+.reminder-switch { display: flex; width: 44px; height: 25px; align-items: center; padding: 3px; border-radius: 15px; background: #c8d4cb; transition: background .18s ease; }
+.reminder-switch span { width: 19px; height: 19px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(37, 58, 44, .24); transition: transform .18s ease; }
+.reminder-switch.active { background: var(--garden-primary); }
+.reminder-switch.active span { transform: translateX(19px); }
+.reminder-hint { margin: 18px 0 11px; color: #8a9a91; font-size: 12px; }
+.reminder-options { display: flex; flex-wrap: wrap; gap: 9px; }
+.reminder-options button { min-height: 36px; padding: 0 13px; border: 1px solid #d9e5dc; border-radius: 18px; background: #fff; color: #587062; font-size: 13px; transition: background .18s ease, border-color .18s ease, color .18s ease; }
+.reminder-options button:hover { border-color: #a8c9b1; background: #f1f8f2; }
+.reminder-options button.selected { border-color: var(--garden-primary); background: var(--garden-primary); color: #fff; }
+.reminder-permission { margin: 19px 0 0; padding: 10px 11px; border: 1px solid #dce8df; border-radius: 7px; background: #f5faf6; color: #708278; font-size: 11px; line-height: 1.6; }
+.reminder-sheet > footer { display: flex; align-items: center; margin-top: 19px; gap: 6px; }
+.reminder-sheet > footer > span { flex: 1; }
 .sheet-tabs { background: #eaf2eb; }
 .sheet-tabs button { color: #6c8074; }
 .sheet-tabs button.active { color: var(--garden-primary-dark); box-shadow: 0 2px 7px rgba(60, 100, 73, .1); }
@@ -424,6 +451,7 @@ body, .app-shell, .workspace, .loading-screen { background: var(--garden-canvas)
   .toolbar, .board-scroll, .plan-page, .settings-page { padding-left: 16px; padding-right: 16px; }
   .settings-block { padding: 19px; }
   .task-modal { max-height: calc(100dvh - 24px); padding: 20px; }
+  .task-category-menu { top: 69px; right: 57px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .task-modal > footer { bottom: -20px; }
   .subtask-list { max-height: min(176px, 25dvh); }
 }

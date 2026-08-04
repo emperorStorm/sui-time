@@ -39,6 +39,7 @@ export interface Task {
   priority: Priority
   repeatRule: string
   occurrenceOverrides: string
+  reminderOffsets: number[]
   parentTaskId: string | null
   status: 'todo' | 'done'
   notes: string
@@ -58,6 +59,7 @@ export interface TaskInput {
   priority: Priority
   repeatRule: string
   occurrenceOverrides: string
+  reminderOffsets: number[]
   parentTaskId: string | null
   notes: string
 }

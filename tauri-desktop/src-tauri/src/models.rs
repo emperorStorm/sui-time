@@ -58,6 +58,7 @@ pub struct Task {
     pub priority: String,
     pub repeat_rule: String,
     pub occurrence_overrides: String,
+    pub reminder_offsets: Vec<i64>,
     pub parent_task_id: Option<String>,
     pub status: String,
     pub notes: String,
@@ -84,6 +85,8 @@ pub struct TaskInput {
     pub repeat_rule: String,
     #[serde(default = "default_occurrence_overrides")]
     pub occurrence_overrides: String,
+    #[serde(default)]
+    pub reminder_offsets: Vec<i64>,
     #[serde(default)]
     pub parent_task_id: Option<String>,
     pub notes: String,

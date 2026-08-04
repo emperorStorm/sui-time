@@ -25,7 +25,7 @@ let demoTasks: Task[] = [
 function task(title: string, categoryId: string | null, plannedDate: string | null, plannedTime: string | null, notes: string): Task {
   const category = demoCategories.find(item => item.id === categoryId)
   const now = Date.now()
-  return { id: crypto.randomUUID(), title, categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate, plannedTime, plannedEndTime: null, scheduleKind: plannedTime ? 'point' : 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', parentTaskId: null, notes, status: 'todo', createdAt: now, completedAt: null, updatedAt: now }
+  return { id: crypto.randomUUID(), title, categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate, plannedTime, plannedEndTime: null, scheduleKind: plannedTime ? 'point' : 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, notes, status: 'todo', createdAt: now, completedAt: null, updatedAt: now }
 }
 
 function today() {
@@ -110,7 +110,7 @@ export async function saveTask(input: TaskInput): Promise<Task> {
   const category = demoCategories.find(item => item.id === input.categoryId)
   const now = Date.now()
   const existing = input.id ? demoTasks.find(item => item.id === input.id) : undefined
-  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, parentTaskId: input.parentTaskId, notes: input.notes, status: existing?.status || 'todo', createdAt: existing?.createdAt || now, completedAt: existing?.completedAt || null, updatedAt: now }
+  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, reminderOffsets: input.reminderOffsets, parentTaskId: input.parentTaskId, notes: input.notes, status: existing?.status || 'todo', createdAt: existing?.createdAt || now, completedAt: existing?.completedAt || null, updatedAt: now }
   if (existing) demoTasks = demoTasks.map(item => item.id === result.id ? result : item)
   else demoTasks.push(result)
   return result

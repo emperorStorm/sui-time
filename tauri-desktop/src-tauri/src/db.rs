@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::models::{AccountInput, Category, CategoryInput, Task, TaskInput, UserSession};
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -61,6 +61,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     }
     if version < 3 {
         migrate_to_v3(conn)?;
+    }
+    if version < 4 {
+        migrate_to_v4(conn)?;
     }
     Ok(())
 }
@@ -191,6 +194,23 @@ fn migrate_to_v3(conn: &Connection) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     transaction
         .execute_batch("PRAGMA user_version = 3;")
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn migrate_to_v4(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    if !column_exists(&transaction, "tasks", "reminder_offsets")? {
+        transaction
+            .execute_batch(
+                "ALTER TABLE tasks ADD COLUMN reminder_offsets TEXT NOT NULL DEFAULT '[]';",
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction
+        .execute_batch("PRAGMA user_version = 4;")
         .map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
 }
@@ -392,7 +412,7 @@ pub fn delete_category(conn: &Connection, owner_id: &str, category_id: &str) -> 
 
 pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String> {
     let mut statement = conn.prepare(
-        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
+        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
          FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id
          WHERE tasks.owner_id = ?1
          ORDER BY CASE WHEN tasks.planned_date IS NULL THEN 1 ELSE 0 END, tasks.planned_date, tasks.planned_time, tasks.created_at DESC",
@@ -444,10 +464,10 @@ pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<
     let now = now_millis();
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let changed = conn.execute(
-        "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, parent_task_id, status, notes, created_at, completed_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'todo', ?13, ?14, NULL, ?14)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, parent_task_id = excluded.parent_task_id, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
-        params![id, owner_id, title, category_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, input.occurrence_overrides, input.parent_task_id, input.notes.trim(), now],
+        "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, parent_task_id, status, notes, created_at, completed_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'todo', ?14, ?15, NULL, ?15)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, reminder_offsets = excluded.reminder_offsets, parent_task_id = excluded.parent_task_id, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
+        params![id, owner_id, title, category_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, input.occurrence_overrides, serde_json::to_string(&input.reminder_offsets).map_err(|error| error.to_string())?, input.parent_task_id, input.notes.trim(), now],
     ).map_err(|error| error.to_string())?;
     if changed == 0 {
         return Err("事项不存在或无权修改".to_string());
@@ -498,7 +518,7 @@ pub fn reschedule_task(
 
 fn get_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<Option<Task>, String> {
     conn.query_row(
-        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
+        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
          FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id WHERE tasks.id = ?1 AND tasks.owner_id = ?2",
         params![task_id, owner_id], task_from_row,
     ).optional().map_err(|error| error.to_string())
@@ -519,12 +539,13 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         priority: row.get(10)?,
         repeat_rule: row.get(11)?,
         occurrence_overrides: row.get(12)?,
-        parent_task_id: row.get(13)?,
-        status: row.get(14)?,
-        notes: row.get(15)?,
-        created_at: row.get(16)?,
-        completed_at: row.get(17)?,
-        updated_at: row.get(18)?,
+        reminder_offsets: serde_json::from_str(&row.get::<_, String>(13)?).unwrap_or_default(),
+        parent_task_id: row.get(14)?,
+        status: row.get(15)?,
+        notes: row.get(16)?,
+        created_at: row.get(17)?,
+        completed_at: row.get(18)?,
+        updated_at: row.get(19)?,
     })
 }
 
@@ -626,6 +647,26 @@ fn validate_task_options(input: &TaskInput) -> Result<(), String> {
     }
     if input.repeat_rule.len() > 4000 || input.occurrence_overrides.len() > 20000 {
         return Err("重复事项配置过长".to_string());
+    }
+    if input.reminder_offsets.len() > 3
+        || input
+            .reminder_offsets
+            .iter()
+            .any(|offset| ![0, 5, 15, 30, 60, 120].contains(offset))
+        || input
+            .reminder_offsets
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return Err("提醒设置无效，最多可选 3 个预设提醒".to_string());
+    }
+    if !input.reminder_offsets.is_empty()
+        && (input.parent_task_id.is_some()
+            || input.planned_date.is_none()
+            || input.planned_time.is_none()
+            || input.schedule_kind == "all_day")
+    {
+        return Err("提醒需要设置主事项的具体日期和时间".to_string());
     }
     Ok(())
 }
@@ -922,6 +963,7 @@ mod tests {
             priority: "not_urgent_not_important".to_string(),
             repeat_rule: repeat_rule.to_string(),
             occurrence_overrides: "{}".to_string(),
+            reminder_offsets: vec![],
             parent_task_id,
             notes: String::new(),
         }
@@ -1032,6 +1074,7 @@ mod tests {
                 priority: "not_urgent_not_important".to_string(),
                 repeat_rule: "{\"kind\":\"none\"}".to_string(),
                 occurrence_overrides: "{}".to_string(),
+                reminder_offsets: vec![],
                 parent_task_id: None,
                 notes: String::new(),
             },
@@ -1075,6 +1118,7 @@ mod tests {
                 priority: "not_urgent_not_important".to_string(),
                 repeat_rule: "{\"kind\":\"none\"}".to_string(),
                 occurrence_overrides: "{}".to_string(),
+                reminder_offsets: vec![],
                 parent_task_id: None,
                 notes: String::new(),
             },
@@ -1113,6 +1157,7 @@ mod tests {
             priority: "not_urgent_not_important".to_string(),
             repeat_rule: "{\"kind\":\"daily\"}".to_string(),
             occurrence_overrides: "{}".to_string(),
+            reminder_offsets: vec![],
             parent_task_id: None,
             notes: String::new(),
         };
@@ -1121,6 +1166,48 @@ mod tests {
         assert!(validate_task_options(&input).is_ok());
         input.priority = "invalid".to_string();
         assert!(validate_task_options(&input).is_err());
+    }
+
+    #[test]
+    fn reminder_offsets_are_saved_and_validated() {
+        let conn = memory_db();
+        let user = create_initial_account(&conn, &account("提醒用户")).unwrap();
+        let mut input = task_input(
+            "准备会议",
+            Some("2026-08-05"),
+            Some("10:00"),
+            "{\"kind\":\"none\"}",
+            None,
+        );
+        input.reminder_offsets = vec![0, 15, 60];
+        let task = save_task(&conn, &user.id, input).unwrap();
+        assert_eq!(task.reminder_offsets, vec![0, 15, 60]);
+        assert_eq!(
+            conn.query_row(
+                "SELECT reminder_offsets FROM tasks WHERE id = ?1",
+                [&task.id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "[0,15,60]"
+        );
+
+        let mut invalid = task_input(
+            "准备会议",
+            Some("2026-08-05"),
+            Some("10:00"),
+            "{\"kind\":\"none\"}",
+            None,
+        );
+        invalid.reminder_offsets = vec![60, 15];
+        assert!(validate_task_options(&invalid).is_err());
+        invalid.reminder_offsets = vec![0, 5, 15, 30];
+        assert!(validate_task_options(&invalid).is_err());
+        invalid.reminder_offsets = vec![10];
+        assert!(validate_task_options(&invalid).is_err());
+        invalid.reminder_offsets = vec![15];
+        invalid.planned_time = None;
+        assert!(validate_task_options(&invalid).is_err());
     }
 
     #[test]
@@ -1299,6 +1386,7 @@ mod tests {
                 priority: "not_urgent_not_important".to_string(),
                 repeat_rule: "{\"kind\":\"none\"}".to_string(),
                 occurrence_overrides: "{}".to_string(),
+                reminder_offsets: vec![],
                 parent_task_id: None,
                 notes: String::new(),
             },
