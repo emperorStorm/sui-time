@@ -110,7 +110,10 @@ export async function saveTask(input: TaskInput): Promise<Task> {
   const category = demoCategories.find(item => item.id === input.categoryId)
   const now = Date.now()
   const existing = input.id ? demoTasks.find(item => item.id === input.id) : undefined
-  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, reminderOffsets: input.reminderOffsets, parentTaskId: input.parentTaskId, notes: input.notes, status: existing?.status || 'todo', createdAt: existing?.createdAt || now, completedAt: existing?.completedAt || null, updatedAt: now }
+  const repeating = (() => {
+    try { return JSON.parse(input.repeatRule).kind !== 'none' } catch { return false }
+  })()
+  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, reminderOffsets: input.reminderOffsets, parentTaskId: input.parentTaskId, notes: input.notes, status: repeating ? 'todo' : existing?.status || 'todo', createdAt: existing?.createdAt || now, completedAt: repeating ? null : existing?.completedAt || null, updatedAt: now }
   if (existing) demoTasks = demoTasks.map(item => item.id === result.id ? result : item)
   else demoTasks.push(result)
   return result

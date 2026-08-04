@@ -17,6 +17,20 @@ export function parseOverrides(item: Task): Record<string, Partial<Task> & { del
   }
 }
 
+export function isRepeatingTask(item: Task) {
+  return parseRepeatRule(item.repeatRule).kind !== 'none'
+}
+
+export function occurrenceId(sourceId: string, date: string) {
+  return `${sourceId}@${date}`
+}
+
+export function parseOccurrenceId(value: string) {
+  const separator = value.indexOf('@')
+  if (separator < 1 || separator === value.length - 1) return null
+  return { sourceId: value.slice(0, separator), date: value.slice(separator + 1) }
+}
+
 export function occursOn(item: Task, date: string) {
   if (!item.plannedDate || item.parentTaskId || date < item.plannedDate) return false
   const rule = parseRepeatRule(item.repeatRule)
@@ -56,13 +70,21 @@ export function tasksForDate(tasks: Task[], date: string) {
   return tasks.flatMap(item => {
     if (item.parentTaskId) return []
     const overrides = parseOverrides(item)
+    const repeating = isRepeatingTask(item)
     const result: Task[] = []
     if (occursOn(item, date) && !overrides[date]?.deleted) {
-      result.push({ ...item, ...overrides[date], id: item.plannedDate === date ? item.id : `${item.id}@${date}`, plannedDate: date })
+      const override = overrides[date]
+      result.push({
+        ...item,
+        ...override,
+        id: repeating ? occurrenceId(item.id, date) : item.id,
+        status: repeating ? (override?.status || 'todo') : (override?.status || item.status),
+        plannedDate: date,
+      })
     }
     Object.entries(overrides).forEach(([sourceDate, override]) => {
-      if (override.plannedDate === date && sourceDate !== date && occursOn(item, sourceDate)) {
-        result.push({ ...item, ...override, id: `${item.id}@${sourceDate}`, plannedDate: date })
+      if (override.plannedDate === date && !override.deleted && sourceDate !== date && occursOn(item, sourceDate)) {
+        result.push({ ...item, ...override, id: occurrenceId(item.id, sourceDate), status: override.status || 'todo', plannedDate: date })
       }
     })
     return result

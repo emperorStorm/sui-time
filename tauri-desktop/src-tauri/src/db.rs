@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::models::{AccountInput, Category, CategoryInput, Task, TaskInput, UserSession};
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -64,6 +64,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     }
     if version < 4 {
         migrate_to_v4(conn)?;
+    }
+    if version < 5 {
+        migrate_to_v5(conn)?;
     }
     Ok(())
 }
@@ -211,6 +214,74 @@ fn migrate_to_v4(conn: &Connection) -> Result<(), String> {
     }
     transaction
         .execute_batch("PRAGMA user_version = 4;")
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn migrate_to_v5(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    if !column_exists(&transaction, "tasks", "repeat_rule")?
+        || !column_exists(&transaction, "tasks", "occurrence_overrides")?
+    {
+        transaction
+            .execute_batch("PRAGMA user_version = 5;")
+            .map_err(|error| error.to_string())?;
+        return transaction.commit().map_err(|error| error.to_string());
+    }
+    let repeating_tasks = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT id, planned_date, occurrence_overrides
+                 FROM tasks
+                 WHERE status = 'done'
+                   AND parent_task_id IS NULL
+                   AND planned_date IS NOT NULL
+                   AND json_valid(repeat_rule) = 1
+                   AND COALESCE(json_extract(repeat_rule, '$.kind'), 'none') <> 'none'",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        rows
+    };
+    for (task_id, planned_date, occurrence_overrides) in repeating_tasks {
+        let mut overrides = match serde_json::from_str::<serde_json::Value>(&occurrence_overrides) {
+            Ok(serde_json::Value::Object(value)) => value,
+            _ => serde_json::Map::new(),
+        };
+        let entry = overrides
+            .entry(planned_date.clone())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        match entry {
+            serde_json::Value::Object(value) => {
+                value
+                    .entry("status".to_string())
+                    .or_insert_with(|| serde_json::json!("done"));
+            }
+            value => *value = serde_json::json!({ "status": "done" }),
+        }
+        transaction
+            .execute(
+                "UPDATE tasks
+                 SET status = 'todo', completed_at = NULL, occurrence_overrides = ?1, updated_at = ?2
+                 WHERE id = ?3",
+                params![serde_json::Value::Object(overrides).to_string(), now_millis(), task_id],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction
+        .execute_batch("PRAGMA user_version = 5;")
         .map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
 }
@@ -466,7 +537,7 @@ pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<
     let changed = conn.execute(
         "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, parent_task_id, status, notes, created_at, completed_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'todo', ?14, ?15, NULL, ?15)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, reminder_offsets = excluded.reminder_offsets, parent_task_id = excluded.parent_task_id, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, reminder_offsets = excluded.reminder_offsets, parent_task_id = excluded.parent_task_id, status = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN 'todo' ELSE tasks.status END, completed_at = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN NULL ELSE tasks.completed_at END, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
         params![id, owner_id, title, category_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, input.occurrence_overrides, serde_json::to_string(&input.reminder_offsets).map_err(|error| error.to_string())?, input.parent_task_id, input.notes.trim(), now],
     ).map_err(|error| error.to_string())?;
     if changed == 0 {
@@ -1166,6 +1237,66 @@ mod tests {
         assert!(validate_task_options(&input).is_ok());
         input.priority = "invalid".to_string();
         assert!(validate_task_options(&input).is_err());
+    }
+
+    #[test]
+    fn repeating_task_save_resets_global_completion_state() {
+        let conn = memory_db();
+        let user = create_initial_account(&conn, &account("重复事项用户")).unwrap();
+        let task = save_task(
+            &conn,
+            &user.id,
+            task_input(
+                "每周复盘",
+                Some("2026-08-07"),
+                None,
+                r#"{"kind":"none"}"#,
+                None,
+            ),
+        )
+        .unwrap();
+        toggle_task(&conn, &user.id, &task.id).unwrap();
+        let mut recurring = task_input(
+            "每周复盘",
+            Some("2026-08-07"),
+            None,
+            r#"{"kind":"weekly"}"#,
+            None,
+        );
+        recurring.id = Some(task.id.clone());
+        let updated = save_task(&conn, &user.id, recurring).unwrap();
+        assert_eq!(updated.status, "todo");
+        assert!(updated.completed_at.is_none());
+    }
+
+    #[test]
+    fn v5_migration_moves_repeating_global_completion_to_base_occurrence() {
+        let conn = memory_db();
+        let user = create_initial_account(&conn, &account("重复迁移用户")).unwrap();
+        let task = save_task(
+            &conn,
+            &user.id,
+            task_input(
+                "每周复盘",
+                Some("2026-08-07"),
+                None,
+                r#"{"kind":"weekly"}"#,
+                None,
+            ),
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE tasks SET status = 'done', completed_at = 123 WHERE id = ?1",
+            [&task.id],
+        )
+        .unwrap();
+        migrate_to_v5(&conn).unwrap();
+        let migrated = get_task(&conn, &user.id, &task.id).unwrap().unwrap();
+        let overrides: serde_json::Value =
+            serde_json::from_str(&migrated.occurrence_overrides).unwrap();
+        assert_eq!(migrated.status, "todo");
+        assert!(migrated.completed_at.is_none());
+        assert_eq!(overrides["2026-08-07"]["status"], "done");
     }
 
     #[test]
