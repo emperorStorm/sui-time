@@ -1,3 +1,10 @@
 # 移动端原型预留
 
-未来移动端在本目录新增独立 `index.html`、样式和交互文件。请复用 `../shared/data.js` 的 `profile`、`settings`、`tags`、`tasks` 与 `subtasks` 数据语义，不复用桌面端四栏和窗口布局。
+本目录尚未实现移动端页面、样式和交互，不纳入当前浏览器验收，也不能据此宣称岁岁时光已有移动客户端。
+
+未来启动移动端原型时：
+
+- 单独建立 `index.html`、`styles.css` 和 `app.js`，不复用桌面四栏与窗口布局。
+- 复用 `../shared/data.js` 的用户、设置、分类和事项业务语义，但按生产 `desktop-client/src/types.ts` 校准字段。
+- 在根 `prototype.config.json` 中加入移动端资源，并在根 README 补页面、流程和状态矩阵。
+- 使用独立移动视口完成触控、文字适配、弹层和主流程验收。

@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>岁岁时光 - 交互原型</title>
+  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5MDAgMTIwMCIgcHJlc2VydmVBc3BlY3RSYXRpbz0ieE1pZFlNaWQgc2xpY2UiPgogIDxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iYSIgeDI9IjAiIHkyPSIxIj48c3RvcCBzdG9wLWNvbG9yPSIjNmY4OTk4Ii8+PHN0b3Agb2Zmc2V0PSIuNDUiIHN0b3AtY29sb3I9IiM0NzVkNjkiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMxNzI5MzQiLz48L2xpbmVhckdyYWRpZW50PjxmaWx0ZXIgaWQ9ImIiPjxmZVR1cmJ1bGVuY2UgYmFzZUZyZXF1ZW5jeT0iLjAxOCIgbnVtT2N0YXZlcz0iMyIvPjxmZUNvbG9yTWF0cml4IHZhbHVlcz0iMSAwIDAgMCAwIDAgMSAwIDAgMCAwIDAgMSAwIDAgMCAwIDAgLjE4IDAiLz48L2ZpbHRlcj48L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjkwMCIgaGVpZ2h0PSIxMjAwIiBmaWxsPSJ1cmwoI2EpIi8+PHBhdGggZD0iTTAgNzMwIDE1MCA1OTBsMTE2IDkyIDE1NC0yNDAgMTk2IDI2NSAxMTgtMTAwIDE2NiAxOTN2NDAwSDBaIiBmaWxsPSIjMWYzNTQwIiBvcGFjaXR5PSIuNjUiLz48cGF0aCBkPSJNMCA5MDAgMjE0IDc0MGwxNzcgMTMwIDE0OC0xNzkgMTE1IDEwOCAyNDYtMjEydjYxM0gwWiIgZmlsbD0iIzExMjUyZiIgb3BhY2l0eT0iLjcyIi8+PHJlY3Qgd2lkdGg9IjkwMCIgaGVpZ2h0PSIxMjAwIiBmaWx0ZXI9InVybCgjYikiIG9wYWNpdHk9Ii42Ii8+Cjwvc3ZnPgo=" type="image/svg+xml" />
+  <style>
+:root {
+  --ink: #26282d;
+  --muted: #969ba5;
+  --line: #eceef2;
+  --canvas: #f7f8fa;
+  --panel: #ffffff;
+  --blue: #2996f6;
+  --blue-soft: #dceeff;
+  --green: #10bf75;
+  --orange: #ff8445;
+  --danger: #f06368;
+  --radius: 12px;
+  --shadow: 0 10px 28px rgba(30, 44, 61, .12);
+  --font: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { min-width: 100%; min-height: 100%; margin: 0; }
+body { background: #101315; color: var(--ink); font-family: var(--font); font-size: 14px; overflow: hidden; }
+button, input, textarea { font: inherit; }
+button { border: 0; cursor: pointer; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.desktop-frame { position: relative; height: 100vh; min-height: 680px; padding-top: 35px; background: var(--canvas); overflow: hidden; }
+.window-bar { position: absolute; inset: 0 0 auto; height: 35px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 16px; background: #f1f1f1; color: #424447; border-bottom: 1px solid #dfdfe0; }
+.window-bar b { font-size: 14px; letter-spacing: .5px; }.window-dots { display: flex; gap: 9px; }.window-dots i { display: block; width: 15px; height: 15px; border-radius: 50%; background: #ff5f57; }.window-dots i:nth-child(2) { background: #ffbd2e; }.window-dots i:nth-child(3) { background: #28c840; }
+.app-body { display: flex; height: 100%; }.sidebar { position: relative; width: 307px; flex: 0 0 307px; padding-top: 14px; color: rgba(255,255,255,.9); overflow: hidden; background: #778b95 url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5MDAgMTIwMCIgcHJlc2VydmVBc3BlY3RSYXRpbz0ieE1pZFlNaWQgc2xpY2UiPgogIDxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0iYSIgeDI9IjAiIHkyPSIxIj48c3RvcCBzdG9wLWNvbG9yPSIjNmY4OTk4Ii8+PHN0b3Agb2Zmc2V0PSIuNDUiIHN0b3AtY29sb3I9IiM0NzVkNjkiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiMxNzI5MzQiLz48L2xpbmVhckdyYWRpZW50PjxmaWx0ZXIgaWQ9ImIiPjxmZVR1cmJ1bGVuY2UgYmFzZUZyZXF1ZW5jeT0iLjAxOCIgbnVtT2N0YXZlcz0iMyIvPjxmZUNvbG9yTWF0cml4IHZhbHVlcz0iMSAwIDAgMCAwIDAgMSAwIDAgMCAwIDAgMSAwIDAgMCAwIDAgLjE4IDAiLz48L2ZpbHRlcj48L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjkwMCIgaGVpZ2h0PSIxMjAwIiBmaWxsPSJ1cmwoI2EpIi8+PHBhdGggZD0iTTAgNzMwIDE1MCA1OTBsMTE2IDkyIDE1NC0yNDAgMTk2IDI2NSAxMTgtMTAwIDE2NiAxOTN2NDAwSDBaIiBmaWxsPSIjMWYzNTQwIiBvcGFjaXR5PSIuNjUiLz48cGF0aCBkPSJNMCA5MDAgMjE0IDc0MGwxNzcgMTMwIDE0OC0xNzkgMTE1IDEwOCAyNDYtMjEydjYxM0gwWiIgZmlsbD0iIzExMjUyZiIgb3BhY2l0eT0iLjcyIi8+PHJlY3Qgd2lkdGg9IjkwMCIgaGVpZ2h0PSIxMjAwIiBmaWx0ZXI9InVybCgjYikiIG9wYWNpdHk9Ii42Ii8+Cjwvc3ZnPgo=") center / cover no-repeat; }.sidebar::after { position: absolute; inset: 0; content: ''; background: linear-gradient(180deg, rgba(38,60,73,.24), rgba(27,36,40,.15) 45%, rgba(8,17,23,.45)); pointer-events: none; }.sidebar > *:not(.sidebar-overlay) { position: relative; z-index: 1; }.sidebar:not(.night-sidebar) { background-color: #84929a; }.sidebar-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(236,240,242,.05), transparent); }
+.identity-row { display: grid; grid-template-columns: 43px 1fr 35px 35px; align-items: center; gap: 8px; height: 48px; padding: 0 25px; }.avatar-button, .account-name, .icon-only { color: inherit; background: transparent; }.avatar-button { width: 40px; height: 40px; padding: 0; }.avatar-mark { position: relative; display: grid; place-items: center; width: 39px; height: 39px; overflow: hidden; border: 3px solid rgba(255,255,255,.86); border-radius: 50%; background: #e6f4e3; color: #597257; font-size: 16px; font-weight: 800; box-shadow: 0 3px 10px rgba(0,0,0,.14); }.avatar-mark i { position: absolute; width: 31px; height: 9px; border: 2px solid #85bc5b; border-radius: 50%; transform: rotate(-8deg); }.account-name { overflow: hidden; padding: 0; color: white; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }.icon-only { display: inline-grid; place-items: center; width: 31px; height: 31px; border-radius: 50%; }.icon-only:hover { background: rgba(255,255,255,.15); }.ui-icon { display: inline-grid; width: 19px; height: 19px; place-items: center; font-style: normal; font-size: 20px; line-height: 1; }.setting { font-size: 20px; }.refresh { font-size: 25px; }.account-menu { position: absolute; z-index: 7; top: 61px; left: 31px; width: 220px; padding: 8px; border-radius: 11px; background: rgba(255,255,255,.96); box-shadow: var(--shadow); }.account-menu button { display: flex; width: 100%; gap: 10px; align-items: center; padding: 12px; color: #3e4248; text-align: left; background: transparent; border-radius: 7px; }.account-menu button:hover { background: #eef6ff; color: var(--blue); }
+.nav-area { padding-top: 19px; }.nav-heading, .nav-item { display: flex; width: 100%; min-height: 54px; align-items: center; gap: 13px; padding: 0 29px; color: rgba(255,255,255,.9); background: transparent; text-align: left; }.nav-heading { justify-content: space-between; font-size: 16px; }.nav-heading span { display: flex; align-items: center; gap: 12px; }.nav-heading b { font-size: 15px; }.nav-item { position: relative; min-height: 55px; font-size: 16px; }.nav-item .ui-icon { color: rgba(255,255,255,.92); }.nav-item small { margin-left: auto; padding: 6px 15px; border-radius: 17px; font-size: 15px; }.nav-item.active { background: rgba(255,255,255,.18); }.nav-item.active small { background: var(--blue); color: white; }.nav-item b { margin-left: auto; color: rgba(255,255,255,.8); }.nav-divider { height: 1px; margin: 13px 30px; background: rgba(255,255,255,.12); }.sidebar-status { position: absolute; bottom: 19px; left: 28px; display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,.72); }.sidebar-status span { width: 7px; height: 7px; border-radius: 50%; background: #78d1aa; box-shadow: 0 0 0 4px rgba(120,209,170,.15); }.sidebar-status small { font-size: 11px; }
+.workspace { width: calc(100% - 307px); height: 100%; overflow: auto; background: var(--canvas); }.view-content { min-width: 980px; min-height: 100%; }.board-toolbar { display: flex; justify-content: space-between; align-items: center; min-height: 126px; padding: 0 27px; background: #fafbfc; }.board-toolbar > div { display: flex; align-items: center; gap: 16px; }.board-toolbar h1, .plan-heading h1, .profile-view h1 { margin: 0; color: #27292e; font-size: 27px; font-weight: 700; letter-spacing: 0; }.search-trigger { color: #a6acb6; background: transparent; }.search-box { display: none; align-items: center; width: 180px; gap: 6px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 18px; background: white; }.search-box input { width: 130px; border: 0; outline: 0; }.board-options { color: #61656b; }.board-options > span { display: flex; align-items: center; gap: 6px; white-space: nowrap; }.filter { font-size: 18px; }.switch { position: relative; display: inline-block; width: 39px; height: 22px; }.switch input { position: absolute; opacity: 0; }.switch i { position: absolute; inset: 0; border-radius: 20px; background: #c4c7ca; transition: .2s; }.switch i::after { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: white; content: ''; box-shadow: 0 1px 2px rgba(0,0,0,.18); transition: .2s; }.switch input:checked + i { background: var(--blue); }.switch input:checked + i::after { transform: translateX(17px); }
+.board-scroll { height: calc(100vh - 161px); padding: 18px 28px 52px; overflow: auto; }.task-board { display: grid; min-width: 1280px; grid-template-columns: repeat(4, minmax(270px, 1fr)); gap: 14px; }.task-column { min-height: 750px; padding: 15px 24px 24px; border-radius: 13px; background: var(--panel); box-shadow: 0 7px 15px rgba(29,45,61,.10); }.task-column header { display: flex; height: 48px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }.task-column header strong { display: flex; align-items: center; gap: 10px; color: #70747c; font-size: 17px; font-weight: 500; }.task-column header strong i { color: var(--column-color); font-style: normal; font-size: 21px; }.column-more { color: #72777d; background: none; }.column-add { padding: 9px 13px 15px; color: #34373d; font-size: 29px; line-height: 1; background: none; }.cards { display: flex; flex-direction: column; gap: 10px; }.task-card { display: grid; grid-template-columns: 29px 1fr 18px; gap: 8px; align-items: start; min-width: 0; padding: 8px 0; }.task-check { display: grid; width: 22px; height: 22px; place-items: center; padding: 0; border: 1.6px solid var(--task-color); border-radius: 50%; color: white; background: transparent; }.task-check.done { background: var(--task-color); }.task-check .ui-icon { width: 14px; height: 14px; font-size: 13px; }.task-open { min-width: 0; padding: 0; background: none; text-align: left; }.task-open strong { display: block; overflow: hidden; color: #393c41; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 500; }.task-open small { display: block; margin-top: 4px; color: #a5a9ae; font-size: 13px; }.task-chevron { color: #c4c9cf; background: none; }.task-chevron .ui-icon { font-size: 23px; }.column-empty { color: #b3b7bd; text-align: center; }.floating-add { position: fixed; z-index: 4; right: 31px; bottom: 25px; display: grid; width: 62px; height: 62px; place-items: center; border-radius: 50%; background: #4aa7f8; color: white; box-shadow: 0 5px 11px rgba(48,147,231,.37); }.floating-add .ui-icon { font-size: 41px; font-weight: 200; }
+.plan-heading { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; min-height: 91px; padding: 0 28px; background: #fbfcfd; }.plan-heading > strong { font-size: 26px; font-weight: 600; }.plan-heading > div { display: flex; align-items: center; justify-self: end; gap: 9px; color: #53565a; }.icon-only.light { color: #5c6167; }.display-control { display: flex; align-items: center; gap: 7px; padding: 6px 8px; color: #55585d; background: transparent; }.muted { transform: scale(.9); transform-origin: left center; }.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); min-height: calc(100vh - 126px); background: white; }.week-day { min-width: 140px; border-right: 1px solid #edf0f2; background: linear-gradient(90deg, rgba(238,239,239,.58) 0 100%); }.week-day:nth-child(odd) { background: white; }.week-day header { display: flex; height: 63px; align-items: center; gap: 14px; padding: 0 10px; border-bottom: 1px solid #edf0f2; background: white; }.week-day header span { color: #3b3e43; font-size: 23px; }.week-day.today header span, .week-day.today header strong { color: var(--blue); }.week-day header strong { font-size: 15px; font-weight: 500; }.week-day header button, .month-day header button { margin-left: auto; padding: 6px; color: #333; background: transparent; }.schedule-list { padding: 4px 2px; }.schedule-item { display: flex; width: 100%; min-width: 0; justify-content: space-between; gap: 6px; margin-bottom: 3px; padding: 7px 6px; overflow: hidden; border-radius: 3px; color: white; background: var(--task-color); text-align: left; white-space: nowrap; }.schedule-item span { overflow: hidden; text-overflow: ellipsis; }.schedule-item time { font-size: 13px; }.month-labels, .month-grid { display: grid; grid-template-columns: repeat(7, 1fr); }.month-labels { height: 58px; align-items: center; border-bottom: 1px solid #edf0f2; background: white; }.month-labels b { padding-left: 27px; font-weight: 600; }.month-grid { grid-template-rows: repeat(6, minmax(120px, 1fr)); height: calc(100vh - 149px); min-height: 620px; background: white; }.month-day { min-width: 140px; padding: 8px 3px; border-right: 1px solid #edf0f2; border-bottom: 1px solid #edf0f2; }.month-day header { display: flex; align-items: center; padding: 0 8px 8px; }.month-day header span { font-size: 16px; font-weight: 600; }.month-day header i { margin-left: 9px; color: var(--blue); font-style: normal; }.month-day .schedule-item { padding: 4px 6px; font-size: 13px; }.month-day .schedule-item time { font-size: 12px; }.muted-day { color: #a9adb3; background: #fbfbfb; }.more-items { width: 100%; padding: 3px 5px; color: #747b85; background: transparent; text-align: left; }
+.profile-view { padding: 30px 28px; background: #fbfcfd; }.profile-layout { display: flex; max-width: 970px; gap: 120px; align-items: center; margin: 130px auto 0; }.profile-card { display: flex; width: 310px; flex-direction: column; align-items: center; gap: 15px; }.profile-card .avatar-mark { width: 155px; height: 155px; border: 14px solid #e5f4ff; font-size: 48px; }.profile-card .avatar-mark i { width: 116px; height: 31px; border-width: 5px; }.profile-card strong { margin-top: 30px; font-size: 27px; font-weight: 500; }.profile-card span { color: #9ba1ab; }.profile-form { display: grid; width: 460px; gap: 24px; }.profile-form > label { display: grid; grid-template-columns: 130px 1fr; align-items: center; color: #959cac; font-size: 17px; }.profile-form input, .profile-form textarea { padding: 11px 14px; border: 1px solid #cbd4e0; border-radius: 5px; outline: 0; background: white; color: #333; }.profile-form input:focus, .profile-form textarea:focus { border-color: var(--blue); }.profile-form fieldset { display: flex; gap: 27px; align-items: center; margin: 0; padding: 0; border: 0; color: #959cac; }.profile-form legend { float: left; width: 130px; }.profile-form fieldset label { color: #45484e; }.profile-form fieldset input { margin-right: 7px; accent-color: var(--blue); }.profile-form .signature { align-items: start; }.signature textarea { min-height: 86px; resize: vertical; }.inline-link { padding: 0; color: var(--blue); background: none; text-align: left; }.profile-form .primary-button { width: 128px; margin: 60px 0 0 130px; }
+.modal-layer { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(68,86,122,.50); backdrop-filter: blur(1px); }.modal-layer.nested { z-index: 12; background: rgba(45,59,86,.18); }.task-modal { position: relative; width: min(536px, 100%); max-height: min(720px, calc(100vh - 40px)); overflow: auto; border-radius: 6px; background: white; box-shadow: 0 13px 32px rgba(25,37,59,.23); }.task-modal > header { display: grid; grid-template-columns: 28px 1fr auto; gap: 11px; align-items: center; min-height: 91px; padding: 0 27px; border-bottom: 1px solid var(--line); }.modal-circle { --task-color: var(--green); }.task-modal > header input { width: 100%; padding: 0; border: 0; outline: 0; color: #292b2f; font-size: 23px; font-weight: 600; }.task-actions { display: flex; gap: 8px; }.priority-button, .tag-button { display: grid; width: 39px; height: 39px; place-items: center; border-radius: 50%; color: #ff9b46; background: #fff0db; }.tag-button { background: var(--task-color); color: white; font-size: 19px; }.priority-urgent { color: #ee626a; }.priority-important { color: #fb9c43; }.priority-notUrgentImportant { color: #30bb78; }.priority-notUrgent { color: #6c9fec; }.priority-button.priority-urgent { background: #fff0f0; }.priority-button.priority-important { background: #fff0db; }.priority-button.priority-notUrgentImportant { background: #e8f8ee; }.priority-button.priority-notUrgent { background: #eaf2ff; }.modal-body { padding: 10px 26px 0; }.meta-row { display: grid; grid-template-columns: 25px 1fr 20px; width: 100%; align-items: center; gap: 10px; padding: 12px 0; color: #767b83; background: transparent; text-align: left; }.meta-row > span { display: flex; gap: 12px; align-items: center; }.meta-row small { color: #666b73; font-size: 15px; }.meta-row strong { color: #4d5156; font-size: 15px; font-weight: 500; }.meta-row .arrow { justify-self: end; }.subtask-add { display: flex; width: 100%; gap: 10px; padding: 18px 0; color: var(--green); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: transparent; text-align: left; }.subtask-add .ui-icon { font-size: 27px; }.subtask-list label { display: grid; grid-template-columns: 22px 1fr; gap: 9px; align-items: center; padding: 6px 0; }.small-check { display: grid; width: 20px; height: 20px; place-items: center; color: #9da5ad; border-radius: 50%; background: #f1f3f4; }.small-check .ui-icon { font-size: 16px; }.subtask-list input { width: 100%; border: 0; border-bottom: 1px solid #edf0f2; outline: none; }.note-box { position: relative; display: block; min-height: 124px; margin-top: 0; padding: 20px 10px; border-bottom: 1px solid var(--line); }.note-box > span { display: block; color: #959aa1; }.note-box textarea { width: 100%; min-height: 55px; padding: 6px 0; border: 0; outline: 0; resize: none; }.note-box i { position: absolute; right: 4px; bottom: 15px; display: flex; gap: 10px; color: #6f747a; font-style: normal; }.failure-row { display: flex; width: 100%; gap: 11px; padding: 18px 5px; color: #70747a; background: transparent; text-align: left; }.failure-row b { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; color: white; background: #4f7aa0; }.task-modal footer { display: flex; min-height: 94px; align-items: center; justify-content: flex-end; gap: 19px; padding: 0 27px; border-top: 1px solid var(--line); }.task-modal footer > span { flex: 1; }.text-button { padding: 9px; color: #646970; background: none; }.text-button.danger { color: #666; }.primary-button { min-width: 97px; padding: 13px 22px; border-radius: 23px; color: white; background: var(--blue); box-shadow: 0 4px 10px rgba(41,150,246,.21); }.select-menu { position: absolute; z-index: 2; top: 77px; right: -106px; width: 220px; padding: 12px; border-radius: 13px; background: white; box-shadow: 0 7px 18px rgba(34,45,67,.18); }.select-menu button { display: flex; width: 100%; align-items: center; gap: 14px; padding: 11px; background: transparent; text-align: left; }.select-menu button .check { margin-left: auto; color: var(--blue); }.select-menu button > i { width: 18px; font-style: normal; }.tag-menu { top: 77px; right: -283px; width: 305px; display: flex; justify-content: space-around; }.tag-menu button { width: auto; flex-direction: column; gap: 8px; text-align: center; }.tag-menu button i { display: grid; width: 43px; height: 43px; place-items: center; border-radius: 50%; color: white; }.tag-menu .check { position: absolute; }
+.time-sheet { width: min(410px, 100%); overflow: hidden; border-radius: 15px; background: white; box-shadow: var(--shadow); }.time-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; padding: 14px 26px; }.time-tabs button { padding: 11px 6px; border: 1px solid #e9edf1; border-radius: 20px; color: #62666d; background: white; }.time-tabs button.active { border-color: var(--blue); color: white; background: var(--blue); }.time-sheet > label { display: flex; justify-content: space-between; padding: 22px 32px; border-top: 1px solid var(--line); }.time-sheet label input { border: 0; color: var(--blue); outline: none; }.time-sheet > p { min-height: 150px; margin: 0; padding: 60px 44px; color: #9ea4ab; line-height: 1.7; text-align: center; }.time-sheet footer { display: flex; justify-content: flex-end; gap: 28px; padding: 22px 32px; border-top: 1px solid var(--line); }.time-sheet footer button { color: #6e737b; background: transparent; }.time-sheet footer button:first-child { margin-right: auto; }.time-sheet footer .link-save { color: var(--blue); }.repeat-sheet { width: min(714px, 100%); max-height: calc(100vh - 40px); overflow: auto; border-radius: 14px; background: white; box-shadow: var(--shadow); }.repeat-sheet header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 25px 32px; }.repeat-sheet header button { padding: 0; color: #8b9198; background: none; text-align: left; }.repeat-sheet > div { padding: 0 32px 20px; }.repeat-sheet > div > button { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 13px 0; border-bottom: 1px solid var(--line); color: #4a4e54; background: transparent; text-align: left; }.repeat-sheet b, .repeat-sheet small { display: block; }.repeat-sheet b { font-weight: 500; font-size: 16px; }.repeat-sheet small { margin-top: 3px; color: #b2b6ba; }.repeat-sheet .check { color: var(--blue); }.settings-modal { width: min(520px, 100%); border-radius: 13px; background: white; box-shadow: var(--shadow); }.settings-modal header { display: flex; align-items: flex-start; justify-content: space-between; padding: 28px 32px 19px; border-bottom: 1px solid var(--line); }.settings-modal header small { color: var(--blue); }.settings-modal header h2 { margin: 5px 0 0; }.settings-modal header button { color: #747a81; background: none; }.settings-rows { padding: 7px 32px 21px; }.settings-rows label, .settings-rows button { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 18px 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }.settings-rows b, .settings-rows small { display: block; }.settings-rows b { color: #404348; font-weight: 500; }.settings-rows small { margin-top: 4px; color: #9ba1a9; }.settings-rows button { color: #626970; }.settings-rows input { appearance: none; width: 37px; height: 21px; border-radius: 20px; background: #cbd0d6; }.settings-rows input:checked { background: var(--blue); }
+.month-grid { grid-template-rows: repeat(6, minmax(154px, auto)); min-height: 924px; height: auto; }
+
+@media (min-width: 1180px) { .search-trigger { display: none; }.search-box { display: flex; } }
+@media (max-width: 1040px) { .sidebar { width: 238px; flex-basis: 238px; }.workspace { width: calc(100% - 238px); }.identity-row { padding: 0 15px; }.nav-heading, .nav-item { padding-left: 18px; padding-right: 18px; }.board-toolbar { padding: 0 18px; }.board-options > span:last-child { display: none; }.profile-layout { gap: 45px; }.profile-card { width: 245px; }.select-menu { right: 8px; }.tag-menu { right: 8px; } }
+@media (max-width: 760px) { body { overflow: auto; }.desktop-frame { min-width: 720px; }.sidebar { width: 210px; flex-basis: 210px; }.workspace { width: calc(100% - 210px); }.account-name { font-size: 13px; }.identity-row { grid-template-columns: 39px 1fr 29px 29px; gap: 4px; }.nav-item { font-size: 14px; }.nav-item small { display: none; }.profile-layout { flex-direction: column; margin-top: 45px; }.profile-form { width: min(460px, 90%); }.plan-heading > div .display-control, .plan-heading > div > span { display: none; } }
+
+</style>
+</head>
+<body>
+  <main id="app"></main>
+  <script>
+window.SuiTimePrototype = {
+  storageKey: 'sui-time-reference:v1',
+  today: '2026-08-03',
+  initialData: {
+    profile: { name: '暴走的小陌', phone: '182****9035', gender: 'male', signature: '暴走方知深浅' },
+    settings: { darkSidebar: true, compactMenu: false, weekOnly: true, hideCompleted: true },
+    tags: [
+      { id: 'work', name: '工作', color: '#7299d5', icon: '▣' },
+      { id: 'growth', name: '自增', color: '#12bd75', icon: '▮' },
+      { id: 'life', name: '生活', color: '#ff8545', icon: '♨' }
+    ],
+    tasks: [
+      { id: 't1', title: '一体化门户集成', tagId: 'growth', date: '2026-08-03', schedule: 'allDay', time: '', priority: 'notUrgentImportant', repeat: 'none', notes: '梳理门户的统一登录与数据集成范围。', status: 'todo', subtasks: ['确认应用清单', '同步接口负责人'] },
+      { id: 't2', title: '一件收费隐藏功能', tagId: 'growth', date: '2026-08-03', schedule: 'allDay', time: '', priority: 'notUrgentImportant', repeat: 'none', notes: '', status: 'todo', subtasks: [] },
+      { id: 't3', title: '采购实施方案后续字段维护', tagId: 'work', date: '2026-08-03', schedule: 'allDay', time: '', priority: 'notUrgent', repeat: 'none', notes: '补充实施阶段字段说明。', status: 'todo', subtasks: [] },
+      { id: 't4', title: '谷歌账户注册（手机号）', tagId: 'life', date: '2026-08-03', schedule: 'allDay', time: '', priority: 'urgent', repeat: 'none', notes: '', status: 'todo', subtasks: [] },
+      { id: 't5', title: '软考-系统架构师', tagId: 'growth', date: '2026-08-03', schedule: 'allDay', time: '', priority: 'notUrgentImportant', repeat: 'none', notes: '', status: 'todo', subtasks: ['第一章', '第二章', '整理错题'] },
+      { id: 't6', title: '回标分析-投标人与投标文件分析', tagId: 'work', date: '2026-08-04', schedule: 'allDay', time: '', priority: 'notUrgent', repeat: 'none', notes: '', status: 'todo', subtasks: ['资格审查', '价格对比', '文件归档'] },
+      { id: 't7', title: 'AI-回标分析-公开公式分析', tagId: 'work', date: '2026-08-04', schedule: 'allDay', time: '', priority: 'notUrgent', repeat: 'none', notes: '', status: 'todo', subtasks: ['数据提取', '公式复核'] },
+      { id: 't8', title: '去上海', tagId: 'life', date: '2026-08-04', schedule: 'point', time: '18:30', priority: 'urgent', repeat: 'none', notes: '提前确认车票。', status: 'todo', subtasks: [] },
+      { id: 't9', title: '房租', tagId: 'life', date: '2026-08-06', schedule: 'point', time: '08:00', priority: 'urgent', repeat: 'monthly', notes: '', status: 'todo', subtasks: [] },
+      { id: 't10', title: '工时、周报', tagId: 'work', date: '2026-08-07', schedule: 'point', time: '19:00', priority: 'notUrgent', repeat: 'weekly', notes: '', status: 'todo', subtasks: [] },
+      { id: 't11', title: '值班', tagId: 'life', date: '2026-08-08', schedule: 'allDay', time: '', priority: 'urgent', repeat: 'weekly', notes: '', status: 'todo', subtasks: [] },
+      { id: 't12', title: '小敏敏33岁生日', tagId: 'life', date: '2026-08-03', schedule: 'allDay', time: '', priority: 'urgent', repeat: 'yearly', notes: '', status: 'done', subtasks: [] }
+    ]
+  }
+};
+
+(() => {
+  const { storageKey, initialData, today } = window.SuiTimePrototype;
+  const app = document.querySelector('#app');
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const load = () => {
+    try {
+      return { ...clone(initialData), ...JSON.parse(localStorage.getItem(storageKey) || '{}') };
+    } catch {
+      return clone(initialData);
+    }
+  };
+
+  let data = load();
+  const state = { view: 'all', menu: '', modal: '', draft: null, weekOffset: 0, monthOffset: 0, search: '' };
+  const tags = () => data.tags;
+  const tagFor = (id) => tags().find((tag) => tag.id === id) || tags()[0];
+  const persist = () => localStorage.setItem(storageKey, JSON.stringify(data));
+  const pad = (number) => String(number).padStart(2, '0');
+  const dateAtNoon = (value) => new Date(`${value}T12:00:00`);
+  const iso = (value) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  const addDays = (value, amount) => { const date = dateAtNoon(value); date.setDate(date.getDate() + amount); return iso(date); };
+  const monthLabel = (value) => { const date = dateAtNoon(value); return `${date.getFullYear()} / ${pad(date.getMonth() + 1)}`; };
+  const shortDate = (value) => { const date = dateAtNoon(value); return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}`; };
+  const weekday = (value) => ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][dateAtNoon(value).getDay()];
+  const icon = (name) => `<span class="ui-icon ${name}" aria-hidden="true">${({ grid: '▦', plan: '□', list: '≡', repeat: '⌁', week: 'W', month: 'M', note: '▯', book: '▱', focus: '⌛', bell: '◌', refresh: '↻', search: '⌕', filter: '⌂', plus: '+', setting: '⚙', calendar: '◷', clock: '◷', flag: '⚑', pin: '⌖', image: '▧', close: '×', more: '⋮', arrow: '›', check: '✓', back: '‹', next: '›', user: '◉' })[name] || '•'}</span>`;
+
+  function isOccurrence(task, date) {
+    if (task.date === date) return true;
+    if (date < task.date || task.repeat === 'none') return false;
+    const source = dateAtNoon(task.date);
+    const current = dateAtNoon(date);
+    if (task.repeat === 'weekly') return source.getDay() === current.getDay();
+    if (task.repeat === 'monthly') return source.getDate() === current.getDate();
+    if (task.repeat === 'yearly') return source.getDate() === current.getDate() && source.getMonth() === current.getMonth();
+    if (task.repeat === 'daily') return true;
+    return false;
+  }
+
+  function tasksFor(date) {
+    return data.tasks.filter((task) => isOccurrence(task, date) && (!data.settings.hideCompleted || task.status !== 'done'));
+  }
+
+  function taskMeta(task, contextDate = task.date) {
+    const labels = { none: '', weekly: '每周', monthly: '每月', yearly: '每年', daily: '每天' };
+    const when = task.schedule === 'point' ? `${shortDate(contextDate)} ${task.time}` : contextDate === today ? '今天' : shortDate(contextDate);
+    return [when, labels[task.repeat]].filter(Boolean).join('  ');
+  }
+
+  function initialDraft(task, date) {
+    return clone(task || {
+      id: '', title: '', tagId: 'growth', date: date || today, schedule: 'allDay', time: '', priority: 'notUrgentImportant', repeat: 'none', notes: '', status: 'todo', subtasks: []
+    });
+  }
+
+  function visibleTasks() {
+    const term = state.search.trim();
+    return data.tasks.filter((task) => !data.settings.hideCompleted || task.status !== 'done').filter((task) => !term || `${task.title}${task.notes}`.includes(term));
+  }
+
+  function avatar() {
+    return `<span class="avatar-mark"><span>时</span><i></i></span>`;
+  }
+
+  function renderSidebar() {
+    const name = data.profile.name;
+    return `<aside class="sidebar">
+      <div class="sidebar-overlay"></div>
+      <div class="identity-row">
+        <button class="avatar-button" data-action="open-profile" title="个人资料">${avatar()}</button>
+        <button class="account-name" data-action="toggle-menu">${name}</button>
+        <button class="icon-only" data-action="open-settings" title="基础设置">${icon('setting')}</button>
+        <button class="icon-only" data-action="reset-today" title="刷新">${icon('refresh')}</button>
+      </div>
+      ${state.menu === 'account' ? `<section class="account-menu popover"><button data-action="open-profile">${icon('user')}个人资料</button><button data-action="open-settings">${icon('setting')}基础设置</button><button data-action="restore-data">${icon('refresh')}恢复演示数据</button></section>` : ''}
+      <nav class="nav-area">
+        <div class="nav-heading"><span>${icon('plan')}事项</span><b>⌃</b></div>
+        <button class="nav-item ${state.view === 'all' ? 'active' : ''}" data-action="switch-view" data-view="all">${icon('grid')}全部 <small>列表</small></button>
+        <button class="nav-item" data-action="switch-view" data-view="all">${icon('calendar')}日程</button>
+        <button class="nav-item" data-action="switch-view" data-view="all">${icon('list')}清单</button>
+        <button class="nav-item" data-action="switch-view" data-view="all">${icon('repeat')}重复</button>
+        <div class="nav-divider"></div>
+        <div class="nav-heading"><span>${icon('calendar')}规划</span><b>⌃</b></div>
+        <button class="nav-item ${state.view === 'week' ? 'active' : ''}" data-action="switch-view" data-view="week">${icon('week')}我的一周</button>
+        <button class="nav-item ${state.view === 'month' ? 'active' : ''}" data-action="switch-view" data-view="month">${icon('month')}我的一月</button>
+        <div class="nav-divider"></div>
+        <button class="nav-item">${icon('note')}备忘录 <b>⌄</b></button>
+        <button class="nav-item">${icon('book')}日记 <b>⌄</b></button>
+        <button class="nav-item">${icon('focus')}番茄专注 <b>⌄</b></button>
+      </nav>
+      <div class="sidebar-status"><span></span><small>离线演示 · 数据仅存本机</small></div>
+    </aside>`;
+  }
+
+  function renderAll() {
+    const groups = [{ id: 'all', name: '全部', color: '#4fa4f4', symbol: '▦' }, ...tags()];
+    const cards = groups.map((group) => {
+      const items = group.id === 'all' ? visibleTasks() : visibleTasks().filter((task) => task.tagId === group.id);
+      return `<section class="task-column"><header><strong style="--column-color:${group.color}"><i>${group.symbol || '●'}</i>${group.name}</strong><button class="column-more" title="更多操作">${icon('more')}</button></header><button class="column-add" data-action="open-task" data-tag="${group.id === 'all' ? '' : group.id}">${icon('plus')}</button><div class="cards">${items.map((task) => renderTaskCard(task)).join('') || '<p class="column-empty">暂时没有事项</p>'}</div></section>`;
+    }).join('');
+    return `<section class="all-view view-content"><div class="board-toolbar"><div><h1>事项-列表</h1><button class="search-trigger" title="搜索">${icon('search')}</button><label class="search-box">${icon('search')}<input data-field="search" value="${state.search}" placeholder="搜索事项" /></label></div><div class="board-options"><span>${icon('filter')}本周</span><label class="switch"><input data-setting="hideCompleted" type="checkbox" ${data.settings.hideCompleted ? 'checked' : ''}/><i></i></label><span>隐藏已完成/已失败</span></div></div><div class="board-scroll"><div class="task-board">${cards}</div></div></section>`;
+  }
+
+  function renderTaskCard(task, date) {
+    const tag = tagFor(task.tagId);
+    const childInfo = task.subtasks.length ? `子任务 ${task.subtasks.length}` : taskMeta(task, date);
+    return `<article class="task-card" style="--task-color:${tag.color}"><button class="task-check ${task.status === 'done' ? 'done' : ''}" data-action="toggle-task" data-task="${task.id}" title="完成事项">${task.status === 'done' ? icon('check') : ''}</button><button class="task-open" data-action="edit-task" data-task="${task.id}"><strong>${task.title}</strong><small>${childInfo || '未设置日期'}</small></button><button class="task-chevron" data-action="edit-task" data-task="${task.id}">${icon('arrow')}</button></article>`;
+  }
+
+  function currentWeekDates() {
+    const anchor = addDays(today, state.weekOffset * 7);
+    const date = dateAtNoon(anchor);
+    const offset = (date.getDay() + 6) % 7;
+    return Array.from({ length: 7 }, (_, index) => addDays(anchor, index - offset));
+  }
+
+  function renderWeek() {
+    const days = currentWeekDates();
+    return `<section class="plan-view view-content"><div class="plan-heading"><h1>我的一周</h1><strong>${monthLabel(days[0])}</strong><div><button class="icon-only light" data-action="week-prev">${icon('back')}</button><button class="icon-only light" data-action="week-next">${icon('next')}</button><button class="display-control">${icon('list')}展示管理</button><label class="switch muted"><input data-setting="hideCompleted" type="checkbox" ${data.settings.hideCompleted ? 'checked' : ''}/><i></i></label><span>隐藏已完成/已失败</span></div></div><div class="week-grid">${days.map((date, index) => `<section class="week-day ${date === today ? 'today' : ''}"><header><span>${dateAtNoon(date).getDate()}</span><strong>${index === 0 && date === today ? '今天' : weekday(date)}</strong><button data-action="open-task" data-date="${date}">${icon('plus')}</button></header><div class="schedule-list">${tasksFor(date).map((task) => renderSchedule(task, date)).join('')}</div></section>`).join('')}</div></section>`;
+  }
+
+  function renderSchedule(task, date) {
+    const tag = tagFor(task.tagId);
+    return `<button class="schedule-item" data-action="edit-task" data-task="${task.id}" style="--task-color:${tag.color}"><span>${task.status === 'done' ? '✓ ' : ''}${task.title}</span>${task.schedule === 'point' ? `<time>${task.time}</time>` : ''}</button>`;
+  }
+
+  function monthDates() {
+    const anchor = dateAtNoon(addDays(today, state.monthOffset * 31));
+    anchor.setDate(1);
+    const offset = (anchor.getDay() + 6) % 7;
+    anchor.setDate(anchor.getDate() - offset);
+    return Array.from({ length: 42 }, (_, index) => { const result = new Date(anchor); result.setDate(result.getDate() + index); return iso(result); });
+  }
+
+  function renderMonth() {
+    const dates = monthDates();
+    const currentMonth = dateAtNoon(addDays(today, state.monthOffset * 31)).getMonth();
+    return `<section class="plan-view view-content"><div class="plan-heading"><h1>我的一月</h1><strong>${monthLabel(dates[17])}</strong><div><button class="icon-only light" data-action="month-prev">${icon('back')}</button><button class="icon-only light" data-action="month-next">${icon('next')}</button><button class="display-control">${icon('list')}展示管理</button><label class="switch muted"><input data-setting="hideCompleted" type="checkbox" ${data.settings.hideCompleted ? 'checked' : ''}/><i></i></label><span>隐藏已完成/已失败</span></div></div><div class="month-labels">${['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label) => `<b>${label}</b>`).join('')}</div><div class="month-grid">${dates.map((date) => { const entries = tasksFor(date); const muted = dateAtNoon(date).getMonth() !== currentMonth; return `<section class="month-day ${muted ? 'muted-day' : ''} ${date === today ? 'today' : ''}"><header><span>${dateAtNoon(date).getDate()}</span>${date === today ? '<i>今</i>' : ''}<button data-action="open-task" data-date="${date}">${icon('plus')}</button></header><div>${entries.slice(0, 4).map((task) => renderSchedule(task, date)).join('')}${entries.length > 4 ? `<button class="more-items" data-action="edit-task" data-task="${entries[4].id}">+${entries.length - 4}</button>` : ''}</div></section>`; }).join('')}</div></section>`;
+  }
+
+  function renderProfile() {
+    const profile = data.profile;
+    return `<section class="profile-view view-content"><h1>个人资料</h1><div class="profile-layout"><div class="profile-card">${avatar()}<strong>${profile.name}</strong><span>本地时光记录者</span></div><form class="profile-form"><label>昵称<input data-profile="name" value="${profile.name}" maxlength="16" /></label><label>手机号<span>${profile.phone}</span></label><label>邮箱<button type="button" class="inline-link">绑定邮箱</button></label><fieldset><legend>性别</legend><label><input data-profile="gender" value="male" type="radio" ${profile.gender === 'male' ? 'checked' : ''}/> 男</label><label><input data-profile="gender" value="female" type="radio" ${profile.gender === 'female' ? 'checked' : ''}/> 女</label></fieldset><label class="signature">签名<textarea data-profile="signature" maxlength="80">${profile.signature}</textarea></label><button type="button" class="primary-button" data-action="save-profile">保存</button></form></div></section>`;
+  }
+
+  function renderWorkspace() {
+    const view = state.view === 'all' ? renderAll() : state.view === 'week' ? renderWeek() : state.view === 'month' ? renderMonth() : renderProfile();
+    return `<section class="workspace">${view}</section>`;
+  }
+
+  function renderTaskModal() {
+    if (!['task', 'time', 'repeat'].includes(state.modal)) return '';
+    const task = state.draft;
+    const tag = tagFor(task.tagId);
+    const priorities = [['urgent', '重要且紧急'], ['important', '重要不紧急'], ['notUrgentImportant', '不重要紧急'], ['notUrgent', '不重要不紧急']];
+    return `<div class="modal-layer" data-action="close-modal"><form class="task-modal" data-stop="true"><header><span class="task-check modal-circle" style="--task-color:${tag.color}"></span><input data-draft="title" value="${task.title}" autofocus placeholder="输入事项名称" maxlength="80" /><div class="task-actions"><button type="button" class="priority-button priority-${task.priority}" data-action="toggle-priority" title="设置优先级">${icon('flag')}</button><button type="button" class="tag-button" data-action="toggle-tag" style="--task-color:${tag.color}" title="选择分类">${tag.icon}</button></div></header>${state.menu === 'priority' ? `<section class="select-menu priority-menu">${priorities.map(([value, label]) => `<button type="button" class="priority-${value}" data-action="set-priority" data-value="${value}"><i>Ⅰ</i>${label}${task.priority === value ? icon('check') : ''}</button>`).join('')}</section>` : ''}${state.menu === 'tag' ? `<section class="select-menu tag-menu">${tags().map((item) => `<button type="button" data-action="set-tag" data-tag="${item.id}"><i style="background:${item.color}">${item.icon}</i>${item.name}${task.tagId === item.id ? icon('check') : ''}</button>`).join('')}</section>` : ''}<div class="modal-body"><button type="button" class="meta-row" data-action="open-time">${icon('clock')}<span><small>日期与时间</small><strong>${task.schedule === 'point' ? `${task.date} ${task.time}` : `${task.date} 全天`}</strong></span>${icon('arrow')}</button><button type="button" class="meta-row" data-action="open-repeat">${icon('repeat')}<span><small>重复</small><strong>${repeatLabel(task.repeat)}</strong></span>${icon('arrow')}</button><button type="button" class="subtask-add" data-action="add-subtask">${icon('plus')}添加子任务</button><div class="subtask-list">${task.subtasks.map((subtask, index) => `<label><button type="button" class="small-check" data-action="remove-subtask" data-index="${index}">${icon('close')}</button><input data-subtask="${index}" value="${subtask}" maxlength="60" placeholder="子任务" /></label>`).join('')}</div><label class="note-box"><span>备注</span><textarea data-draft="notes" placeholder="记录一些细节，未来的自己会感谢你。">${task.notes}</textarea><i>${icon('image')}${icon('pin')}</i></label><button type="button" class="failure-row"><b>×</b><span>失败</span></button></div><footer>${task.id ? '<button type="button" class="text-button danger" data-action="delete-task">删除</button>' : '<span></span>'}<button type="button" class="text-button" data-action="close-modal">取消</button><button type="button" class="primary-button" data-action="save-task">保存</button></footer></form></div>${renderTimeModal()}${renderRepeatModal()}`;
+  }
+
+  function renderTimeModal() {
+    if (state.modal !== 'time') return '';
+    const task = state.draft;
+    return `<div class="modal-layer nested" data-action="close-time"><section class="time-sheet" data-stop="true"><div class="time-tabs"><button data-action="set-schedule" data-value="point" class="${task.schedule === 'point' ? 'active' : ''}">时间点</button><button data-action="set-schedule" data-value="range" class="${task.schedule === 'range' ? 'active' : ''}">时间段</button><button data-action="set-schedule" data-value="allDay" class="${task.schedule === 'allDay' ? 'active' : ''}">全天</button></div><label><span>${shortDate(task.date)} ${weekday(task.date)}</span><input data-draft="date" type="date" value="${task.date}" /></label>${task.schedule !== 'allDay' ? `<label><span>时间</span><input data-draft="time" type="time" value="${task.time || '09:00'}" /></label>` : '<p>全天事件会出现在今日规划中，您可以在任意时间执行，岁岁时光不会提醒您。</p>'}<footer><button data-action="clear-time">清除时间</button><button data-action="close-time">取消</button><button class="link-save" data-action="close-time">保存</button></footer></section></div>`;
+  }
+
+  function renderRepeatModal() {
+    if (state.modal !== 'repeat') return '';
+    const choices = [['none', '不重复', ''], ['daily', '每天', '每天重复'], ['weekly', '每周', '每周同一天'], ['monthly', '每月', '每月同一天'], ['yearly', '每年', '每年同一天'], ['memory', '记忆曲线', '间隔 1、2、4、7、15 天'], ['custom', '自定义', '']];
+    return `<div class="modal-layer nested" data-action="close-repeat"><section class="repeat-sheet" data-stop="true"><header><button data-action="close-repeat">取消</button><strong>选择重复</strong><span></span></header><div>${choices.map(([value, label, hint]) => `<button data-action="set-repeat" data-value="${value}" class="${state.draft.repeat === value ? 'selected' : ''}"><span><b>${label}</b><small>${hint}</small></span>${state.draft.repeat === value ? icon('check') : icon('arrow')}</button>`).join('')}</div></section></div>`;
+  }
+
+  function repeatLabel(value) {
+    return ({ none: '添加重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年', memory: '记忆曲线', custom: '自定义' })[value] || '添加重复';
+  }
+
+  function renderSettings() {
+    if (state.modal !== 'settings') return '';
+    return `<div class="modal-layer" data-action="close-modal"><section class="settings-modal" data-stop="true"><header><div><small>岁岁时光</small><h2>基础设置</h2></div><button data-action="close-modal">${icon('close')}</button></header><div class="settings-rows"><label><span><b>主题换肤</b><small>保持与桌面端一致的清爽界面</small></span><input data-setting="darkSidebar" type="checkbox" ${data.settings.darkSidebar ? 'checked' : ''}/></label><label><span><b>紧凑导航</b><small>收起侧栏中的辅助分组</small></span><input data-setting="compactMenu" type="checkbox" ${data.settings.compactMenu ? 'checked' : ''}/></label><label><span><b>仅显示本周</b><small>事项面板聚焦当前一周</small></span><input data-setting="weekOnly" type="checkbox" ${data.settings.weekOnly ? 'checked' : ''}/></label><button data-action="restore-data"><span><b>恢复演示数据</b><small>清除本原型的浏览器本地数据</small></span>${icon('refresh')}</button></div></section></div>`;
+  }
+
+  function render() {
+    app.innerHTML = `<div class="desktop-frame ${data.settings.darkSidebar ? 'night-sidebar' : ''}"><div class="window-bar"><span class="window-dots"><i></i><i></i><i></i></span><b>时光序</b><span></span></div><div class="app-body">${renderSidebar()}${renderWorkspace()}</div><button class="floating-add" data-action="open-task" title="新建事项">${icon('plus')}</button></div>${renderTaskModal()}${renderSettings()}`;
+  }
+
+  function openTask(id, date, tagId) {
+    state.draft = initialDraft(id ? data.tasks.find((task) => task.id === id) : null, date);
+    if (tagId) state.draft.tagId = tagId;
+    state.modal = 'task';
+    state.menu = '';
+  }
+
+  function saveTask() {
+    const task = state.draft;
+    if (!task.title.trim()) { window.alert('请先填写事项名称'); return; }
+    task.title = task.title.trim();
+    if (task.id) data.tasks = data.tasks.map((item) => item.id === task.id ? clone(task) : item);
+    else { task.id = `t${Date.now()}`; data.tasks.unshift(clone(task)); }
+    persist(); state.modal = ''; state.menu = '';
+  }
+
+  function handleAction(target) {
+    const action = target.dataset.action;
+    if (!action) return;
+    if (action === 'switch-view') { state.view = target.dataset.view; state.menu = ''; }
+    if (action === 'toggle-menu') state.menu = state.menu === 'account' ? '' : 'account';
+    if (action === 'open-profile') { state.view = 'profile'; state.menu = ''; }
+    if (action === 'open-settings') { state.modal = 'settings'; state.menu = ''; }
+    if (action === 'open-task') openTask('', target.dataset.date, target.dataset.tag);
+    if (action === 'edit-task') openTask(target.dataset.task);
+    if (action === 'toggle-task') { const task = data.tasks.find((item) => item.id === target.dataset.task); task.status = task.status === 'done' ? 'todo' : 'done'; persist(); }
+    if (action === 'close-modal') { state.modal = ''; state.menu = ''; }
+    if (action === 'save-task') saveTask();
+    if (action === 'delete-task') { data.tasks = data.tasks.filter((task) => task.id !== state.draft.id); persist(); state.modal = ''; }
+    if (action === 'toggle-priority') state.menu = state.menu === 'priority' ? '' : 'priority';
+    if (action === 'set-priority') { state.draft.priority = target.dataset.value; state.menu = ''; }
+    if (action === 'toggle-tag') state.menu = state.menu === 'tag' ? '' : 'tag';
+    if (action === 'set-tag') { state.draft.tagId = target.dataset.tag; state.menu = ''; }
+    if (action === 'add-subtask') state.draft.subtasks.push('');
+    if (action === 'remove-subtask') state.draft.subtasks.splice(Number(target.dataset.index), 1);
+    if (action === 'open-time') state.modal = 'time';
+    if (action === 'close-time') state.modal = 'task';
+    if (action === 'set-schedule') state.draft.schedule = target.dataset.value;
+    if (action === 'clear-time') { state.draft.schedule = 'allDay'; state.draft.time = ''; }
+    if (action === 'open-repeat') state.modal = 'repeat';
+    if (action === 'close-repeat') state.modal = 'task';
+    if (action === 'set-repeat') { state.draft.repeat = target.dataset.value; state.modal = 'task'; }
+    if (action === 'save-profile') { persist(); window.alert('个人资料已保存'); }
+    if (action === 'restore-data') { data = clone(initialData); persist(); state.modal = ''; state.menu = ''; }
+    if (action === 'reset-today') { state.weekOffset = 0; state.monthOffset = 0; }
+    if (action === 'week-prev') state.weekOffset -= 1;
+    if (action === 'week-next') state.weekOffset += 1;
+    if (action === 'month-prev') state.monthOffset -= 1;
+    if (action === 'month-next') state.monthOffset += 1;
+    render();
+  }
+
+  app.addEventListener('click', (event) => {
+    const settingTarget = event.target.closest('[data-setting]');
+    if (settingTarget) {
+      data.settings[settingTarget.dataset.setting] = settingTarget.checked;
+      persist();
+      render();
+      return;
+    }
+    const actionTarget = event.target.closest('[data-action]');
+    const stopTarget = event.target.closest('[data-stop]');
+    if (!actionTarget || (stopTarget && !stopTarget.contains(actionTarget))) return;
+    handleAction(actionTarget);
+  });
+  app.addEventListener('input', (event) => {
+    const target = event.target;
+    if (target.dataset.draft && state.draft) state.draft[target.dataset.draft] = target.value;
+    if (target.dataset.subtask && state.draft) state.draft.subtasks[Number(target.dataset.subtask)] = target.value;
+    if (target.dataset.profile) data.profile[target.dataset.profile] = target.value;
+    if (target.dataset.field === 'search') { state.search = target.value; render(); }
+  });
+  app.addEventListener('change', (event) => {
+    const target = event.target;
+    if (target.dataset.setting) { data.settings[target.dataset.setting] = target.checked; persist(); render(); }
+    if (target.dataset.profile) data.profile[target.dataset.profile] = target.value;
+  });
+  render();
+})();
+
+</script>
+</body>
+</html>

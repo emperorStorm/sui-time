@@ -1,0 +1,13 @@
+{
+  "name": "sui-time-reference",
+  "entry": "desktop/index.html",
+  "output": "dist/sui-time-reference.html",
+  "styles": [
+    "shared/tokens.css",
+    "desktop/styles.css"
+  ],
+  "scripts": [
+    "shared/data.js",
+    "desktop/app.js"
+  ]
+}

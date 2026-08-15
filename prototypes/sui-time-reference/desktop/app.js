@@ -232,7 +232,19 @@
     render();
   }
 
-  app.addEventListener('click', (event) => handleAction(event.target.closest('[data-action]') || {}));
+  app.addEventListener('click', (event) => {
+    const settingTarget = event.target.closest('[data-setting]');
+    if (settingTarget) {
+      data.settings[settingTarget.dataset.setting] = settingTarget.checked;
+      persist();
+      render();
+      return;
+    }
+    const actionTarget = event.target.closest('[data-action]');
+    const stopTarget = event.target.closest('[data-stop]');
+    if (!actionTarget || (stopTarget && !stopTarget.contains(actionTarget))) return;
+    handleAction(actionTarget);
+  });
   app.addEventListener('input', (event) => {
     const target = event.target;
     if (target.dataset.draft && state.draft) state.draft[target.dataset.draft] = target.value;

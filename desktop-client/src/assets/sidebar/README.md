@@ -1,14 +1,5 @@
 # 侧栏背景资源
 
-默认侧栏只使用 CSS 基底，不加载图片。
+`mountain-surface.svg` 是生产端当前使用的本地山景侧栏素材，来源于项目交互原型。素材只承担背景氛围，不包含原型模拟数据或业务内容。
 
-需要启用背景图时，将资源放在此目录，并在 `app.css` 对应的侧栏皮肤中设置：
-
-```css
---sidebar-background-image: url("../assets/sidebar/your-background.webp");
---sidebar-background-opacity: .12;
---sidebar-background-position: center bottom;
---sidebar-background-size: cover;
-```
-
-背景图必须保持低对比度，避免影响菜单文字和图标阅读。
+侧栏通过 `app.css` 的 `mountain-night` 皮肤设置遮罩、文字对比度和背景位置。替换素材时必须继续使用本地文件，并验证导航、账户菜单和通知按钮在最小窗口下清晰可读。

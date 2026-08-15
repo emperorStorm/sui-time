@@ -23,19 +23,23 @@
     </section>
   </Teleport>
 
-  <div v-if="updateModalOpen && activeNotification" class="modal-backdrop update-modal-backdrop" @mousedown.self="closeUpdateModal">
-    <section class="modal-panel update-modal" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
-      <header>
-        <div><p class="eyebrow">桌面客户端</p><h2 id="update-modal-title">{{ activeInstalled ? '已安装此版本' : '发现新版本' }}</h2></div>
-        <button class="icon-button ghost" type="button" title="关闭" :disabled="installing" @click="closeUpdateModal"><X :size="20" /></button>
-      </header>
-      <dl class="update-version-list"><div><dt>当前版本</dt><dd>v{{ activeNotification.updateInfo.currentVersion }}</dd></div><div><dt>最新版本</dt><dd>v{{ activeNotification.updateInfo.latestVersion }}</dd></div></dl>
-      <p v-if="activeInstalled" class="update-installed-tip">当前客户端已更新到该版本，无需重复更新。</p>
-      <section class="update-notes"><strong>更新内容</strong><div class="update-notes-content" v-html="activeUpdateNotes" /></section>
-      <section v-if="installing || installError" class="update-install-state" :class="{ error: installError }"><div><span>{{ installError || installStatus }}</span><strong v-if="installing">{{ installProgress }}%</strong></div><div v-if="installing" class="update-progress-track"><span :style="{ width: `${installProgress}%` }" /></div></section>
-      <footer><span></span><button class="quiet-button" type="button" :disabled="installing" @click="closeUpdateModal">{{ activeInstalled ? '关闭' : '暂不更新' }}</button><button class="primary-button" type="button" :disabled="activeInstalled || installing" @click="installActiveUpdate"><RefreshCw v-if="installing" class="spinning" :size="16" /><Download v-else :size="16" />{{ installing ? '正在更新' : '立即更新' }}</button></footer>
-    </section>
-  </div>
+  <Teleport to="body">
+    <Transition name="modal">
+      <div v-if="updateModalOpen && activeNotification" class="modal-backdrop update-modal-backdrop" @mousedown.self="closeUpdateModal">
+        <section class="modal-panel update-modal" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
+          <header>
+            <div><p class="eyebrow">桌面客户端</p><h2 id="update-modal-title">{{ activeInstalled ? '已安装此版本' : '发现新版本' }}</h2></div>
+            <button class="icon-button ghost" type="button" title="关闭" :disabled="installing" @click="closeUpdateModal"><X :size="20" /></button>
+          </header>
+          <dl class="update-version-list"><div><dt>当前版本</dt><dd>v{{ activeNotification.updateInfo.currentVersion }}</dd></div><div><dt>最新版本</dt><dd>v{{ activeNotification.updateInfo.latestVersion }}</dd></div></dl>
+          <p v-if="activeInstalled" class="update-installed-tip">当前客户端已更新到该版本，无需重复更新。</p>
+          <section class="update-notes"><strong>更新内容</strong><div class="update-notes-content" v-html="activeUpdateNotes" /></section>
+          <section v-if="installing || installError" class="update-install-state" :class="{ error: installError }"><div><span>{{ installError || installStatus }}</span><strong v-if="installing">{{ installProgress }}%</strong></div><div v-if="installing" class="update-progress-track"><span :style="{ width: `${installProgress}%` }" /></div></section>
+          <footer><span></span><button class="quiet-button" type="button" :disabled="installing" @click="closeUpdateModal">{{ activeInstalled ? '关闭' : '暂不更新' }}</button><button class="primary-button" type="button" :disabled="activeInstalled || installing" @click="installActiveUpdate"><RefreshCw v-if="installing" class="spinning" :size="16" /><Download v-else :size="16" />{{ installing ? '正在更新' : '立即更新' }}</button></footer>
+        </section>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
