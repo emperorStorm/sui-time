@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">时隙之门</title>
+  <desc id="desc">多层时间切片围成一扇开放入口，象征进入专注时段</desc>
+  <defs>
+    <linearGradient id="bg" x1="118" y1="100" x2="900" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#26363A"/>
+      <stop offset="1" stop-color="#111C20"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="300" y1="286" x2="704" y2="735" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#93E0C3"/>
+      <stop offset="1" stop-color="#319B88"/>
+    </linearGradient>
+    <linearGradient id="ember" x1="704" y1="294" x2="375" y2="746" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFC45E"/>
+      <stop offset=".58" stop-color="#F0795F"/>
+      <stop offset="1" stop-color="#B74559"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="155%">
+      <feDropShadow dx="0" dy="30" stdDeviation="26" flood-color="#071113" flood-opacity=".46"/>
+    </filter>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+  </defs>
+  <rect x="72" y="72" width="880" height="880" rx="206" fill="url(#bg)" filter="url(#shadow)"/>
+  <circle cx="512" cy="512" r="188" fill="#63CDB2" fill-opacity=".2" filter="url(#glow)"/>
+  <path d="M317 327 512 214l195 113-76 82-119-68-119 68z" fill="url(#mint)"/>
+  <path d="M707 327v226L512 666v-99l119-69v-89z" fill="#277C78"/>
+  <path d="M707 553 512 810 317 553l76-55 119 157 119-157z" fill="url(#ember)"/>
+  <path d="M317 553V327l76 82v89z" fill="#ECA35E"/>
+  <path d="M393 409 512 341l119 68-119 158z" fill="#F4F4E8" fill-opacity=".92"/>
+  <circle cx="512" cy="512" r="43" fill="#1D3436"/>
+  <circle cx="512" cy="512" r="17" fill="#F9C15D"/>
+  <circle cx="735" cy="262" r="34" fill="#7FCEB5"/>
+</svg>

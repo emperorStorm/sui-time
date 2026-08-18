@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="1080" viewBox="0 0 2200 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Sui-Time 时光抽象图标五方向提案</title>
+  <desc id="desc">年轮刻度、折叠一刻、晷影之窗、潮汐日历、时隙之门五个应用图标方向</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="2200" y2="1080" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4F5F0"/>
+      <stop offset="1" stop-color="#E8ECE8"/>
+    </linearGradient>
+    <filter id="card-shadow" x="-25%" y="-20%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#273934" flood-opacity=".12"/>
+    </filter>
+  </defs>
+  <rect width="2200" height="1080" fill="url(#page)"/>
+  <g font-family="'PingFang SC','Noto Sans CJK SC',sans-serif">
+    <text x="110" y="104" font-size="48" font-weight="700" fill="#203631">Sui-Time · 时光抽象图标</text>
+    <text x="110" y="150" font-size="22" fill="#667772">避开具象沙漏，从时间的沉积、折叠、投影、周期与入口寻找新识别。</text>
+    <g transform="translate(110 206)">
+      <g>
+        <rect width="364" height="744" rx="28" fill="#FAFBF8" filter="url(#card-shadow)"/>
+        <image href="time-abstract-01-rings.svg" x="28" y="28" width="308" height="308"/>
+        <text x="28" y="395" font-size="18" font-weight="700" fill="#C48535">01 / LONG VIEW</text>
+        <text x="28" y="448" font-size="34" font-weight="700" fill="#203631">年轮刻度</text>
+        <text x="28" y="488" font-size="20" fill="#6A7B75">时间沉积为层层年轮</text>
+        <text x="28" y="522" font-size="20" fill="#6A7B75">缺口指向下一刻</text>
+        <rect x="28" y="565" width="94" height="34" rx="17" fill="#E3EEE7"/><text x="75" y="589" font-size="16" text-anchor="middle" fill="#376B58">安静</text>
+        <rect x="132" y="565" width="94" height="34" rx="17" fill="#E3EEE7"/><text x="179" y="589" font-size="16" text-anchor="middle" fill="#376B58">自然</text>
+        <text x="28" y="662" font-size="16" fill="#84918D">64px 识别</text>
+        <image href="time-abstract-01-rings.svg" x="254" y="632" width="74" height="74"/>
+      </g>
+      <g transform="translate(404)">
+        <rect width="364" height="744" rx="28" fill="#FAFBF8" filter="url(#card-shadow)"/>
+        <image href="time-abstract-02-fold.svg" x="28" y="28" width="308" height="308"/>
+        <text x="28" y="395" font-size="18" font-weight="700" fill="#B4514F">02 / FOLDED MOMENT</text>
+        <text x="28" y="448" font-size="34" font-weight="700" fill="#203631">折叠一刻</text>
+        <text x="28" y="488" font-size="20" fill="#6A7B75">两条时间带在中心交汇</text>
+        <text x="28" y="522" font-size="20" fill="#6A7B75">负形隐约构成字母 S</text>
+        <rect x="28" y="565" width="94" height="34" rx="17" fill="#F5E7DD"/><text x="75" y="589" font-size="16" text-anchor="middle" fill="#9B534A">灵动</text>
+        <rect x="132" y="565" width="94" height="34" rx="17" fill="#F5E7DD"/><text x="179" y="589" font-size="16" text-anchor="middle" fill="#9B534A">品牌感</text>
+        <text x="28" y="662" font-size="16" fill="#84918D">64px 识别</text>
+        <image href="time-abstract-02-fold.svg" x="254" y="632" width="74" height="74"/>
+      </g>
+      <g transform="translate(808)">
+        <rect width="364" height="744" rx="28" fill="#FAFBF8" filter="url(#card-shadow)"/>
+        <image href="time-abstract-03-sundial.svg" x="28" y="28" width="308" height="308"/>
+        <text x="28" y="395" font-size="18" font-weight="700" fill="#BE5B42">03 / SUN SHADOW</text>
+        <text x="28" y="448" font-size="34" font-weight="700" fill="#203631">晷影之窗</text>
+        <text x="28" y="488" font-size="20" fill="#6A7B75">光点与投影构成日晷</text>
+        <text x="28" y="522" font-size="20" fill="#6A7B75">强调“此刻”的确定性</text>
+        <rect x="28" y="565" width="94" height="34" rx="17" fill="#ECE9DF"/><text x="75" y="589" font-size="16" text-anchor="middle" fill="#485B58">克制</text>
+        <rect x="132" y="565" width="94" height="34" rx="17" fill="#ECE9DF"/><text x="179" y="589" font-size="16" text-anchor="middle" fill="#485B58">理性</text>
+        <text x="28" y="662" font-size="16" fill="#84918D">64px 识别</text>
+        <image href="time-abstract-03-sundial.svg" x="254" y="632" width="74" height="74"/>
+      </g>
+      <g transform="translate(1212)">
+        <rect width="364" height="744" rx="28" fill="#FAFBF8" filter="url(#card-shadow)"/>
+        <image href="time-abstract-04-tide.svg" x="28" y="28" width="308" height="308"/>
+        <text x="28" y="395" font-size="18" font-weight="700" fill="#31867E">04 / DAILY TIDE</text>
+        <text x="28" y="448" font-size="34" font-weight="700" fill="#203631">潮汐日历</text>
+        <text x="28" y="488" font-size="20" fill="#6A7B75">周期波形承载一枚日点</text>
+        <text x="28" y="522" font-size="20" fill="#6A7B75">日复一日，仍有变化</text>
+        <rect x="28" y="565" width="94" height="34" rx="17" fill="#DDEFEA"/><text x="75" y="589" font-size="16" text-anchor="middle" fill="#2A746D">温柔</text>
+        <rect x="132" y="565" width="94" height="34" rx="17" fill="#DDEFEA"/><text x="179" y="589" font-size="16" text-anchor="middle" fill="#2A746D">陪伴</text>
+        <text x="28" y="662" font-size="16" fill="#84918D">64px 识别</text>
+        <image href="time-abstract-04-tide.svg" x="254" y="632" width="74" height="74"/>
+      </g>
+      <g transform="translate(1616)">
+        <rect width="364" height="744" rx="28" fill="#FAFBF8" filter="url(#card-shadow)"/>
+        <image href="time-abstract-05-aperture.svg" x="28" y="28" width="308" height="308"/>
+        <text x="28" y="395" font-size="18" font-weight="700" fill="#D46D59">05 / TIME PORTAL</text>
+        <text x="28" y="448" font-size="34" font-weight="700" fill="#203631">时隙之门</text>
+        <text x="28" y="488" font-size="20" fill="#6A7B75">时间切片围成开放入口</text>
+        <text x="28" y="522" font-size="20" fill="#6A7B75">进入属于自己的专注时段</text>
+        <rect x="28" y="565" width="94" height="34" rx="17" fill="#E7E9E5"/><text x="75" y="589" font-size="16" text-anchor="middle" fill="#334846">深邃</text>
+        <rect x="132" y="565" width="94" height="34" rx="17" fill="#E7E9E5"/><text x="179" y="589" font-size="16" text-anchor="middle" fill="#334846">专注</text>
+        <text x="28" y="662" font-size="16" fill="#84918D">64px 识别</text>
+        <image href="time-abstract-05-aperture.svg" x="254" y="632" width="74" height="74"/>
+      </g>
+    </g>
+    <text x="110" y="1010" font-size="18" fill="#778580">本轮仅用于方向选择。选定后将继续处理透视、色彩、16–512px 像素适配与全平台资产。</text>
+  </g>
+</svg>
