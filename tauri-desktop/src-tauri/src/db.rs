@@ -568,6 +568,54 @@ pub fn toggle_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<T
     get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项修改失败".to_string())
 }
 
+pub fn count_unfinished_task_children(
+    conn: &Connection,
+    owner_id: &str,
+    task_id: &str,
+) -> Result<usize, String> {
+    get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项不存在或无权修改".to_string())?;
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM tasks WHERE owner_id = ?1 AND parent_task_id = ?2 AND status != 'done'",
+            params![owner_id, task_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    usize::try_from(count).map_err(|error| error.to_string())
+}
+
+pub fn complete_task_with_children(
+    conn: &Connection,
+    owner_id: &str,
+    task_id: &str,
+) -> Result<Task, String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let current = get_task(&transaction, owner_id, task_id)?
+        .ok_or_else(|| "事项不存在或无权修改".to_string())?;
+    if current.status == "done" {
+        transaction.commit().map_err(|error| error.to_string())?;
+        return Ok(current);
+    }
+
+    let now = now_millis();
+    transaction
+        .execute(
+            "UPDATE tasks SET status = 'done', completed_at = ?1, updated_at = ?1 WHERE owner_id = ?2 AND parent_task_id = ?3 AND status != 'done'",
+            params![now, owner_id, task_id],
+        )
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute(
+            "UPDATE tasks SET status = 'done', completed_at = ?1, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3",
+            params![now, task_id, owner_id],
+        )
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项修改失败".to_string())
+}
+
 pub fn reschedule_task(
     conn: &Connection,
     owner_id: &str,
@@ -1267,6 +1315,177 @@ mod tests {
         let updated = save_task(&conn, &user.id, recurring).unwrap();
         assert_eq!(updated.status, "todo");
         assert!(updated.completed_at.is_none());
+    }
+
+    #[test]
+    fn parent_completion_updates_only_unfinished_owned_children() {
+        let conn = memory_db();
+        let owner = create_initial_account(&conn, &account("父子事项用户")).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at) VALUES ('user-b', '其他用户', 'unused', 0)",
+            [],
+        )
+        .unwrap();
+        let parent = save_task(
+            &conn,
+            &owner.id,
+            task_input("父事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let unfinished_child = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "未完成子事项",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        let finished_child = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "已完成子事项",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        toggle_task(&conn, &owner.id, &finished_child.id).unwrap();
+        conn.execute(
+            "UPDATE tasks SET completed_at = 123, updated_at = 123 WHERE id = ?1",
+            [&finished_child.id],
+        )
+        .unwrap();
+        let unrelated = save_task(
+            &conn,
+            &owner.id,
+            task_input("无关事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let other_user_task = save_task(
+            &conn,
+            "user-b",
+            task_input("其他用户事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+
+        assert_eq!(
+            count_unfinished_task_children(&conn, &owner.id, &parent.id).unwrap(),
+            1
+        );
+        assert!(count_unfinished_task_children(&conn, "user-b", &parent.id).is_err());
+        assert!(complete_task_with_children(&conn, "user-b", &parent.id).is_err());
+
+        let completed_parent = complete_task_with_children(&conn, &owner.id, &parent.id).unwrap();
+        let completed_child = get_task(&conn, &owner.id, &unfinished_child.id)
+            .unwrap()
+            .unwrap();
+        let preserved_child = get_task(&conn, &owner.id, &finished_child.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed_parent.status, "done");
+        assert_eq!(completed_child.status, "done");
+        assert_eq!(completed_child.completed_at, completed_parent.completed_at);
+        assert_eq!(preserved_child.completed_at, Some(123));
+        assert_eq!(
+            get_task(&conn, &owner.id, &unrelated.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "todo"
+        );
+        assert_eq!(
+            get_task(&conn, "user-b", &other_user_task.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "todo"
+        );
+
+        let restored_parent = toggle_task(&conn, &owner.id, &parent.id).unwrap();
+        assert_eq!(restored_parent.status, "todo");
+        assert_eq!(
+            get_task(&conn, &owner.id, &unfinished_child.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "done"
+        );
+        assert_eq!(
+            get_task(&conn, &owner.id, &finished_child.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "done"
+        );
+
+        let standalone = save_task(
+            &conn,
+            &owner.id,
+            task_input("无子事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        assert_eq!(
+            count_unfinished_task_children(&conn, &owner.id, &standalone.id).unwrap(),
+            0
+        );
+        assert_eq!(
+            complete_task_with_children(&conn, &owner.id, &standalone.id)
+                .unwrap()
+                .status,
+            "done"
+        );
+    }
+
+    #[test]
+    fn parent_completion_rolls_back_children_when_parent_update_fails() {
+        let conn = memory_db();
+        let owner = create_initial_account(&conn, &account("级联事务用户")).unwrap();
+        let parent = save_task(
+            &conn,
+            &owner.id,
+            task_input("事务父事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let child = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "事务子事项",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        conn.execute_batch(&format!(
+            "CREATE TRIGGER block_parent_completion BEFORE UPDATE OF status ON tasks WHEN OLD.id = '{}' AND NEW.status = 'done' BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+            parent.id
+        ))
+        .unwrap();
+
+        assert!(complete_task_with_children(&conn, &owner.id, &parent.id).is_err());
+        assert_eq!(
+            get_task(&conn, &owner.id, &parent.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "todo"
+        );
+        assert_eq!(
+            get_task(&conn, &owner.id, &child.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "todo"
+        );
     }
 
     #[test]

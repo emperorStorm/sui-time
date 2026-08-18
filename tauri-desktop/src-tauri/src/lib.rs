@@ -2,9 +2,10 @@ mod db;
 mod models;
 
 use db::{
-    active_user, backup_app_data, create_initial_account, delete_category, delete_task,
-    list_categories, list_tasks, login, logout, needs_setup, open_app_db, reschedule_overdue_tasks,
-    reschedule_task, restore_app_data, save_category, save_task, today_string, toggle_task,
+    active_user, backup_app_data, complete_task_with_children, count_unfinished_task_children,
+    create_initial_account, delete_category, delete_task, list_categories, list_tasks, login,
+    logout, needs_setup, open_app_db, reschedule_overdue_tasks, reschedule_task, restore_app_data,
+    save_category, save_task, today_string, toggle_task,
 };
 use models::{
     AccountInput, BootState, Category, CategoryInput, Task, TaskInput, TaskQuery, UserSession,
@@ -98,6 +99,24 @@ fn toggle_user_task(app: tauri::AppHandle, task_id: String) -> Result<Task, Stri
 }
 
 #[tauri::command]
+fn count_unfinished_user_task_children(
+    app: tauri::AppHandle,
+    task_id: String,
+) -> Result<usize, String> {
+    let conn = open_app_db(&app)?;
+    count_unfinished_task_children(&conn, &require_user_id(&conn)?, &task_id)
+}
+
+#[tauri::command]
+fn complete_user_task_with_children(
+    app: tauri::AppHandle,
+    task_id: String,
+) -> Result<Task, String> {
+    let conn = open_app_db(&app)?;
+    complete_task_with_children(&conn, &require_user_id(&conn)?, &task_id)
+}
+
+#[tauri::command]
 fn reschedule_user_task(
     app: tauri::AppHandle,
     task_id: String,
@@ -149,6 +168,8 @@ pub fn run() {
             save_user_task,
             remove_user_task,
             toggle_user_task,
+            count_unfinished_user_task_children,
+            complete_user_task_with_children,
             reschedule_user_task,
             backup_app_data_command,
             restore_app_data_command

@@ -134,6 +134,26 @@ export async function toggleTask(taskId: string): Promise<Task> {
   return updated
 }
 
+export async function countUnfinishedTaskChildren(taskId: string): Promise<number> {
+  if (isTauriRuntime()) return invoke('count_unfinished_user_task_children', { taskId })
+  const task = demoTasks.find(item => item.id === taskId)
+  if (!task) throw new Error('事项不存在')
+  return demoTasks.filter(item => item.parentTaskId === taskId && item.status !== 'done').length
+}
+
+export async function completeTaskWithChildren(taskId: string): Promise<Task> {
+  if (isTauriRuntime()) return invoke('complete_user_task_with_children', { taskId })
+  const task = demoTasks.find(item => item.id === taskId)
+  if (!task) throw new Error('事项不存在')
+  if (task.status === 'done') return task
+  const now = Date.now()
+  demoTasks = demoTasks.map(item => {
+    if (item.id !== taskId && (item.parentTaskId !== taskId || item.status === 'done')) return item
+    return { ...item, status: 'done', completedAt: now, updatedAt: now }
+  })
+  return demoTasks.find(item => item.id === taskId) as Task
+}
+
 export async function rescheduleTask(taskId: string, plannedDate: string | null): Promise<Task> {
   if (isTauriRuntime()) return invoke('reschedule_user_task', { taskId, plannedDate })
   const task = demoTasks.find(item => item.id === taskId)

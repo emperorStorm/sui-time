@@ -2,7 +2,7 @@
 id: baseline-tasks-planning
 title: 事项与时间规划基线
 status: implemented
-updated: 2026-08-14
+updated: 2026-08-18
 ---
 
 # 事项与时间规划基线
@@ -19,16 +19,18 @@ updated: 2026-08-14
 - 列表可按搜索词、日期范围和完成状态筛选；查询结果按有日期、日期、时间、创建时间排序。
 - 拖动普通事项只更新 `planned_date`；拖到分类只更新分类。
 - 删除父事项通过外键级联删除子事项；子事项不独立出现在日期规划视图。
+- 完成父事项前查询数据库中的直属未完成子事项数量；存在未完成子事项时需确认，并在同一事务中以统一完成时间完成父事项和这些子事项。恢复父事项时不恢复子事项。
+- 完成状态切换只作用于已保存数据，不自动保存弹窗中的标题、属性或子事项草稿；重复事项单次实例继续使用 occurrence override。
 - 所有读写使用当前会话用户作为 `owner_id`，不接受前端传入所有者。
 
 ## 数据与接口
 
 - 表：`tasks`，核心字段对应 `Task`/`TaskInput`。
-- command：`list_user_tasks`、`save_user_task`、`remove_user_task`、`toggle_user_task`、`reschedule_user_task`。
+- command：`list_user_tasks`、`save_user_task`、`remove_user_task`、`toggle_user_task`、`count_unfinished_user_task_children`、`complete_user_task_with_children`、`reschedule_user_task`。
 - 浏览器模式使用 `api/native.ts` 内存演示数据，不代表 SQLite 已写入。
 
 ## 验收与证据
 
-- 覆盖标题、日期时间、时间段、优先级、分类所有权、完成切换、删除和用户隔离。
+- 覆盖标题、日期时间、时间段、优先级、分类所有权、完成切换、父子事务级联、删除和用户隔离。
 - 前端：`desktop-client/src/App.vue`、`src/types.ts`、`api/native.ts`。
 - 原生：`tauri-desktop/src-tauri/src/lib.rs`、`db.rs`、`models.rs`。
