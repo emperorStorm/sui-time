@@ -2,6 +2,7 @@ export interface UserSession {
   id: string
   username: string
   displayName: string
+  showCompleted: boolean
 }
 
 export interface BootState {
@@ -41,7 +42,8 @@ export interface Task {
   occurrenceOverrides: string
   reminderOffsets: number[]
   parentTaskId: string | null
-  status: 'todo' | 'done'
+  status: TaskStatus
+  failureReason: string | null
   notes: string
   createdAt: number
   completedAt: number | null
@@ -61,9 +63,11 @@ export interface TaskInput {
   occurrenceOverrides: string
   reminderOffsets: number[]
   parentTaskId: string | null
+  failureReason: string | null
   notes: string
 }
 
+export type TaskStatus = 'todo' | 'done' | 'failed'
 export type ScheduleKind = 'all_day' | 'point' | 'range'
 export type Priority = 'urgent_important' | 'important_not_urgent' | 'urgent_not_important' | 'not_urgent_not_important'
 

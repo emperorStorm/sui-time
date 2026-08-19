@@ -44,7 +44,7 @@
           <div class="topbar-title"><p v-if="viewMeta.subtitle">{{ viewMeta.subtitle }}</p><h1>{{ viewMeta.title }}</h1></div>
           <div class="topbar-actions">
             <template v-if="currentView !== 'categories' && currentView !== 'about'">
-              <button class="text-icon-button" @click="showCompleted = !showCompleted"><component :is="showCompleted ? EyeOff : Eye" :size="17" />{{ showCompleted ? '隐藏已完成' : '显示已完成' }}</button>
+              <button class="text-icon-button" :disabled="savingShowCompleted" @click="handleShowCompleted"><component :is="showCompleted ? EyeOff : Eye" :size="17" />{{ showCompleted ? '隐藏已完成/已失败' : '显示已完成/已失败' }}</button>
             </template>
           </div>
         </header>
@@ -61,8 +61,8 @@
               <section v-for="group in taskGroups" :key="group.id" class="task-column">
                 <header class="column-heading"><span class="color-dot" :style="{ backgroundColor: group.color }"></span><strong>{{ group.name }}</strong><small>{{ group.tasks.length }}</small><button class="icon-button ghost add-small" title="在此分类新增事项" @click="openTaskModal(group.id)"><Plus :size="17" /></button></header>
                 <div class="task-list" @dragover.prevent @drop="dropOnGroup(group.id)">
-                  <button v-for="item in group.tasks" :key="item.id" class="task-card" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)">
-                    <span :class="['task-check', { done: item.status === 'done' }]" @click.stop="toggleItem(item)"><Check :size="13" /></span>
+                  <button v-for="item in group.tasks" :key="item.id" :class="['task-card', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)">
+                    <span :class="['task-check', item.status]" @click.stop="toggleItem(item)"><Check v-if="item.status === 'done'" :size="13" /><X v-else-if="item.status === 'failed'" :size="13" /></span>
                     <span class="task-copy"><strong>{{ item.title }}</strong><small>{{ taskSummary(item) }}</small></span>
                     <ChevronRight :size="16" class="task-arrow" />
                   </button>
@@ -79,16 +79,26 @@
           <div class="week-grid">
             <section v-for="day in weekDays" :key="day.date" :class="['week-day', { today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
               <header><span class="week-day-number">{{ day.day }}</span><strong>{{ day.weekday }}</strong><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="17" /></button></header>
-              <div class="day-task-list"><button v-for="item in tasksForDate(day.date)" :key="item.id" :class="['schedule-card', { done: item.status === 'done' }]" :style="{ '--task-color': item.categoryColor || '#7b8794' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button></div>
+              <div class="day-task-list"><button v-for="item in tasksForDate(day.date)" :key="item.id" :class="['schedule-card', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button></div>
             </section>
           </div>
         </section>
 
-        <section v-else-if="currentView === 'month'" class="page plan-page">
+        <section v-else-if="currentView === 'month'" class="page plan-page month-page">
           <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate()"><CalendarRange :size="15" />回到本月</button></div>
-          <div class="month-weekdays"><span v-for="label in weekdayLabels" :key="label">{{ label }}</span></div>
-          <div class="month-grid">
-            <section v-for="day in monthDays" :key="day.date" :class="['month-day', { muted: !day.inMonth, today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)"><header><time>{{ day.day }}</time><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button></header><div class="month-items"><button v-for="item in tasksForDate(day.date).slice(0, 4)" :key="item.id" :class="['month-item', { done: item.status === 'done' }]" :style="{ backgroundColor: item.categoryColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" /><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button><button v-if="tasksForDate(day.date).length > 4" class="more-items" @click="openTaskModal(undefined, tasksForDate(day.date)[4])">还有 {{ tasksForDate(day.date).length - 4 }} 项</button></div></section>
+          <div class="month-calendar">
+            <div class="month-weekdays"><span v-for="label in weekdayLabels" :key="label">{{ label }}</span></div>
+            <div class="month-grid">
+              <section v-for="day in monthDays" :key="day.date" :class="['month-day', { muted: !day.inMonth, today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
+                <header>
+                  <div class="month-date-meta"><time :datetime="day.date">{{ day.day }}</time><span class="month-lunar">{{ day.lunarLabel }}</span></div>
+                  <div class="month-date-actions"><span v-if="day.marker" class="month-calendar-marker" :title="day.marker">{{ day.marker }}</span><button v-if="day.tasks.length > 4" class="more-items" type="button" :aria-label="`${day.date} 还有 ${day.tasks.length - 4} 项，查看当天全部事项`" aria-haspopup="dialog" :aria-expanded="monthOverflowDate === day.date" @mouseenter="openMonthOverflow(day.date, $event)" @mouseleave="scheduleMonthOverflowClose" @focus="openMonthOverflow(day.date, $event)" @blur="scheduleMonthOverflowClose" @click="openMonthOverflow(day.date, $event)">{{ day.tasks.length - 4 }}+</button><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button></div>
+                </header>
+                <div class="month-items">
+                  <button v-for="item in day.tasks.slice(0, 4)" :key="item.id" :class="['month-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
 
@@ -104,15 +114,24 @@
       <button class="floating-add" type="button" title="新建事项" aria-label="新建事项" @click="openTaskModal()"><Plus :size="28" /></button>
     </template>
 
+    <Teleport to="body">
+      <Transition name="month-overflow">
+        <section v-if="monthOverflowDate && monthOverflowTasks.length > 4" ref="monthOverflowPanel" class="month-overflow-popover" :style="monthOverflowStyle" role="dialog" :aria-label="`${monthOverflowDate} 全部事项`" @mouseenter="keepMonthOverflowOpen" @mouseleave="scheduleMonthOverflowClose" @focusin="keepMonthOverflowOpen" @focusout="scheduleMonthOverflowClose">
+          <button v-for="item in monthOverflowTasks" :key="item.id" type="button" :class="['month-overflow-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" @click="openTaskFromMonthOverflow(item)"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button>
+        </section>
+      </Transition>
+    </Teleport>
+
     <Transition name="modal">
       <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
       <form class="modal-panel task-modal" @mousedown="closeTaskMenusOnOutsideClick" @submit.prevent="saveTaskForm">
-        <header class="task-modal-head"><button type="button" :class="['task-check', 'modal-check', { done: taskDraftStatus === 'done' }]" :disabled="!taskDraft.id || updatingTaskStatus" :title="taskDraftStatus === 'done' ? '标记为未完成' : '标记为已完成'" :aria-label="taskDraftStatus === 'done' ? '标记为未完成' : '标记为已完成'" :aria-pressed="taskDraftStatus === 'done'" @click="toggleTaskStatusFromModal"><Check :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
+        <header class="task-modal-head"><button type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="!taskDraft.id || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
         <div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="taskDraft.priority = option.value; priorityOpen = false"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div>
         <div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div>
         <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
         <section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" class="subtask-row"><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" @click="subtask.status = subtask.status === 'done' ? 'todo' : 'done'"><Check :size="13" /></button><input v-model.trim="subtask.title" maxlength="120" placeholder="子事项" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><X :size="16" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft"><Plus :size="20" />添加子事项</button></section>
         <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。"></textarea></label>
+        <section v-if="taskDraft.id" class="failure-section" aria-label="失败状态"><button v-if="taskDraftStatus !== 'failed'" class="failure-action" type="button" :disabled="updatingTaskStatus" @click="markTaskFailed"><span><X :size="15" /></span><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button><label v-else class="failure-reason"><span><X :size="15" /></span><div><strong>失败理由（选填）</strong><textarea v-model="taskDraft.failureReason" rows="3" maxlength="1000" placeholder="记录未能完成的原因"></textarea><small>{{ taskDraft.failureReason?.length || 0 }}/1000</small></div></label></section>
         <footer><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><span></span><button class="quiet-button" type="button" @click="closeTaskModal">取消</button><button class="primary-button" :disabled="savingTask">{{ savingTask ? '正在保存' : '保存' }}</button></footer>
       </form>
       </div>
@@ -152,13 +171,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { AlarmClock, ArrowRight, BellRing, BookOpen, BriefcaseBusiness, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, Dumbbell, Download, Eye, EyeOff, HeartPulse, House, Info, Lightbulb, LayoutGrid, LogOut, Pencil, Plane, Plus, RefreshCw, RotateCcw, Search, ShoppingBag, Tags as CategoryIcon, Target, Trash2, Upload, UsersRound, Utensils, WalletCards, X } from 'lucide-vue-next'
-import { completeTaskWithChildren, countUnfinishedTaskChildren, createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, listCategories, listTasks, loginUser, logoutUser, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveTask, toggleTask } from './api/native'
+import { completeTaskWithChildren, countUnfinishedTaskChildren, createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, listCategories, listTasks, loginUser, logoutUser, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveShowCompleted, saveTask, setTaskStatus } from './api/native'
 import type { UpdateCheckResult } from './api/native'
 import AppNotificationCenter from './components/AppNotificationCenter.vue'
 import { createTaskReminderScheduler, getReminderPermission, requestReminderPermission } from './composables/use-task-reminders'
 import type { BootState, Category, Priority, RepeatRule, ScheduleKind, Task, TaskInput, UserSession } from './types'
+import { resolveCalendarMeta } from './utils/calendar-meta'
 import { isRepeatingTask, parseOccurrenceId, parseOverrides, parseRepeatRule, tasksForDate as resolveTasksForDate } from './utils/task-occurrence'
 
 type View = 'all' | 'week' | 'month' | 'categories' | 'about'
@@ -180,9 +200,13 @@ const weekAnchor = ref(todayString())
 const monthAnchor = ref(todayString())
 const todayDate = ref(todayString())
 const draggedTaskId = ref<string | null>(null)
+const monthOverflowDate = ref<string | null>(null)
+const monthOverflowPanel = ref<HTMLElement | null>(null)
+const monthOverflowStyle = ref<Record<string, string>>({})
 const version = ref('0.3.0')
 const notice = ref<Notice | null>(null)
 const submitting = ref(false)
+const savingShowCompleted = ref(false)
 const authError = ref('')
 const checkingUpdate = ref(false)
 const updateStatus = ref('尚未检查更新')
@@ -201,7 +225,7 @@ const savingTask = ref(false)
 const updatingTaskStatus = ref(false)
 const savingCategory = ref(false)
 const authForm = reactive({ username: '', password: '' })
-const taskDraft = reactive<TaskInput>({ title: '', categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, notes: '' })
+const taskDraft = reactive<TaskInput>({ title: '', categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, failureReason: null, notes: '' })
 const categoryDraft = reactive<{ id?: string; name: string; color: string; icon: string; sortOrder: number }>({ name: '', color: colors[0], icon: 'briefcase-business', sortOrder: 0 })
 const priorityOpen = ref(false)
 const categoryMenuOpen = ref(false)
@@ -230,6 +254,7 @@ function categoryIconComponent(icon: string | null) {
   return categoryIconOptions.find(option => option.value === icon)?.icon || CategoryIcon
 }
 const selectedPriorityOption = computed(() => priorityOptions.find(option => option.value === taskDraft.priority) || priorityOptions[0])
+const taskStatusActionLabel = computed(() => taskDraftStatus.value === 'failed' ? '恢复为待完成' : taskDraftStatus.value === 'done' ? '标记为待完成' : '标记为已完成')
 const scheduleOptions: Array<{ value: ScheduleKind; label: string }> = [{ value: 'point', label: '时间点' }, { value: 'range', label: '时间段' }, { value: 'all_day', label: '全天' }]
 const repeatOptions: Array<{ value: RepeatRule['kind']; label: string; hint: string }> = [
   { value: 'none', label: '不重复', hint: '' }, { value: 'daily', label: '每天', hint: '每天重复' }, { value: 'every_days', label: '任意多天', hint: '按天数间隔' }, { value: 'weekly', label: '每周', hint: '每周同一天' }, { value: 'weekly_slots', label: '每周（不同天、不同时间）', hint: '可配置多个时段' }, { value: 'workdays', label: '每周工作日', hint: '周一至周五' }, { value: 'monthly', label: '每月', hint: '每月同一天' }, { value: 'monthly_slots', label: '每月（不同天、不同时间）', hint: '可配置多个日期' }, { value: 'yearly', label: '每年', hint: '每年同一天' }, { value: 'memory', label: '记忆曲线', hint: '1、2、4、7、15 天' }, { value: 'custom', label: '自定义', hint: '按自定义周期重复' }
@@ -249,12 +274,13 @@ const viewMeta = computed(() => ({
   about: { title: '关于岁岁时光', subtitle: '' }
 }[currentView.value]))
 
-const visibleTasks = computed(() => tasks.value.filter(item => !item.parentTaskId && (showCompleted.value || item.status !== 'done')))
-const taskGroups = computed(() => categories.value.map(category => ({ ...category, tasks: visibleTasks.value.filter(item => item.categoryId === category.id).map(taskForOverview).filter((item): item is Task => Boolean(item) && (showCompleted.value || item.status !== 'done')) })))
+const visibleTasks = computed(() => tasks.value.filter(item => !item.parentTaskId && (showCompleted.value || item.status === 'todo')))
+const taskGroups = computed(() => categories.value.map(category => ({ ...category, tasks: visibleTasks.value.filter(item => item.categoryId === category.id).map(taskForOverview).filter((item): item is Task => Boolean(item) && (showCompleted.value || item.status === 'todo')).sort(compareTaskStatus) })))
 const selectedTaskCategory = computed(() => categories.value.find(category => category.id === taskDraft.categoryId))
 const orderedCategories = computed(() => [...categories.value].sort((left, right) => left.sortOrder - right.sortOrder))
 const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) => ({ date, day: Number(date.slice(-2)), weekday: weekdayLabels[index] })))
-const monthDays = computed(() => calendarDays(monthAnchor.value))
+const monthDays = computed(() => calendarDays(monthAnchor.value).map(day => ({ ...day, ...resolveCalendarMeta(day.date), tasks: tasksForDate(day.date) })))
+const monthOverflowTasks = computed(() => monthDays.value.find(day => day.date === monthOverflowDate.value)?.tasks || [])
 const weekLabel = computed(() => formatMonth(weekAnchor.value))
 const monthLabel = computed(() => formatMonth(monthAnchor.value))
 const updateButtonLabel = computed(() => checkingUpdate.value ? '正在检查' : '检查更新')
@@ -278,13 +304,20 @@ const reminderPermissionMessage = computed(() => {
 })
 
 let reminderScheduler: ReturnType<typeof createTaskReminderScheduler> | null = null
+let monthOverflowTrigger: HTMLElement | null = null
+let monthOverflowCloseTimer: number | undefined
 
 onMounted(async () => {
   document.addEventListener('mousedown', closeBrandMenuOnOutsideClick)
+  document.addEventListener('mousedown', closeMonthOverflowOnOutsideClick)
+  document.addEventListener('keydown', closeMonthOverflowOnEscape)
+  document.addEventListener('scroll', closeMonthOverflowOnScroll, true)
+  window.addEventListener('resize', closeMonthOverflow)
   try {
     version.value = await currentVersion()
     bootState.value = await getBootState()
     session.value = bootState.value.session
+    showCompleted.value = session.value?.showCompleted ?? false
     if (session.value) {
       await refreshData()
       scheduleMidnightRefresh()
@@ -299,18 +332,24 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', closeBrandMenuOnOutsideClick)
+  document.removeEventListener('mousedown', closeMonthOverflowOnOutsideClick)
+  document.removeEventListener('keydown', closeMonthOverflowOnEscape)
+  document.removeEventListener('scroll', closeMonthOverflowOnScroll, true)
+  window.removeEventListener('resize', closeMonthOverflow)
   window.clearTimeout(filterTimer)
   window.clearTimeout(midnightRefreshTimer)
+  window.clearTimeout(monthOverflowCloseTimer)
   reminderScheduler?.stop()
 })
 
 let filterTimer: number | undefined
 let midnightRefreshTimer: number | undefined
-watch([search, rangeStart, rangeEnd, showCompleted], () => {
+watch([search, rangeStart, rangeEnd], () => {
   if (!session.value) return
   window.clearTimeout(filterTimer)
   filterTimer = window.setTimeout(() => { void refreshData() }, 180)
 })
+watch([currentView, monthAnchor, showCompleted], closeMonthOverflow)
 
 async function submitAuth() {
   if (!authForm.username || !authForm.password || submitting.value) return
@@ -319,6 +358,7 @@ async function submitAuth() {
   try {
     const input = { ...authForm }
     session.value = bootState.value?.needsSetup ? await createAccount(input) : await loginUser(input)
+    showCompleted.value = session.value.showCompleted
     if (bootState.value) bootState.value.needsSetup = false
     await refreshData()
     scheduleMidnightRefresh()
@@ -364,9 +404,25 @@ async function handleLogout() {
   reminderScheduler = null
   await logoutUser()
   session.value = null
+  showCompleted.value = false
   tasks.value = []
   categories.value = []
   authForm.password = ''
+}
+
+async function handleShowCompleted() {
+  if (!session.value || savingShowCompleted.value) return
+  savingShowCompleted.value = true
+  try {
+    const saved = await saveShowCompleted(!showCompleted.value)
+    showCompleted.value = saved
+    session.value = { ...session.value, showCompleted: saved }
+    await refreshData()
+  } catch (error) {
+    showNotice(messageOf(error), 'error')
+  } finally {
+    savingShowCompleted.value = false
+  }
 }
 
 function openBrandMenuView(view: 'categories' | 'about') {
@@ -395,7 +451,7 @@ function openTaskModal(categoryId?: string | null, item?: Task, date?: string) {
   const occurrence = item ? parseOccurrenceId(item.id) : null
   editingOccurrence.value = occurrence ? { source: tasks.value.find(task => task.id === occurrence.sourceId) || item!, date: occurrence.date } : null
   taskDraftStatus.value = item?.status || 'todo'
-  Object.assign(taskDraft, item ? { id: item.id, title: item.title, categoryId: item.categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: [...item.reminderOffsets], parentTaskId: item.parentTaskId, notes: item.notes } : { id: undefined, title: '', categoryId: categoryId ?? categories.value[0]?.id ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, notes: '' })
+  Object.assign(taskDraft, item ? { id: item.id, title: item.title, categoryId: item.categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: [...item.reminderOffsets], parentTaskId: item.parentTaskId, failureReason: item.failureReason, notes: item.notes } : { id: undefined, title: '', categoryId: categoryId ?? categories.value[0]?.id ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, failureReason: null, notes: '' })
   Object.assign(repeatDraft, parseRepeatRule(taskDraft.repeatRule))
   const parentTaskId = editingOccurrence.value?.source.id || item?.id
   childDrafts.value = parentTaskId ? tasks.value.filter(task => task.parentTaskId === parentTaskId).map(task => ({ ...task })) : []
@@ -409,7 +465,7 @@ function openTaskModal(categoryId?: string | null, item?: Task, date?: string) {
 
 async function toggleTaskStatusFromModal() {
   if (!taskDraft.id || updatingTaskStatus.value) return
-  const nextStatus: Task['status'] = taskDraftStatus.value === 'done' ? 'todo' : 'done'
+  const nextStatus: Task['status'] = taskDraftStatus.value === 'todo' ? 'done' : 'todo'
   if (editingOccurrence.value || nextStatus === 'todo') {
     await applyTaskStatusFromModal(nextStatus)
     return
@@ -432,34 +488,39 @@ async function toggleTaskStatusFromModal() {
 
 async function confirmTaskCompletion() {
   if (!taskDraft.id || updatingTaskStatus.value) return
-  const completedChildren = unfinishedChildCount.value
-  await applyTaskStatusFromModal('done', true, `事项及 ${completedChildren} 个子待办已完成`)
+  await applyTaskStatusFromModal('done', true)
   if (taskDraftStatus.value === 'done') cancelTaskCompletion()
 }
 
-async function applyTaskStatusFromModal(nextStatus: Task['status'], completeChildren = false, successMessage?: string) {
+async function applyTaskStatusFromModal(nextStatus: Task['status'], completeChildren = false) {
   if (!taskDraft.id || updatingTaskStatus.value) return
   const persistedChildIds = completeChildren
     ? new Set(tasks.value.filter(task => task.parentTaskId === taskDraft.id).map(task => task.id))
     : null
   updatingTaskStatus.value = true
   try {
-    if (editingOccurrence.value) await saveOccurrence(editingOccurrence.value.source, editingOccurrence.value.date, taskDraft, nextStatus)
+    if (editingOccurrence.value) await saveOccurrenceStatus(editingOccurrence.value.source, editingOccurrence.value.date, nextStatus, nextStatus === 'failed' ? taskDraft.failureReason : null)
     else if (completeChildren) await completeTaskWithChildren(taskDraft.id)
-    else await toggleTask(taskDraft.id)
+    else await setTaskStatus(taskDraft.id, nextStatus, nextStatus === 'failed' ? taskDraft.failureReason : null)
     if (persistedChildIds) {
       const completedAt = Date.now()
       childDrafts.value = childDrafts.value.map(child => persistedChildIds.has(child.id) && child.status !== 'done' ? { ...child, status: 'done', completedAt, updatedAt: completedAt } : child)
     }
     taskDraftStatus.value = nextStatus
+    if (nextStatus !== 'failed') taskDraft.failureReason = null
     await refreshData()
     void reminderScheduler?.check()
-    showNotice(successMessage || (nextStatus === 'done' ? '事项已完成' : '事项已恢复'))
+    if (nextStatus === 'todo') showNotice('事项已恢复')
   } catch (error) {
     showNotice(messageOf(error), 'error')
   } finally {
     updatingTaskStatus.value = false
   }
+}
+
+async function markTaskFailed() {
+  if (!taskDraft.id || taskDraftStatus.value === 'failed' || updatingTaskStatus.value) return
+  await applyTaskStatusFromModal('failed')
 }
 
 async function saveTaskForm() {
@@ -471,14 +532,13 @@ async function saveTaskForm() {
   savingTask.value = true
   try {
     if (taskDraft.scheduleKind === 'range' && (!taskDraft.plannedTime || !taskDraft.plannedEndTime || taskDraft.plannedTime >= taskDraft.plannedEndTime)) throw new Error('时间段的结束时间必须晚于开始时间')
-    const taskInput = { ...taskDraft, categoryId: taskDraft.categoryId || null, plannedDate: taskDraft.plannedDate || null, plannedTime: taskDraft.scheduleKind === 'all_day' ? null : taskDraft.plannedTime || null, plannedEndTime: taskDraft.scheduleKind === 'range' ? taskDraft.plannedEndTime || null : null, reminderOffsets: canSetReminder.value ? [...taskDraft.reminderOffsets] : [], repeatRule: JSON.stringify(repeatDraft) }
-    const saved = editingOccurrence.value ? await saveOccurrence(editingOccurrence.value.source, editingOccurrence.value.date, taskInput) : await saveTask(taskInput)
+    const taskInput = { ...taskDraft, categoryId: taskDraft.categoryId || null, plannedDate: taskDraft.plannedDate || null, plannedTime: taskDraft.scheduleKind === 'all_day' ? null : taskDraft.plannedTime || null, plannedEndTime: taskDraft.scheduleKind === 'range' ? taskDraft.plannedEndTime || null : null, reminderOffsets: canSetReminder.value ? [...taskDraft.reminderOffsets] : [], repeatRule: JSON.stringify(repeatDraft), failureReason: taskDraftStatus.value === 'failed' ? taskDraft.failureReason : null }
+    const saved = editingOccurrence.value ? await saveOccurrence(editingOccurrence.value.source, editingOccurrence.value.date, taskInput, taskDraftStatus.value) : await saveTask(taskInput)
     if (taskInput.reminderOffsets.length) reminderPermission.value = await requestReminderPermission()
-    await Promise.all(childDrafts.value.filter(item => item.title.trim()).map(item => saveTask({ id: item.id, title: item.title, categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: saved.id, notes: '', })))
+    await Promise.all(childDrafts.value.filter(item => item.title.trim()).map(item => saveTask({ id: item.id, title: item.title, categoryId: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: saved.id, failureReason: null, notes: '', })))
     taskModalOpen.value = false
     await refreshData()
     void reminderScheduler?.check()
-    showNotice('事项已保存')
   } catch (error) {
     showNotice(messageOf(error), 'error')
   } finally {
@@ -506,9 +566,10 @@ async function toggleItem(item: Task) {
       const source = tasks.value.find(task => task.id === occurrence.sourceId)
       if (!source) return
       const overrides = parseOverrides(source)
-      overrides[occurrence.date] = { ...overrides[occurrence.date], status: item.status === 'done' ? 'todo' : 'done' }
+      const nextStatus: Task['status'] = item.status === 'todo' ? 'done' : 'todo'
+      overrides[occurrence.date] = { ...overrides[occurrence.date], status: nextStatus, failureReason: null }
       await saveTask({ ...source, occurrenceOverrides: JSON.stringify(overrides) })
-    } else await toggleTask(item.id)
+    } else await setTaskStatus(item.id, item.status === 'todo' ? 'done' : 'todo')
     await refreshData()
   } catch (error) {
     showNotice(messageOf(error), 'error')
@@ -575,7 +636,7 @@ async function dropOnGroup(categoryId: string) {
     } else {
       const item = tasks.value.find(task => task.id === draggedTaskId.value)
       if (!item) return
-      await saveTask({ id: item.id, title: item.title, categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: item.reminderOffsets, parentTaskId: item.parentTaskId, notes: item.notes })
+      await saveTask({ id: item.id, title: item.title, categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: item.reminderOffsets, parentTaskId: item.parentTaskId, failureReason: item.failureReason, notes: item.notes })
     }
     await refreshData()
   } catch (error) {
@@ -645,11 +706,45 @@ async function submitBackup() {
   }
 }
 
-function tasksForDate(date: string) { return resolveTasksForDate(visibleTasks.value, date) }
+function tasksForDate(date: string) {
+  return resolveTasksForDate(visibleTasks.value, date).filter(item => showCompleted.value || item.status === 'todo').sort(compareTaskStatus)
+}
+function compareTaskStatus(left: Task, right: Task) { return Number(left.status !== 'todo') - Number(right.status !== 'todo') }
 function taskForOverview(item: Task) {
   if (!isRepeatingTask(item) || !item.plannedDate) return item
   return resolveTasksForDate([item], item.plannedDate)[0] || null
 }
+async function openMonthOverflow(date: string, event: MouseEvent | FocusEvent) {
+  const trigger = event.currentTarget
+  if (!(trigger instanceof HTMLElement)) return
+  keepMonthOverflowOpen()
+  monthOverflowDate.value = date
+  monthOverflowTrigger = trigger
+  const dayWidth = trigger.closest('.month-day')?.getBoundingClientRect().width || trigger.getBoundingClientRect().width
+  const width = Math.min(Math.max(dayWidth - 14, 220), 320, window.innerWidth - 24)
+  monthOverflowStyle.value = { width: `${width}px`, top: '12px', left: '12px', visibility: 'hidden' }
+  await nextTick()
+  if (monthOverflowTrigger !== trigger || !monthOverflowPanel.value) return
+  const triggerRect = trigger.getBoundingClientRect()
+  const panelHeight = monthOverflowPanel.value.getBoundingClientRect().height
+  const margin = 12
+  const gap = 6
+  const left = Math.min(Math.max(triggerRect.left, margin), window.innerWidth - width - margin)
+  const below = triggerRect.bottom + gap
+  const above = triggerRect.top - panelHeight - gap
+  const top = below + panelHeight <= window.innerHeight - margin ? below : Math.max(margin, above)
+  monthOverflowStyle.value = { width: `${width}px`, top: `${top}px`, left: `${left}px`, visibility: 'visible' }
+}
+function keepMonthOverflowOpen() { window.clearTimeout(monthOverflowCloseTimer) }
+function scheduleMonthOverflowClose() { window.clearTimeout(monthOverflowCloseTimer); monthOverflowCloseTimer = window.setTimeout(closeMonthOverflow, 140) }
+function closeMonthOverflow() { window.clearTimeout(monthOverflowCloseTimer); monthOverflowDate.value = null; monthOverflowTrigger = null; monthOverflowStyle.value = {} }
+function closeMonthOverflowOnOutsideClick(event: MouseEvent) {
+  if (!(event.target instanceof Node) || monthOverflowPanel.value?.contains(event.target) || monthOverflowTrigger?.contains(event.target)) return
+  closeMonthOverflow()
+}
+function closeMonthOverflowOnEscape(event: KeyboardEvent) { if (event.key === 'Escape') closeMonthOverflow() }
+function closeMonthOverflowOnScroll(event: Event) { if (!(event.target instanceof Node) || !monthOverflowPanel.value?.contains(event.target)) closeMonthOverflow() }
+function openTaskFromMonthOverflow(item: Task) { closeMonthOverflow(); openTaskModal(undefined, item) }
 function categoryTaskCount(categoryId: string) { return tasks.value.filter(item => item.categoryId === categoryId).length }
 function taskSummary(item: Task) { return [item.plannedDate ? item.plannedDate.slice(5).replace('-', '月') + '日' : '未安排日期', item.plannedTime || '', item.notes ? '有备注' : ''].filter(Boolean).join(' · ') }
 function clearFilters() { search.value = ''; rangeStart.value = ''; rangeEnd.value = ''; refreshData() }
@@ -661,12 +756,17 @@ async function saveOccurrence(source: Task, date: string, input: TaskInput, stat
   const overrides = parseOverrides(source)
   const existingPlannedDate = overrides[date]?.plannedDate
   const plannedDate = patch.plannedDate !== undefined ? patch.plannedDate : input.plannedDate !== source.plannedDate ? input.plannedDate : existingPlannedDate
-  overrides[date] = { ...overrides[date], title: input.title, categoryId: input.categoryId, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, reminderOffsets: input.reminderOffsets, notes: input.notes, ...(plannedDate !== undefined ? { plannedDate } : {}), ...patch, ...(status !== undefined ? { status } : {}) }
+  overrides[date] = { ...overrides[date], title: input.title, categoryId: input.categoryId, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, reminderOffsets: input.reminderOffsets, notes: input.notes, ...(plannedDate !== undefined ? { plannedDate } : {}), ...patch, ...(status !== undefined ? { status, failureReason: status === 'failed' ? input.failureReason : null } : {}) }
+  return saveTask({ ...source, occurrenceOverrides: JSON.stringify(overrides) })
+}
+async function saveOccurrenceStatus(source: Task, date: string, status: Task['status'], failureReason: string | null) {
+  const overrides = parseOverrides(source)
+  overrides[date] = { ...overrides[date], status, failureReason: status === 'failed' ? failureReason?.trim() || null : null }
   return saveTask({ ...source, occurrenceOverrides: JSON.stringify(overrides) })
 }
 function chooseRepeat(kind: RepeatRule['kind']) { repeatDraft.kind = kind; if (!repeatDraft.endMode) repeatDraft.endMode = 'never' }
 function applyRepeat() { taskDraft.repeatRule = JSON.stringify(repeatDraft); repeatOpen.value = false }
-function addChildDraft() { const now = Date.now(); childDrafts.value.push({ id: crypto.randomUUID(), title: '', categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: taskDraft.id || null, status: 'todo', notes: '', createdAt: now, completedAt: null, updatedAt: now }) }
+function addChildDraft() { const now = Date.now(); childDrafts.value.push({ id: crypto.randomUUID(), title: '', categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: taskDraft.id || null, status: 'todo', failureReason: null, notes: '', createdAt: now, completedAt: null, updatedAt: now }) }
 function removeChildDraft(id: string) { childDrafts.value = childDrafts.value.filter(item => item.id !== id) }
 function selectTaskCategory(categoryId: string) { taskDraft.categoryId = categoryId; categoryMenuOpen.value = false }
 async function openReminderSheet() { if (!canSetReminder.value) return; reminderPermission.value = await getReminderPermission(); reminderOpen.value = true }

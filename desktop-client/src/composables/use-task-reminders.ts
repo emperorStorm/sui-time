@@ -35,7 +35,7 @@ export function createTaskReminderScheduler(userId: string) {
       const dates = [-1, 0, 1].map(offset => dateString(addDays(new Date(), offset)))
       for (const date of dates) {
         for (const item of tasksForDate(tasks, date)) {
-          if (item.status === 'done' || !item.plannedDate || !item.plannedTime || item.parentTaskId) continue
+          if (item.status !== 'todo' || !item.plannedDate || !item.plannedTime || item.parentTaskId) continue
           await deliverDueReminder(item, date, now, deliveries)
         }
       }

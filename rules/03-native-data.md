@@ -8,7 +8,7 @@
 
 - 数据库文件名为 `sui-time.sqlite3`，位于操作系统应用数据目录。
 - 连接统一启用外键、WAL、`synchronous=NORMAL` 和 5 秒 busy timeout。
-- 当前 `PRAGMA user_version` 为 5。新结构必须使用事务迁移到更高版本，并测试旧版本升级。
+- 当前 `PRAGMA user_version` 为 7。新结构必须使用事务迁移到更高版本，并测试旧版本升级。
 - 业务写入必须带当前 `owner_id`，更新和删除通过受影响行数区分不存在与越权。
 - 分类删除需在同一事务中解除事项关联；父事项删除依赖外键级联子事项。
 
@@ -17,7 +17,7 @@
 - Rust 字段使用 snake_case，通过 Serde `camelCase` 与 TypeScript 对齐。
 - 日期和时间分别使用严格的 `YYYY-MM-DD`、`HH:mm` 校验。
 - 枚举值、JSON 规则、分类所有权、提醒数量和时间范围由 Rust 再校验，不能只依赖前端控件。
-- 保存重复事项时不得把单次实例完成状态写成全局完成；实例差异保存在 `occurrence_overrides`。
+- 保存重复事项时不得把单次实例的完成或失败状态写成全局状态；实例差异保存在 `occurrence_overrides`。
 - 所有用户数据查询、更新、删除和自动顺延都必须隔离当前会话用户。
 
 ## 资源与安全

@@ -6,6 +6,7 @@ pub struct UserSession {
     pub id: String,
     pub username: String,
     pub display_name: String,
+    pub show_completed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,6 +62,7 @@ pub struct Task {
     pub reminder_offsets: Vec<i64>,
     pub parent_task_id: Option<String>,
     pub status: String,
+    pub failure_reason: Option<String>,
     pub notes: String,
     pub created_at: i64,
     pub completed_at: Option<i64>,
@@ -89,6 +91,8 @@ pub struct TaskInput {
     pub reminder_offsets: Vec<i64>,
     #[serde(default)]
     pub parent_task_id: Option<String>,
+    #[serde(default)]
+    pub failure_reason: Option<String>,
     pub notes: String,
 }
 

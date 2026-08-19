@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::models::{AccountInput, Category, CategoryInput, Task, TaskInput, UserSession};
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 7;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -67,6 +67,12 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     }
     if version < 5 {
         migrate_to_v5(conn)?;
+    }
+    if version < 6 {
+        migrate_to_v6(conn)?;
+    }
+    if version < 7 {
+        migrate_to_v7(conn)?;
     }
     Ok(())
 }
@@ -286,6 +292,77 @@ fn migrate_to_v5(conn: &Connection) -> Result<(), String> {
     transaction.commit().map_err(|error| error.to_string())
 }
 
+fn migrate_to_v6(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    if !column_exists(&transaction, "users", "show_completed")? {
+        transaction
+            .execute_batch(
+                "ALTER TABLE users ADD COLUMN show_completed INTEGER NOT NULL DEFAULT 0 CHECK(show_completed IN (0, 1));",
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction
+        .execute_batch("PRAGMA user_version = 6;")
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn migrate_to_v7(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch(
+            "PRAGMA defer_foreign_keys = ON;
+             CREATE TABLE tasks_v7 (
+               id TEXT PRIMARY KEY,
+               owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+               title TEXT NOT NULL,
+               category_id TEXT REFERENCES categories(id) ON DELETE SET NULL,
+               planned_date TEXT,
+               planned_time TEXT,
+               status TEXT NOT NULL CHECK(status IN ('todo', 'done', 'failed')),
+               notes TEXT NOT NULL DEFAULT '',
+               created_at INTEGER NOT NULL,
+               completed_at INTEGER,
+               updated_at INTEGER NOT NULL,
+               planned_end_time TEXT,
+               schedule_kind TEXT NOT NULL DEFAULT 'all_day',
+               priority TEXT NOT NULL DEFAULT 'not_urgent_not_important',
+               repeat_rule TEXT NOT NULL DEFAULT '{\"kind\":\"none\"}',
+               occurrence_overrides TEXT NOT NULL DEFAULT '{}',
+               parent_task_id TEXT REFERENCES tasks_v7(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+               reminder_offsets TEXT NOT NULL DEFAULT '[]',
+               failure_reason TEXT
+             );
+             INSERT INTO tasks_v7 (
+               id, owner_id, title, category_id, planned_date, planned_time, status, notes,
+               created_at, completed_at, updated_at, planned_end_time, schedule_kind, priority,
+               repeat_rule, occurrence_overrides, parent_task_id, reminder_offsets, failure_reason
+             )
+             SELECT id, owner_id, title, category_id, planned_date, planned_time, status, notes,
+                    created_at, completed_at, updated_at, planned_end_time, schedule_kind, priority,
+                    repeat_rule, occurrence_overrides, parent_task_id, reminder_offsets, NULL
+             FROM tasks;
+             DROP TABLE tasks;
+             ALTER TABLE tasks_v7 RENAME TO tasks;
+             CREATE INDEX idx_tasks_owner_date ON tasks(owner_id, planned_date);
+             CREATE INDEX idx_tasks_parent ON tasks(parent_task_id);
+             PRAGMA user_version = 7;",
+        )
+        .map_err(|error| error.to_string())?;
+    let mut check = transaction
+        .prepare("PRAGMA foreign_key_check")
+        .map_err(|error| error.to_string())?;
+    if check.exists([]).map_err(|error| error.to_string())? {
+        return Err("事项数据迁移后外键校验失败".to_string());
+    }
+    drop(check);
+    transaction.commit().map_err(|error| error.to_string())
+}
+
 fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
     conn.query_row(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -332,6 +409,7 @@ pub fn create_initial_account(
         id: Uuid::new_v4().to_string(),
         username: input.username.trim().to_string(),
         display_name: input.username.trim().to_string(),
+        show_completed: false,
     };
     let hash = password_hash(&input.password)?;
     conn.execute(
@@ -347,19 +425,20 @@ pub fn login(conn: &Connection, input: &AccountInput) -> Result<UserSession, Str
     validate_login(input)?;
     let row = conn
         .query_row(
-            "SELECT id, username, password_hash FROM users WHERE username = ?1 COLLATE NOCASE",
+            "SELECT id, username, password_hash, show_completed FROM users WHERE username = ?1 COLLATE NOCASE",
             [input.username.trim()],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, bool>(3)?,
                 ))
             },
         )
         .optional()
         .map_err(|error| error.to_string())?;
-    let (id, username, hash) = row.ok_or_else(|| "用户名或密码错误".to_string())?;
+    let (id, username, hash, show_completed) = row.ok_or_else(|| "用户名或密码错误".to_string())?;
     let parsed = PasswordHash::new(&hash).map_err(|_| "本地账号数据异常".to_string())?;
     Argon2::default()
         .verify_password(input.password.as_bytes(), &parsed)
@@ -369,6 +448,7 @@ pub fn login(conn: &Connection, input: &AccountInput) -> Result<UserSession, Str
         id,
         display_name: username.clone(),
         username,
+        show_completed,
     })
 }
 
@@ -383,7 +463,7 @@ pub fn active_user(conn: &Connection) -> Result<Option<UserSession>, String> {
         .map_err(|error| error.to_string())?;
     let Some(id) = id else { return Ok(None) };
     conn.query_row(
-        "SELECT id, username FROM users WHERE id = ?1",
+        "SELECT id, username, show_completed FROM users WHERE id = ?1",
         [id],
         |row| {
             let username: String = row.get(1)?;
@@ -391,6 +471,7 @@ pub fn active_user(conn: &Connection) -> Result<Option<UserSession>, String> {
                 id: row.get(0)?,
                 display_name: username.clone(),
                 username,
+                show_completed: row.get(2)?,
             })
         },
     )
@@ -405,6 +486,23 @@ pub fn logout(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+pub fn save_show_completed(
+    conn: &Connection,
+    owner_id: &str,
+    show_completed: bool,
+) -> Result<bool, String> {
+    let changed = conn
+        .execute(
+            "UPDATE users SET show_completed = ?1 WHERE id = ?2",
+            params![show_completed, owner_id],
+        )
+        .map_err(|error| error.to_string())?;
+    if changed == 0 {
+        return Err("账号不存在或无权修改".to_string());
+    }
+    Ok(show_completed)
 }
 
 pub fn list_categories(conn: &Connection, owner_id: &str) -> Result<Vec<Category>, String> {
@@ -483,7 +581,7 @@ pub fn delete_category(conn: &Connection, owner_id: &str, category_id: &str) -> 
 
 pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String> {
     let mut statement = conn.prepare(
-        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
+        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
          FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id
          WHERE tasks.owner_id = ?1
          ORDER BY CASE WHEN tasks.planned_date IS NULL THEN 1 ELSE 0 END, tasks.planned_date, tasks.planned_time, tasks.created_at DESC",
@@ -531,14 +629,16 @@ pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<
     validate_time(input.planned_time.as_deref())?;
     validate_time(input.planned_end_time.as_deref())?;
     validate_task_options(&input)?;
+    let failure_reason = normalize_failure_reason(input.failure_reason.as_deref())?;
+    let occurrence_overrides = normalize_occurrence_overrides(&input.occurrence_overrides)?;
     let category_id = verify_category(conn, owner_id, input.category_id.as_deref())?;
     let now = now_millis();
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
     let changed = conn.execute(
-        "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, parent_task_id, status, notes, created_at, completed_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'todo', ?14, ?15, NULL, ?15)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, reminder_offsets = excluded.reminder_offsets, parent_task_id = excluded.parent_task_id, status = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN 'todo' ELSE tasks.status END, completed_at = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN NULL ELSE tasks.completed_at END, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
-        params![id, owner_id, title, category_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, input.occurrence_overrides, serde_json::to_string(&input.reminder_offsets).map_err(|error| error.to_string())?, input.parent_task_id, input.notes.trim(), now],
+        "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'todo', NULL, ?14, ?15, NULL, ?15)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, reminder_offsets = excluded.reminder_offsets, parent_task_id = excluded.parent_task_id, status = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN 'todo' ELSE tasks.status END, failure_reason = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN NULL WHEN tasks.status = 'failed' THEN ?16 ELSE NULL END, completed_at = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN NULL ELSE tasks.completed_at END, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
+        params![id, owner_id, title, category_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, occurrence_overrides, serde_json::to_string(&input.reminder_offsets).map_err(|error| error.to_string())?, input.parent_task_id, input.notes.trim(), now, failure_reason],
     ).map_err(|error| error.to_string())?;
     if changed == 0 {
         return Err("事项不存在或无权修改".to_string());
@@ -559,12 +659,32 @@ pub fn delete_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<(
     Ok(())
 }
 
-pub fn toggle_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<Task, String> {
+pub fn set_task_status(
+    conn: &Connection,
+    owner_id: &str,
+    task_id: &str,
+    status: &str,
+    failure_reason: Option<&str>,
+) -> Result<Task, String> {
+    if !["todo", "done", "failed"].contains(&status) {
+        return Err("事项状态无效".to_string());
+    }
     let current =
         get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项不存在或无权修改".to_string())?;
-    let done = current.status != "done";
-    conn.execute("UPDATE tasks SET status = ?1, completed_at = ?2, updated_at = ?3 WHERE id = ?4 AND owner_id = ?5", params![if done { "done" } else { "todo" }, if done { Some(now_millis()) } else { None }, now_millis(), task_id, owner_id])
-        .map_err(|error| error.to_string())?;
+    if status == "failed" && current.parent_task_id.is_some() {
+        return Err("子事项不支持标记失败".to_string());
+    }
+    let reason = if status == "failed" {
+        normalize_failure_reason(failure_reason)?
+    } else {
+        None
+    };
+    let now = now_millis();
+    conn.execute(
+        "UPDATE tasks SET status = ?1, failure_reason = ?2, completed_at = ?3, updated_at = ?4 WHERE id = ?5 AND owner_id = ?6",
+        params![status, reason, if status == "done" { Some(now) } else { None }, now, task_id, owner_id],
+    )
+    .map_err(|error| error.to_string())?;
     get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项修改失败".to_string())
 }
 
@@ -602,13 +722,13 @@ pub fn complete_task_with_children(
     let now = now_millis();
     transaction
         .execute(
-            "UPDATE tasks SET status = 'done', completed_at = ?1, updated_at = ?1 WHERE owner_id = ?2 AND parent_task_id = ?3 AND status != 'done'",
+            "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE owner_id = ?2 AND parent_task_id = ?3 AND status != 'done'",
             params![now, owner_id, task_id],
         )
         .map_err(|error| error.to_string())?;
     transaction
         .execute(
-            "UPDATE tasks SET status = 'done', completed_at = ?1, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3",
+            "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3",
             params![now, task_id, owner_id],
         )
         .map_err(|error| error.to_string())?;
@@ -637,7 +757,7 @@ pub fn reschedule_task(
 
 fn get_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<Option<Task>, String> {
     conn.query_row(
-        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at
+        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
          FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id WHERE tasks.id = ?1 AND tasks.owner_id = ?2",
         params![task_id, owner_id], task_from_row,
     ).optional().map_err(|error| error.to_string())
@@ -665,7 +785,58 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         created_at: row.get(17)?,
         completed_at: row.get(18)?,
         updated_at: row.get(19)?,
+        failure_reason: row.get(20)?,
     })
+}
+
+fn normalize_failure_reason(value: Option<&str>) -> Result<Option<String>, String> {
+    let value = value.map(str::trim).filter(|value| !value.is_empty());
+    if value.is_some_and(|value| value.chars().count() > 1000) {
+        return Err("失败理由不能超过 1000 个字符".to_string());
+    }
+    Ok(value.map(ToOwned::to_owned))
+}
+
+fn normalize_occurrence_overrides(value: &str) -> Result<String, String> {
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(value).map_err(|_| "重复事项实例配置无效".to_string())?;
+    let overrides = parsed
+        .as_object_mut()
+        .ok_or_else(|| "重复事项实例配置无效".to_string())?;
+    for override_value in overrides.values_mut() {
+        let override_item = override_value
+            .as_object_mut()
+            .ok_or_else(|| "重复事项实例配置无效".to_string())?;
+        let status = override_item
+            .get("status")
+            .map(|value| {
+                value
+                    .as_str()
+                    .filter(|status| ["todo", "done", "failed"].contains(status))
+                    .map(ToOwned::to_owned)
+                    .ok_or_else(|| "重复事项实例状态无效".to_string())
+            })
+            .transpose()?;
+        let reason = match override_item.get("failureReason") {
+            Some(serde_json::Value::String(reason)) => Some(reason.clone()),
+            Some(serde_json::Value::Null) | None => None,
+            Some(_) => return Err("重复事项实例失败理由无效".to_string()),
+        };
+        if override_item.contains_key("failureReason") || status.as_deref() == Some("failed") {
+            let normalized = if status.as_deref() == Some("failed") {
+                normalize_failure_reason(reason.as_deref())?
+            } else {
+                None
+            };
+            override_item.insert(
+                "failureReason".to_string(),
+                normalized
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+    }
+    serde_json::to_string(&parsed).map_err(|error| error.to_string())
 }
 
 fn set_active_user(conn: &Connection, user_id: &str) -> Result<(), String> {
@@ -1084,6 +1255,7 @@ mod tests {
             occurrence_overrides: "{}".to_string(),
             reminder_offsets: vec![],
             parent_task_id,
+            failure_reason: None,
             notes: String::new(),
         }
     }
@@ -1093,10 +1265,191 @@ mod tests {
         let conn = memory_db();
         assert!(needs_setup(&conn).unwrap());
         let user = create_initial_account(&conn, &account("岁岁")).unwrap();
+        assert!(!user.show_completed);
         assert_eq!(active_user(&conn).unwrap().unwrap().id, user.id);
         logout(&conn).unwrap();
         assert!(active_user(&conn).unwrap().is_none());
         assert_eq!(login(&conn, &account("岁岁")).unwrap().username, "岁岁");
+    }
+
+    #[test]
+    fn v6_migration_adds_hidden_completed_preference() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE users (
+               id TEXT PRIMARY KEY,
+               username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+               password_hash TEXT NOT NULL,
+               created_at INTEGER NOT NULL
+             );
+             INSERT INTO users VALUES ('user-1', '旧账号', 'unused', 0);
+             PRAGMA user_version = 5;",
+        )
+        .unwrap();
+
+        migrate_to_v6(&conn).unwrap();
+
+        assert!(column_exists(&conn, "users", "show_completed").unwrap());
+        assert!(!conn
+            .query_row(
+                "SELECT show_completed FROM users WHERE id = 'user-1'",
+                [],
+                |row| row.get::<_, bool>(0)
+            )
+            .unwrap());
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            6
+        );
+    }
+
+    #[test]
+    fn v7_migration_preserves_parent_tasks_and_supports_failed_status() {
+        let conn = Connection::open_in_memory().unwrap();
+        configure_connection(&conn).unwrap();
+        migrate_to_v1(&conn).unwrap();
+        migrate_to_v2(&conn).unwrap();
+        migrate_to_v3(&conn).unwrap();
+        migrate_to_v4(&conn).unwrap();
+        migrate_to_v5(&conn).unwrap();
+        migrate_to_v6(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at) VALUES ('user-1', '迁移用户', 'unused', 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, owner_id, title, status, notes, created_at, updated_at) VALUES ('parent', 'user-1', '父事项', 'todo', '', 1, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, owner_id, title, parent_task_id, status, notes, created_at, updated_at) VALUES ('child', 'user-1', '子事项', 'parent', 'done', '', 2, 2)",
+            [],
+        )
+        .unwrap();
+
+        initialize(&conn).unwrap();
+
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            7
+        );
+        assert!(column_exists(&conn, "tasks", "failure_reason").unwrap());
+        assert_eq!(
+            conn.query_row(
+                "SELECT parent_task_id FROM tasks WHERE id = 'child'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "parent"
+        );
+        assert!(!conn
+            .prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .exists([])
+            .unwrap());
+        assert!(conn
+            .execute(
+                "UPDATE tasks SET status = 'invalid' WHERE id = 'parent'",
+                []
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn failed_status_reason_and_transitions_are_validated() {
+        let conn = memory_db();
+        let owner = create_initial_account(&conn, &account("失败状态用户")).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at) VALUES ('user-b', '其他用户', 'unused', 0)",
+            [],
+        )
+        .unwrap();
+        let task = save_task(
+            &conn,
+            &owner.id,
+            task_input("验证失败状态", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let child = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "不支持失败的子事项",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(task.id.clone()),
+            ),
+        )
+        .unwrap();
+
+        let failed =
+            set_task_status(&conn, &owner.id, &task.id, "failed", Some("  暂时不考虑  ")).unwrap();
+        assert_eq!(failed.status, "failed");
+        assert_eq!(failed.failure_reason.as_deref(), Some("暂时不考虑"));
+        assert!(failed.completed_at.is_none());
+        assert!(set_task_status(&conn, "user-b", &task.id, "todo", None).is_err());
+        assert!(set_task_status(&conn, &owner.id, &task.id, "invalid", None).is_err());
+        assert!(set_task_status(
+            &conn,
+            &owner.id,
+            &task.id,
+            "failed",
+            Some(&"理".repeat(1001)),
+        )
+        .is_err());
+        assert!(set_task_status(&conn, &owner.id, &child.id, "failed", None).is_err());
+
+        let done = set_task_status(&conn, &owner.id, &task.id, "done", Some("不会保留")).unwrap();
+        assert_eq!(done.status, "done");
+        assert!(done.failure_reason.is_none());
+        assert!(done.completed_at.is_some());
+
+        let restored = set_task_status(&conn, &owner.id, &task.id, "todo", None).unwrap();
+        assert_eq!(restored.status, "todo");
+        assert!(restored.failure_reason.is_none());
+        assert!(restored.completed_at.is_none());
+    }
+
+    #[test]
+    fn show_completed_preference_persists_and_is_user_scoped() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("preference.sqlite3");
+        let owner_id = {
+            let conn = Connection::open(&path).unwrap();
+            initialize(&conn).unwrap();
+            let owner = create_initial_account(&conn, &account("偏好用户")).unwrap();
+            assert!(!owner.show_completed);
+            assert!(save_show_completed(&conn, &owner.id, true).unwrap());
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, created_at) VALUES ('user-b', '其他用户', 'unused', 0)",
+                [],
+            )
+            .unwrap();
+            assert!(!conn
+                .query_row(
+                    "SELECT show_completed FROM users WHERE id = 'user-b'",
+                    [],
+                    |row| row.get::<_, bool>(0)
+                )
+                .unwrap());
+            assert!(save_show_completed(&conn, "missing-user", true).is_err());
+            owner.id
+        };
+
+        let reopened = Connection::open(&path).unwrap();
+        initialize(&reopened).unwrap();
+        let active = active_user(&reopened).unwrap().unwrap();
+        assert_eq!(active.id, owner_id);
+        assert!(active.show_completed);
+        logout(&reopened).unwrap();
+        let logged_in = login(&reopened, &account("偏好用户")).unwrap();
+        assert!(logged_in.show_completed);
     }
 
     #[test]
@@ -1114,9 +1467,10 @@ mod tests {
         conn.execute_batch(
             "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL, password_hash TEXT NOT NULL, created_at INTEGER NOT NULL);
              CREATE TABLE tags (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, color TEXT NOT NULL, sort_order INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-             CREATE TABLE tasks (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, title TEXT NOT NULL, tag_id TEXT, planned_date TEXT, planned_time TEXT, status TEXT NOT NULL, notes TEXT NOT NULL, created_at INTEGER NOT NULL, completed_at INTEGER, updated_at INTEGER NOT NULL);
+             CREATE TABLE tasks (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, title TEXT NOT NULL, tag_id TEXT, planned_date TEXT, planned_time TEXT, status TEXT NOT NULL, notes TEXT NOT NULL, created_at INTEGER NOT NULL, completed_at INTEGER, updated_at INTEGER NOT NULL, planned_end_time TEXT, schedule_kind TEXT NOT NULL DEFAULT 'all_day', priority TEXT NOT NULL DEFAULT 'not_urgent_not_important', repeat_rule TEXT NOT NULL DEFAULT '{\"kind\":\"none\"}', occurrence_overrides TEXT NOT NULL DEFAULT '{}', parent_task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE);
+             INSERT INTO users VALUES ('user-1', '旧用户', 'unused', 0);
              INSERT INTO tags VALUES ('category-1', 'user-1', '工作安排', '#4F8EF7', 0, 0, 0);
-             INSERT INTO tasks VALUES ('task-1', 'user-1', '完成方案', 'category-1', NULL, NULL, 'todo', '', 0, NULL, 0);
+             INSERT INTO tasks VALUES ('task-1', 'user-1', '完成方案', 'category-1', NULL, NULL, 'todo', '', 0, NULL, 0, NULL, 'all_day', 'not_urgent_not_important', '{\"kind\":\"none\"}', '{}', NULL);
              PRAGMA user_version = 2;",
         )
         .unwrap();
@@ -1195,6 +1549,7 @@ mod tests {
                 occurrence_overrides: "{}".to_string(),
                 reminder_offsets: vec![],
                 parent_task_id: None,
+                failure_reason: None,
                 notes: String::new(),
             },
         )
@@ -1239,6 +1594,7 @@ mod tests {
                 occurrence_overrides: "{}".to_string(),
                 reminder_offsets: vec![],
                 parent_task_id: None,
+                failure_reason: None,
                 notes: String::new(),
             },
         )
@@ -1278,6 +1634,7 @@ mod tests {
             occurrence_overrides: "{}".to_string(),
             reminder_offsets: vec![],
             parent_task_id: None,
+            failure_reason: None,
             notes: String::new(),
         };
         assert!(validate_task_options(&input).is_err());
@@ -1303,7 +1660,7 @@ mod tests {
             ),
         )
         .unwrap();
-        toggle_task(&conn, &user.id, &task.id).unwrap();
+        set_task_status(&conn, &user.id, &task.id, "failed", Some("旧失败理由")).unwrap();
         let mut recurring = task_input(
             "每周复盘",
             Some("2026-08-07"),
@@ -1314,7 +1671,55 @@ mod tests {
         recurring.id = Some(task.id.clone());
         let updated = save_task(&conn, &user.id, recurring).unwrap();
         assert_eq!(updated.status, "todo");
+        assert!(updated.failure_reason.is_none());
         assert!(updated.completed_at.is_none());
+    }
+
+    #[test]
+    fn repeating_occurrence_failure_reason_is_normalized_and_validated() {
+        let conn = memory_db();
+        let user = create_initial_account(&conn, &account("重复失败理由用户")).unwrap();
+        let mut input = task_input(
+            "每日复盘",
+            Some("2026-08-19"),
+            None,
+            r#"{"kind":"daily"}"#,
+            None,
+        );
+        input.occurrence_overrides =
+            r#"{"2026-08-19":{"status":"failed","failureReason":"  临时中止  "}}"#.to_string();
+        let saved = save_task(&conn, &user.id, input).unwrap();
+        let overrides: serde_json::Value =
+            serde_json::from_str(&saved.occurrence_overrides).unwrap();
+        assert_eq!(overrides["2026-08-19"]["failureReason"], "临时中止");
+
+        let mut oversized = task_input(
+            "每日复盘",
+            Some("2026-08-19"),
+            None,
+            r#"{"kind":"daily"}"#,
+            None,
+        );
+        oversized.id = Some(saved.id.clone());
+        oversized.occurrence_overrides = serde_json::json!({
+            "2026-08-19": {
+                "status": "failed",
+                "failureReason": "理".repeat(1001)
+            }
+        })
+        .to_string();
+        assert!(save_task(&conn, &user.id, oversized).is_err());
+
+        let mut invalid_status = task_input(
+            "每日复盘",
+            Some("2026-08-19"),
+            None,
+            r#"{"kind":"daily"}"#,
+            None,
+        );
+        invalid_status.id = Some(saved.id);
+        invalid_status.occurrence_overrides = r#"{"2026-08-19":{"status":"invalid"}}"#.to_string();
+        assert!(save_task(&conn, &user.id, invalid_status).is_err());
     }
 
     #[test]
@@ -1356,7 +1761,7 @@ mod tests {
             ),
         )
         .unwrap();
-        toggle_task(&conn, &owner.id, &finished_child.id).unwrap();
+        set_task_status(&conn, &owner.id, &finished_child.id, "done", None).unwrap();
         conn.execute(
             "UPDATE tasks SET completed_at = 123, updated_at = 123 WHERE id = ?1",
             [&finished_child.id],
@@ -1408,7 +1813,7 @@ mod tests {
             "todo"
         );
 
-        let restored_parent = toggle_task(&conn, &owner.id, &parent.id).unwrap();
+        let restored_parent = set_task_status(&conn, &owner.id, &parent.id, "todo", None).unwrap();
         assert_eq!(restored_parent.status, "todo");
         assert_eq!(
             get_task(&conn, &owner.id, &unfinished_child.id)
@@ -1593,7 +1998,7 @@ mod tests {
             ),
         )
         .unwrap();
-        toggle_task(&conn, &owner.id, &completed.id).unwrap();
+        set_task_status(&conn, &owner.id, &completed.id, "done", None).unwrap();
         let recurring = save_task(
             &conn,
             &owner.id,
@@ -1697,6 +2102,12 @@ mod tests {
         let conn = Connection::open(&source_path).unwrap();
         initialize(&conn).unwrap();
         create_initial_account(&conn, &account("备份用户")).unwrap();
+        conn.execute_batch(
+            "ALTER TABLE users DROP COLUMN show_completed;
+             PRAGMA user_version = 5;",
+        )
+        .unwrap();
+        drop(conn);
 
         let snapshot = snapshot_database(&source_path).unwrap();
         let encrypted = encrypt_backup(&snapshot, "backup-password").unwrap();
@@ -1710,11 +2121,22 @@ mod tests {
         .unwrap();
         validate_database_file(&restored_path).unwrap();
         let restored = Connection::open(restored_path).unwrap();
+        initialize(&restored).unwrap();
         assert_eq!(
             restored
                 .query_row("SELECT COUNT(*) FROM users", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
             1
+        );
+        assert!(!restored
+            .query_row("SELECT show_completed FROM users", [], |row| row
+                .get::<_, bool>(0))
+            .unwrap());
+        assert_eq!(
+            restored
+                .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            SCHEMA_VERSION
         );
     }
 
@@ -1738,6 +2160,7 @@ mod tests {
                 occurrence_overrides: "{}".to_string(),
                 reminder_offsets: vec![],
                 parent_task_id: None,
+                failure_reason: None,
                 notes: String::new(),
             },
         )

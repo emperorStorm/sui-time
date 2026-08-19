@@ -3,10 +3,11 @@ import { getVersion } from '@tauri-apps/api/app'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
-import type { BootState, Category, CategoryInput, Task, TaskInput, TaskQuery, UserSession } from '../types'
+import type { BootState, Category, CategoryInput, Task, TaskInput, TaskQuery, TaskStatus, UserSession } from '../types'
 
 const GITHUB_REPOSITORY = 'emperorStorm/sui-time'
 const GITHUB_REQUEST_TIMEOUT = 8000
+const DEMO_SHOW_COMPLETED_KEY = 'sui-time:demo-user:show-completed'
 
 const demoCategories: Category[] = [
   { id: 'work', name: '工作', color: '#4D82D5', icon: 'briefcase-business', sortOrder: 1 },
@@ -25,7 +26,7 @@ let demoTasks: Task[] = [
 function task(title: string, categoryId: string | null, plannedDate: string | null, plannedTime: string | null, notes: string): Task {
   const category = demoCategories.find(item => item.id === categoryId)
   const now = Date.now()
-  return { id: crypto.randomUUID(), title, categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate, plannedTime, plannedEndTime: null, scheduleKind: plannedTime ? 'point' : 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, notes, status: 'todo', createdAt: now, completedAt: null, updatedAt: now }
+  return { id: crypto.randomUUID(), title, categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate, plannedTime, plannedEndTime: null, scheduleKind: plannedTime ? 'point' : 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, failureReason: null, notes, status: 'todo', createdAt: now, completedAt: null, updatedAt: now }
 }
 
 function today() {
@@ -54,21 +55,44 @@ function invoke<T>(command: string, args?: Record<string, unknown>) {
 
 export async function getBootState(): Promise<BootState> {
   if (isTauriRuntime()) return invoke('get_boot_state')
-  return { needsSetup: false, session: { id: 'demo-user', username: '时光记录者', displayName: '时光记录者' } }
+  return { needsSetup: false, session: { id: 'demo-user', username: '时光记录者', displayName: '时光记录者', showCompleted: loadDemoShowCompleted() } }
 }
 
 export async function createAccount(input: { username: string; password: string }): Promise<UserSession> {
   if (isTauriRuntime()) return invoke('create_account', { input })
-  return { id: 'demo-user', username: input.username, displayName: input.username }
+  saveDemoShowCompleted(false)
+  return { id: 'demo-user', username: input.username, displayName: input.username, showCompleted: false }
 }
 
 export async function loginUser(input: { username: string; password: string }): Promise<UserSession> {
   if (isTauriRuntime()) return invoke('login_user', { input })
-  return { id: 'demo-user', username: input.username, displayName: input.username }
+  return { id: 'demo-user', username: input.username, displayName: input.username, showCompleted: loadDemoShowCompleted() }
 }
 
 export async function logoutUser() {
   if (isTauriRuntime()) await invoke('logout_user')
+}
+
+export async function saveShowCompleted(showCompleted: boolean): Promise<boolean> {
+  if (isTauriRuntime()) return invoke('save_user_show_completed', { showCompleted })
+  saveDemoShowCompleted(showCompleted)
+  return showCompleted
+}
+
+function loadDemoShowCompleted() {
+  try {
+    return window.localStorage.getItem(DEMO_SHOW_COMPLETED_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveDemoShowCompleted(showCompleted: boolean) {
+  try {
+    window.localStorage.setItem(DEMO_SHOW_COMPLETED_KEY, String(showCompleted))
+  } catch {
+    throw new Error('无法保存显示偏好')
+  }
 }
 
 export async function listCategories(): Promise<Category[]> {
@@ -98,7 +122,7 @@ export async function listTasks(query: TaskQuery): Promise<Task[]> {
   return demoTasks.filter(item => {
     const search = query.search?.trim().toLowerCase()
     const matchesSearch = !search || item.title.toLowerCase().includes(search) || item.notes.toLowerCase().includes(search)
-    const matchesStatus = query.includeCompleted || item.status !== 'done'
+    const matchesStatus = query.includeCompleted || item.status === 'todo'
     const matchesStart = !query.startDate || Boolean(item.plannedDate && item.plannedDate >= query.startDate)
     const matchesEnd = !query.endDate || Boolean(item.plannedDate && item.plannedDate <= query.endDate)
     return matchesSearch && matchesStatus && matchesStart && matchesEnd
@@ -113,7 +137,8 @@ export async function saveTask(input: TaskInput): Promise<Task> {
   const repeating = (() => {
     try { return JSON.parse(input.repeatRule).kind !== 'none' } catch { return false }
   })()
-  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, reminderOffsets: input.reminderOffsets, parentTaskId: input.parentTaskId, notes: input.notes, status: repeating ? 'todo' : existing?.status || 'todo', createdAt: existing?.createdAt || now, completedAt: repeating ? null : existing?.completedAt || null, updatedAt: now }
+  const status: TaskStatus = repeating ? 'todo' : existing?.status || 'todo'
+  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, reminderOffsets: input.reminderOffsets, parentTaskId: input.parentTaskId, failureReason: status === 'failed' ? normalizeFailureReason(input.failureReason) : null, notes: input.notes, status, createdAt: existing?.createdAt || now, completedAt: repeating ? null : existing?.completedAt || null, updatedAt: now }
   if (existing) demoTasks = demoTasks.map(item => item.id === result.id ? result : item)
   else demoTasks.push(result)
   return result
@@ -124,14 +149,20 @@ export async function removeTask(taskId: string) {
   demoTasks = demoTasks.filter(item => item.id !== taskId)
 }
 
-export async function toggleTask(taskId: string): Promise<Task> {
-  if (isTauriRuntime()) return invoke('toggle_user_task', { taskId })
+export async function setTaskStatus(taskId: string, status: TaskStatus, failureReason: string | null = null): Promise<Task> {
+  if (isTauriRuntime()) return invoke('set_user_task_status', { taskId, status, failureReason })
   const task = demoTasks.find(item => item.id === taskId)
   if (!task) throw new Error('事项不存在')
-  const status = task.status === 'done' ? 'todo' : 'done'
-  const updated = { ...task, status, completedAt: status === 'done' ? Date.now() : null, updatedAt: Date.now() } as Task
+  if (status === 'failed' && task.parentTaskId) throw new Error('子事项不支持标记失败')
+  const updated = { ...task, status, failureReason: status === 'failed' ? normalizeFailureReason(failureReason) : null, completedAt: status === 'done' ? Date.now() : null, updatedAt: Date.now() } as Task
   demoTasks = demoTasks.map(item => item.id === taskId ? updated : item)
   return updated
+}
+
+function normalizeFailureReason(value: string | null) {
+  const reason = value?.trim() || null
+  if (reason && [...reason].length > 1000) throw new Error('失败理由不能超过 1000 个字符')
+  return reason
 }
 
 export async function countUnfinishedTaskChildren(taskId: string): Promise<number> {
@@ -149,7 +180,7 @@ export async function completeTaskWithChildren(taskId: string): Promise<Task> {
   const now = Date.now()
   demoTasks = demoTasks.map(item => {
     if (item.id !== taskId && (item.parentTaskId !== taskId || item.status === 'done')) return item
-    return { ...item, status: 'done', completedAt: now, updatedAt: now }
+    return { ...item, status: 'done', failureReason: null, completedAt: now, updatedAt: now }
   })
   return demoTasks.find(item => item.id === taskId) as Task
 }

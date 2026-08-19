@@ -5,7 +5,7 @@ use db::{
     active_user, backup_app_data, complete_task_with_children, count_unfinished_task_children,
     create_initial_account, delete_category, delete_task, list_categories, list_tasks, login,
     logout, needs_setup, open_app_db, reschedule_overdue_tasks, reschedule_task, restore_app_data,
-    save_category, save_task, today_string, toggle_task,
+    save_category, save_show_completed, save_task, set_task_status, today_string,
 };
 use models::{
     AccountInput, BootState, Category, CategoryInput, Task, TaskInput, TaskQuery, UserSession,
@@ -36,6 +36,12 @@ fn logout_user(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_user_show_completed(app: tauri::AppHandle, show_completed: bool) -> Result<bool, String> {
+    let conn = open_app_db(&app)?;
+    save_show_completed(&conn, &require_user_id(&conn)?, show_completed)
+}
+
+#[tauri::command]
 fn list_user_categories(app: tauri::AppHandle) -> Result<Vec<Category>, String> {
     let conn = open_app_db(&app)?;
     list_categories(&conn, &require_user_id(&conn)?)
@@ -61,7 +67,7 @@ fn list_user_tasks(app: tauri::AppHandle, query: TaskQuery) -> Result<Vec<Task>,
     let mut tasks = list_tasks(&conn, &owner_id)?;
     let search = query.search.unwrap_or_default().trim().to_lowercase();
     tasks.retain(|task| {
-        let matches_status = query.include_completed || task.status != "done";
+        let matches_status = query.include_completed || task.status == "todo";
         let matches_search = search.is_empty()
             || task.title.to_lowercase().contains(&search)
             || task.notes.to_lowercase().contains(&search);
@@ -93,9 +99,20 @@ fn remove_user_task(app: tauri::AppHandle, task_id: String) -> Result<(), String
 }
 
 #[tauri::command]
-fn toggle_user_task(app: tauri::AppHandle, task_id: String) -> Result<Task, String> {
+fn set_user_task_status(
+    app: tauri::AppHandle,
+    task_id: String,
+    status: String,
+    failure_reason: Option<String>,
+) -> Result<Task, String> {
     let conn = open_app_db(&app)?;
-    toggle_task(&conn, &require_user_id(&conn)?, &task_id)
+    set_task_status(
+        &conn,
+        &require_user_id(&conn)?,
+        &task_id,
+        &status,
+        failure_reason.as_deref(),
+    )
 }
 
 #[tauri::command]
@@ -161,13 +178,14 @@ pub fn run() {
             create_account,
             login_user,
             logout_user,
+            save_user_show_completed,
             list_user_categories,
             save_user_category,
             remove_user_category,
             list_user_tasks,
             save_user_task,
             remove_user_task,
-            toggle_user_task,
+            set_user_task_status,
             count_unfinished_user_task_children,
             complete_user_task_with_children,
             reschedule_user_task,
