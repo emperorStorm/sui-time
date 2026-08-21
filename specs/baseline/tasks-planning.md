@@ -23,7 +23,8 @@ updated: 2026-08-19
 - 周、月视图的待完成事项使用分类原色，完成和失败事项使用同色浅化背景；完成显示对号、失败显示叉号，均不使用删除线。
 - 拖动普通事项只更新 `planned_date`；拖到分类只更新分类。
 - 删除父事项通过外键级联删除子事项；子事项不独立出现在日期规划视图。
-- 完成父事项前查询数据库中的直属未完成子事项数量；存在未完成子事项时需确认，并在同一事务中以统一完成时间完成父事项和这些子事项。恢复父事项时不恢复子事项。
+- 父事项完成代表整个事项结束：有 0 或 1 个子事项时直接完成父子事项；有 2 个及以上子事项时先确认，再在同一事务中以统一完成时间完成父事项和全部子事项。恢复父事项时在同一事务中将全部直属子事项恢复为待完成。
+- 子事项的新增、标题、完成状态和删除随父事项弹窗“保存”通过同一事务写入；取消弹窗不修改已保存的子事项。
 - 完成、失败和恢复操作只作用于已保存数据，不自动保存弹窗中的标题、属性、失败理由或子事项草稿；重复事项单次实例继续使用 occurrence override。
 - 点击失败立即写入状态并展开理由输入；取消弹窗不撤销失败状态。点击失败图标恢复待完成时清空失败理由，父事项失败不改变子事项；子事项不支持失败状态。
 - 保存和完成事项成功后不显示右下角成功提示；恢复、删除及失败反馈继续保留。
@@ -34,7 +35,7 @@ updated: 2026-08-19
 ## 数据与接口
 
 - 表：`tasks`，状态和失败理由落在 `status`、`failure_reason`，其他核心字段对应 `Task`/`TaskInput`。
-- command：`list_user_tasks`、`save_user_task`、`remove_user_task`、`set_user_task_status`、`count_unfinished_user_task_children`、`complete_user_task_with_children`、`reschedule_user_task`。
+- command：`list_user_tasks`、`save_user_task`、`remove_user_task`、`list_user_task_children`、`sync_user_task_children`、`set_user_task_status`、`count_unfinished_user_task_children`、`complete_user_task_with_children`、`reschedule_user_task`。
 - 浏览器模式使用 `api/native.ts` 内存演示数据，不代表 SQLite 已写入。
 
 ## 验收与证据

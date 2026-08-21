@@ -348,7 +348,7 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
 .icon-choice { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--ui-line); border-radius: 7px; background: var(--ui-surface-soft); color: #68788a; transition: border-color .16s, background .16s, color .16s, transform .16s; }
 .icon-choice:hover { border-color: #91b8e6; background: var(--ui-primary-soft); color: var(--ui-primary-dark); transform: translateY(-1px); }
 .icon-choice.selected { border-color: var(--ui-primary); background: var(--ui-primary); color: #fff; box-shadow: 0 4px 10px rgba(47, 128, 237, .22); }
-.task-modal { width: min(620px, 100%); padding: 28px 32px 22px; }
+.task-modal { width: min(560px, calc(100vw - 32px)); padding: 28px 32px 22px; }
 .task-modal-head { align-items: center !important; padding-bottom: 20px; gap: 13px; }
 .task-modal-head > input { color: var(--ui-ink); font-size: 25px; }
 .modal-check { width: 27px; height: 27px; border-color: var(--ui-primary); transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease, transform .18s ease; }.modal-check:hover:not(:disabled) { transform: translateY(-1px); }
@@ -460,7 +460,7 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
 .subtask-section { padding: 14px 0 10px; }
 .subtask-list { max-height: min(196px, 27dvh); overflow-y: auto; padding-right: 3px; }
 .subtask-row { min-height: 38px; }
-.subtask-row .task-check { width: 21px; height: 21px; border: 1.5px solid var(--subtask-color, var(--ui-primary)); background: transparent; color: transparent; }
+.subtask-row .task-check { display: grid; width: 21px; height: 21px; min-width: 21px; min-height: 21px; place-items: center; border: 1.5px solid var(--subtask-color, var(--ui-primary)); border-radius: 50%; background: transparent; box-shadow: none; color: transparent; }
 .subtask-row .task-check:hover, .subtask-row .task-check.done { border-color: var(--subtask-color, var(--ui-primary)); background: var(--subtask-color, var(--ui-primary)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--subtask-color, var(--ui-primary)) 14%, transparent); color: #fff; }
 .notes-editor { padding-top: 14px; }
 .notes-editor textarea { min-height: 92px; max-height: min(136px, 18dvh); }
@@ -747,8 +747,11 @@ button:focus-visible {
   width: 30px;
   height: 30px;
   border-radius: 10px;
+  color: #ef5658;
   transition: background .18s ease, transform .18s ease, opacity .18s ease;
 }
+
+.subtask-remove:hover { background: #fff1f1; color: #dc3e42; transform: scale(1.06); }
 
 .task-card,
 .schedule-card,

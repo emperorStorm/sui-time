@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     fs::OpenOptions,
     io::Write,
@@ -20,7 +21,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use tauri::Manager;
 use uuid::Uuid;
 
-use crate::models::{AccountInput, Category, CategoryInput, Task, TaskInput, UserSession};
+use crate::models::{
+    AccountInput, Category, CategoryInput, Task, TaskChildInput, TaskChildrenInput, TaskInput,
+    UserSession,
+};
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
 const SCHEMA_VERSION: i64 = 7;
@@ -593,6 +597,27 @@ pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String
         .map_err(|error| error.to_string())
 }
 
+pub fn list_task_children(
+    conn: &Connection,
+    owner_id: &str,
+    parent_task_id: &str,
+) -> Result<Vec<Task>, String> {
+    get_task(conn, owner_id, parent_task_id)?.ok_or_else(|| "事项不存在或无权修改".to_string())?;
+    let mut statement = conn
+        .prepare(
+            "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
+             FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id
+             WHERE tasks.owner_id = ?1 AND tasks.parent_task_id = ?2
+             ORDER BY tasks.created_at, tasks.id",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![owner_id, parent_task_id], task_from_row)
+        .map_err(|error| error.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
 pub fn reschedule_overdue_tasks(
     conn: &Connection,
     owner_id: &str,
@@ -659,6 +684,94 @@ pub fn delete_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<(
     Ok(())
 }
 
+pub fn sync_task_children(
+    conn: &Connection,
+    owner_id: &str,
+    input: TaskChildrenInput,
+) -> Result<Vec<Task>, String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    get_task(&transaction, owner_id, &input.parent_task_id)?
+        .ok_or_else(|| "事项不存在或无权修改".to_string())?;
+
+    let mut deleted_ids = HashSet::new();
+    for child_id in &input.deleted_ids {
+        if !deleted_ids.insert(child_id) {
+            return Err("子事项删除列表重复".to_string());
+        }
+        let changed = transaction
+            .execute(
+                "DELETE FROM tasks WHERE id = ?1 AND owner_id = ?2 AND parent_task_id = ?3",
+                params![child_id, owner_id, input.parent_task_id],
+            )
+            .map_err(|error| error.to_string())?;
+        if changed == 0 {
+            return Err("子事项不存在或无权修改".to_string());
+        }
+    }
+
+    let now = now_millis();
+    let mut seen_ids = HashSet::new();
+    for child in input.children {
+        sync_child_task(
+            &transaction,
+            owner_id,
+            &input.parent_task_id,
+            child,
+            now,
+            &mut seen_ids,
+        )?;
+    }
+    transaction.commit().map_err(|error| error.to_string())?;
+    list_task_children(conn, owner_id, &input.parent_task_id)
+}
+
+fn sync_child_task(
+    conn: &Connection,
+    owner_id: &str,
+    parent_task_id: &str,
+    child: TaskChildInput,
+    now: i64,
+    seen_ids: &mut HashSet<String>,
+) -> Result<(), String> {
+    let title = child.title.trim();
+    if title.is_empty() || title.chars().count() > 120 {
+        return Err("子事项标题需为 1 至 120 个字符".to_string());
+    }
+    if !["todo", "done"].contains(&child.status.as_str()) {
+        return Err("子事项状态无效".to_string());
+    }
+    let completed_at = if child.status == "done" {
+        Some(now)
+    } else {
+        None
+    };
+    if let Some(id) = child.id {
+        if !seen_ids.insert(id.clone()) {
+            return Err("子事项重复".to_string());
+        }
+        let changed = conn
+            .execute(
+                "UPDATE tasks SET title = ?1, status = ?2, failure_reason = NULL, completed_at = ?3, updated_at = ?4 WHERE id = ?5 AND owner_id = ?6 AND parent_task_id = ?7",
+                params![title, child.status, completed_at, now, id, owner_id, parent_task_id],
+            )
+            .map_err(|error| error.to_string())?;
+        if changed == 0 {
+            return Err("子事项不存在或无权修改".to_string());
+        }
+        return Ok(());
+    }
+
+    conn.execute(
+        "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at)
+         VALUES (?1, ?2, ?3, NULL, NULL, NULL, NULL, 'all_day', 'not_urgent_not_important', '{\"kind\":\"none\"}', '{}', '[]', ?4, ?5, NULL, '', ?6, ?7, ?6)",
+        params![Uuid::new_v4().to_string(), owner_id, title, parent_task_id, child.status, now, completed_at],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub fn set_task_status(
     conn: &Connection,
     owner_id: &str,
@@ -669,8 +782,11 @@ pub fn set_task_status(
     if !["todo", "done", "failed"].contains(&status) {
         return Err("事项状态无效".to_string());
     }
-    let current =
-        get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项不存在或无权修改".to_string())?;
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let current = get_task(&transaction, owner_id, task_id)?
+        .ok_or_else(|| "事项不存在或无权修改".to_string())?;
     if status == "failed" && current.parent_task_id.is_some() {
         return Err("子事项不支持标记失败".to_string());
     }
@@ -680,11 +796,20 @@ pub fn set_task_status(
         None
     };
     let now = now_millis();
-    conn.execute(
+    transaction.execute(
         "UPDATE tasks SET status = ?1, failure_reason = ?2, completed_at = ?3, updated_at = ?4 WHERE id = ?5 AND owner_id = ?6",
         params![status, reason, if status == "done" { Some(now) } else { None }, now, task_id, owner_id],
     )
     .map_err(|error| error.to_string())?;
+    if status == "todo" && current.status == "done" {
+        transaction
+            .execute(
+                "UPDATE tasks SET status = 'todo', failure_reason = NULL, completed_at = NULL, updated_at = ?1 WHERE owner_id = ?2 AND parent_task_id = ?3",
+                params![now, owner_id, task_id],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction.commit().map_err(|error| error.to_string())?;
     get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项修改失败".to_string())
 }
 
@@ -1820,15 +1945,25 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .status,
-            "done"
+            "todo"
         );
         assert_eq!(
             get_task(&conn, &owner.id, &finished_child.id)
                 .unwrap()
                 .unwrap()
                 .status,
-            "done"
+            "todo"
         );
+        assert!(get_task(&conn, &owner.id, &unfinished_child.id)
+            .unwrap()
+            .unwrap()
+            .completed_at
+            .is_none());
+        assert!(get_task(&conn, &owner.id, &finished_child.id)
+            .unwrap()
+            .unwrap()
+            .completed_at
+            .is_none());
 
         let standalone = save_task(
             &conn,
@@ -1846,6 +1981,110 @@ mod tests {
                 .status,
             "done"
         );
+    }
+
+    #[test]
+    fn task_child_sync_saves_changes_and_rolls_back_on_invalid_input() {
+        let conn = memory_db();
+        let owner = create_initial_account(&conn, &account("子事项同步用户")).unwrap();
+        let parent = save_task(
+            &conn,
+            &owner.id,
+            task_input("父事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let first = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "第一个子事项",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        let second = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "第二个子事项",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+
+        let children = sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: parent.id.clone(),
+                children: vec![
+                    TaskChildInput {
+                        id: Some(first.id.clone()),
+                        title: "已更新子事项".to_string(),
+                        status: "done".to_string(),
+                    },
+                    TaskChildInput {
+                        id: None,
+                        title: "新增子事项".to_string(),
+                        status: "todo".to_string(),
+                    },
+                ],
+                deleted_ids: vec![second.id.clone()],
+            },
+        )
+        .unwrap();
+        assert_eq!(children.len(), 2);
+        let updated = children.iter().find(|child| child.id == first.id).unwrap();
+        assert_eq!(updated.title, "已更新子事项");
+        assert_eq!(updated.status, "done");
+        assert!(get_task(&conn, &owner.id, &second.id).unwrap().is_none());
+
+        let added = children.iter().find(|child| child.id != first.id).unwrap();
+        let result = sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: parent.id.clone(),
+                children: vec![
+                    TaskChildInput {
+                        id: Some(first.id.clone()),
+                        title: "不应保存".to_string(),
+                        status: "todo".to_string(),
+                    },
+                    TaskChildInput {
+                        id: Some(first.id.clone()),
+                        title: "重复子事项".to_string(),
+                        status: "todo".to_string(),
+                    },
+                ],
+                deleted_ids: vec![added.id.clone()],
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            get_task(&conn, &owner.id, &first.id)
+                .unwrap()
+                .unwrap()
+                .title,
+            "已更新子事项"
+        );
+        assert!(get_task(&conn, &owner.id, &added.id).unwrap().is_some());
+        assert!(sync_task_children(
+            &conn,
+            "other-user",
+            TaskChildrenInput {
+                parent_task_id: parent.id,
+                children: vec![],
+                deleted_ids: vec![],
+            },
+        )
+        .is_err());
     }
 
     #[test]

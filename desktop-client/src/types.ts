@@ -67,6 +67,18 @@ export interface TaskInput {
   notes: string
 }
 
+export interface TaskChildInput {
+  id?: string
+  title: string
+  status: Extract<TaskStatus, 'todo' | 'done'>
+}
+
+export interface TaskChildrenInput {
+  parentTaskId: string
+  children: TaskChildInput[]
+  deletedIds: string[]
+}
+
 export type TaskStatus = 'todo' | 'done' | 'failed'
 export type ScheduleKind = 'all_day' | 'point' | 'range'
 export type Priority = 'urgent_important' | 'important_not_urgent' | 'urgent_not_important' | 'not_urgent_not_important'

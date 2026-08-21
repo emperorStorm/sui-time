@@ -96,6 +96,22 @@ pub struct TaskInput {
     pub notes: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskChildInput {
+    pub id: Option<String>,
+    pub title: String,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskChildrenInput {
+    pub parent_task_id: String,
+    pub children: Vec<TaskChildInput>,
+    pub deleted_ids: Vec<String>,
+}
+
 fn default_schedule_kind() -> String {
     "all_day".to_string()
 }

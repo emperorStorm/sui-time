@@ -3,7 +3,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
-import type { BootState, Category, CategoryInput, Task, TaskInput, TaskQuery, TaskStatus, UserSession } from '../types'
+import type { BootState, Category, CategoryInput, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, UserSession } from '../types'
 
 const GITHUB_REPOSITORY = 'emperorStorm/sui-time'
 const GITHUB_REQUEST_TIMEOUT = 8000
@@ -149,13 +149,54 @@ export async function removeTask(taskId: string) {
   demoTasks = demoTasks.filter(item => item.id !== taskId)
 }
 
+export async function listTaskChildren(parentTaskId: string): Promise<Task[]> {
+  if (isTauriRuntime()) return invoke('list_user_task_children', { parentTaskId })
+  const parent = demoTasks.find(item => item.id === parentTaskId)
+  if (!parent) throw new Error('事项不存在')
+  return demoTasks.filter(item => item.parentTaskId === parentTaskId).map(item => ({ ...item }))
+}
+
+export async function syncTaskChildren(input: TaskChildrenInput): Promise<Task[]> {
+  if (isTauriRuntime()) return invoke('sync_user_task_children', { input })
+  const parent = demoTasks.find(item => item.id === input.parentTaskId)
+  if (!parent) throw new Error('事项不存在')
+  const children = demoTasks.filter(item => item.parentTaskId === input.parentTaskId)
+  const deletedIds = new Set(input.deletedIds)
+  if (deletedIds.size !== input.deletedIds.length || input.deletedIds.some(id => !children.some(item => item.id === id))) throw new Error('子事项不存在或无权修改')
+  const seenIds = new Set<string>()
+  for (const child of input.children) {
+    const title = child.title.trim()
+    if (!title || [...title].length > 120) throw new Error('子事项标题需为 1 至 120 个字符')
+    if (child.status !== 'todo' && child.status !== 'done') throw new Error('子事项状态无效')
+    if (child.id && (seenIds.has(child.id) || deletedIds.has(child.id))) throw new Error('子事项重复')
+    if (child.id) seenIds.add(child.id)
+  }
+  const currentById = new Map(children.map(item => [item.id, item]))
+  for (const child of input.children) {
+    if (child.id && !currentById.has(child.id)) throw new Error('子事项不存在或无权修改')
+  }
+  const now = Date.now()
+  let nextTasks = demoTasks.filter(item => !deletedIds.has(item.id))
+  for (const child of input.children) {
+    const existing = child.id ? currentById.get(child.id) : undefined
+    if (existing) {
+      nextTasks = nextTasks.map(item => item.id === existing.id ? { ...item, title: child.title.trim(), status: child.status, failureReason: null, completedAt: child.status === 'done' ? now : null, updatedAt: now } : item)
+    } else {
+      const created = task(child.title.trim(), null, null, null, '')
+      nextTasks.push({ ...created, id: crypto.randomUUID(), parentTaskId: input.parentTaskId, status: child.status, completedAt: child.status === 'done' ? now : null, updatedAt: now })
+    }
+  }
+  demoTasks = nextTasks
+  return demoTasks.filter(item => item.parentTaskId === input.parentTaskId).map(item => ({ ...item }))
+}
+
 export async function setTaskStatus(taskId: string, status: TaskStatus, failureReason: string | null = null): Promise<Task> {
   if (isTauriRuntime()) return invoke('set_user_task_status', { taskId, status, failureReason })
   const task = demoTasks.find(item => item.id === taskId)
   if (!task) throw new Error('事项不存在')
   if (status === 'failed' && task.parentTaskId) throw new Error('子事项不支持标记失败')
   const updated = { ...task, status, failureReason: status === 'failed' ? normalizeFailureReason(failureReason) : null, completedAt: status === 'done' ? Date.now() : null, updatedAt: Date.now() } as Task
-  demoTasks = demoTasks.map(item => item.id === taskId ? updated : item)
+  demoTasks = demoTasks.map(item => item.id === taskId ? updated : status === 'todo' && task.status === 'done' && item.parentTaskId === taskId ? { ...item, status: 'todo', failureReason: null, completedAt: null, updatedAt: updated.updatedAt } : item)
   return updated
 }
 

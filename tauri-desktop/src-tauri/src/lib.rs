@@ -3,12 +3,14 @@ mod models;
 
 use db::{
     active_user, backup_app_data, complete_task_with_children, count_unfinished_task_children,
-    create_initial_account, delete_category, delete_task, list_categories, list_tasks, login,
-    logout, needs_setup, open_app_db, reschedule_overdue_tasks, reschedule_task, restore_app_data,
-    save_category, save_show_completed, save_task, set_task_status, today_string,
+    create_initial_account, delete_category, delete_task, list_categories, list_task_children,
+    list_tasks, login, logout, needs_setup, open_app_db, reschedule_overdue_tasks, reschedule_task,
+    restore_app_data, save_category, save_show_completed, save_task, set_task_status,
+    sync_task_children, today_string,
 };
 use models::{
-    AccountInput, BootState, Category, CategoryInput, Task, TaskInput, TaskQuery, UserSession,
+    AccountInput, BootState, Category, CategoryInput, Task, TaskChildrenInput, TaskInput,
+    TaskQuery, UserSession,
 };
 
 #[tauri::command]
@@ -99,6 +101,24 @@ fn remove_user_task(app: tauri::AppHandle, task_id: String) -> Result<(), String
 }
 
 #[tauri::command]
+fn list_user_task_children(
+    app: tauri::AppHandle,
+    parent_task_id: String,
+) -> Result<Vec<Task>, String> {
+    let conn = open_app_db(&app)?;
+    list_task_children(&conn, &require_user_id(&conn)?, &parent_task_id)
+}
+
+#[tauri::command]
+fn sync_user_task_children(
+    app: tauri::AppHandle,
+    input: TaskChildrenInput,
+) -> Result<Vec<Task>, String> {
+    let conn = open_app_db(&app)?;
+    sync_task_children(&conn, &require_user_id(&conn)?, input)
+}
+
+#[tauri::command]
 fn set_user_task_status(
     app: tauri::AppHandle,
     task_id: String,
@@ -185,6 +205,8 @@ pub fn run() {
             list_user_tasks,
             save_user_task,
             remove_user_task,
+            list_user_task_children,
+            sync_user_task_children,
             set_user_task_status,
             count_unfinished_user_task_children,
             complete_user_task_with_children,
