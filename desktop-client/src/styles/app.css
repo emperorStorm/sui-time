@@ -428,6 +428,56 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
 .reminder-permission { margin: 19px 0 0; padding: 10px 11px; border: 1px solid var(--ui-line); border-radius: 7px; background: var(--ui-surface-soft); color: #708090; font-size: 11px; line-height: 1.6; }
 .reminder-sheet > footer { display: flex; align-items: center; margin-top: 19px; gap: 6px; }
 .reminder-sheet > footer > span { flex: 1; }
+.reminder-permission button { min-height: 26px; margin: 7px 0 0; padding: 0 7px; border-radius: 5px; background: #fff; color: var(--ui-primary); font-size: 11px; font-weight: 700; }
+
+.time-picker-sheet { width: min(760px, calc(100vw - 36px)); max-height: min(730px, calc(100dvh - 32px)); overflow: auto; padding: 24px 26px 20px; border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-surface); box-shadow: 0 24px 60px rgba(24, 38, 54, .2); }
+.time-picker-head { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 17px; border-bottom: 1px solid #e7ecf1; }
+.time-picker-head small { display: block; color: #8a96a3; font-size: 11px; font-weight: 600; }
+.time-picker-head h2 { margin: 3px 0 0; color: var(--ui-ink); font-size: 20px; }
+.time-picker-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 18px; padding: 3px; border-radius: 7px; background: #edf2f6; gap: 3px; }
+.time-picker-tabs button { height: 38px; border-radius: 5px; background: transparent; color: #728090; font-size: 13px; font-weight: 600; }
+.time-picker-tabs button:hover { color: var(--ui-primary); }
+.time-picker-tabs button.active { background: #fff; box-shadow: 0 2px 7px rgba(42, 68, 92, .13); color: var(--ui-primary); }
+.time-picker-quick-actions { display: flex; align-items: center; padding: 15px 0 12px; gap: 7px; }
+.time-picker-quick-actions button { min-height: 29px; padding: 0 9px; border: 1px solid var(--ui-line); border-radius: 5px; background: var(--ui-surface-soft); color: #667688; font-size: 11px; }
+.time-picker-quick-actions button:hover { border-color: #a9c8eb; background: var(--ui-primary-soft); color: var(--ui-primary); }
+.time-picker-quick-actions strong { margin-left: auto; color: #435466; font-size: 13px; }
+.time-picker-content { display: grid; grid-template-columns: minmax(300px, 1.05fr) minmax(300px, .95fr); border: 1px solid var(--ui-line); border-radius: 8px; overflow: hidden; background: #fff; }
+.time-picker-content.all-day { grid-template-columns: 1fr; }
+.date-calendar { padding: 15px 17px 16px; }
+.date-calendar > header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 13px; border-bottom: 1px solid #edf1f4; }
+.date-calendar > header strong { color: #405164; font-size: 14px; }
+.date-calendar > header div { display: flex; gap: 3px; }
+.date-calendar > header button { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 5px; background: transparent; color: #788797; }
+.date-calendar > header button:hover { background: var(--ui-primary-soft); color: var(--ui-primary); }
+.calendar-weekdays, .calendar-days { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; }
+.calendar-weekdays { padding: 13px 0 7px; color: #98a4af; font-size: 11px; font-weight: 700; }
+.calendar-days { gap: 3px 0; }
+.calendar-days button { justify-self: center; width: 32px; height: 32px; border-radius: 50%; background: transparent; color: #4b5b6c; font-size: 12px; transition: background .16s, color .16s, transform .16s; }
+.calendar-days button:hover { background: var(--ui-primary-soft); color: var(--ui-primary); }
+.calendar-days button.muted { color: #c0c8d0; }
+.calendar-days button.today { box-shadow: inset 0 0 0 1px #a5c7ec; color: var(--ui-primary); font-weight: 700; }
+.calendar-days button.selected { background: var(--ui-primary); box-shadow: 0 4px 9px rgba(47, 128, 237, .24); color: #fff; }
+.time-wheel-area { display: grid; align-content: start; padding: 15px; border-left: 1px solid var(--ui-line); background: var(--ui-surface-soft); gap: 13px; }
+.time-wheel-group { min-width: 0; }
+.time-wheel-group > strong { display: block; color: #7c8996; font-size: 11px; font-weight: 700; }
+.time-wheel-value { margin: 5px 0 9px; color: #34485b; font-size: 20px; font-weight: 700; line-height: 1; }
+.time-wheels { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; color: #8a99a8; font-size: 20px; font-weight: 700; gap: 7px; }
+.time-wheel { display: grid; max-height: 112px; grid-auto-rows: 31px; overflow-y: auto; padding: 2px; border: 1px solid var(--ui-line); border-radius: 6px; background: #fff; scroll-snap-type: y mandatory; }
+.time-wheel button { height: 29px; border-radius: 4px; background: transparent; color: #9aa5af; font-size: 13px; scroll-snap-align: center; }
+.time-wheel button:hover { background: var(--ui-primary-soft); color: var(--ui-primary); }
+.time-wheel button.selected { background: var(--ui-primary); color: #fff; font-weight: 700; }
+.time-picker-error { margin: 12px 0 0; color: #c34e59; font-size: 12px; }
+.time-picker-sheet > footer { display: flex; align-items: center; margin-top: 19px; gap: 6px; }
+.time-picker-sheet > footer > span { flex: 1; }
+
+@media (max-width: 700px) {
+  .time-picker-sheet { padding: 20px; }
+  .time-picker-quick-actions { flex-wrap: wrap; }
+  .time-picker-quick-actions strong { width: 100%; margin-left: 0; }
+  .time-picker-content { grid-template-columns: 1fr; }
+  .time-wheel-area { border-top: 1px solid var(--ui-line); border-left: 0; }
+}
 .completion-confirm-backdrop { z-index: 40; background: rgba(24, 38, 54, .3); }
 .completion-confirm { width: min(420px, 100%); padding: 24px; }
 .completion-confirm-heading { display: flex; align-items: flex-start; gap: 14px; }
@@ -791,6 +841,75 @@ button:disabled {
   .modal-backdrop .repeat-sheet {
     transition-duration: .01ms !important;
   }
+}
+
+/* 统一交互反馈：保持控件尺寸稳定，只用透明度和 transform 提供即时响应。 */
+.subtask-row .task-check {
+  position: relative;
+  padding: 0;
+  appearance: none;
+  line-height: 0;
+  transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease, transform .18s ease;
+}
+
+.subtask-row .task-check svg {
+  position: absolute;
+  inset: 0;
+  width: 13px;
+  height: 13px;
+  margin: auto;
+  pointer-events: none;
+}
+
+.subtask-row .task-check:active:not(:disabled) {
+  transform: scale(.9);
+}
+
+.subtask-row .task-check.done svg {
+  animation: task-check-in .18s ease-out;
+}
+
+button:not(:disabled):active,
+.task-card:active,
+.schedule-card:active,
+.month-item:active,
+.month-overflow-item:active,
+.notification-item:active {
+  transform: translateY(1px) scale(.985);
+}
+
+input,
+select,
+textarea {
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.popover-enter-active,
+.popover-leave-active {
+  transition: opacity .16s ease, transform .16s ease;
+  transform-origin: top right;
+}
+
+.popover-enter-from,
+.popover-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(.98);
+}
+
+.notice-enter-active,
+.notice-leave-active {
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.notice-enter-from,
+.notice-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+@keyframes task-check-in {
+  from { opacity: 0; transform: scale(.55); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 /* 侧栏皮肤契约：本地山景素材叠加深色遮罩，保证导航文字清晰。 */

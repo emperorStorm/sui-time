@@ -692,7 +692,7 @@ pub fn sync_task_children(
     let transaction = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    get_task(&transaction, owner_id, &input.parent_task_id)?
+    let parent = get_task(&transaction, owner_id, &input.parent_task_id)?
         .ok_or_else(|| "事项不存在或无权修改".to_string())?;
 
     let mut deleted_ids = HashSet::new();
@@ -723,8 +723,57 @@ pub fn sync_task_children(
             &mut seen_ids,
         )?;
     }
+    sync_parent_status_from_children(&transaction, owner_id, &parent, now)?;
     transaction.commit().map_err(|error| error.to_string())?;
     list_task_children(conn, owner_id, &input.parent_task_id)
+}
+
+fn sync_parent_status_from_children(
+    conn: &Connection,
+    owner_id: &str,
+    parent: &Task,
+    now: i64,
+) -> Result<(), String> {
+    if parent.parent_task_id.is_some()
+        || parent.status == "failed"
+        || !is_non_repeating_task(parent)
+    {
+        return Ok(());
+    }
+    let (child_count, unfinished_count): (i64, i64) = conn
+        .query_row(
+            "SELECT COUNT(*), COUNT(CASE WHEN status != 'done' THEN 1 END)
+             FROM tasks WHERE owner_id = ?1 AND parent_task_id = ?2",
+            params![owner_id, parent.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| error.to_string())?;
+    if child_count == 0 {
+        return Ok(());
+    }
+    if unfinished_count == 0 {
+        if parent.status != "done" {
+            conn.execute(
+                "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3",
+                params![now, parent.id, owner_id],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    } else if parent.status == "done" {
+        conn.execute(
+            "UPDATE tasks SET status = 'todo', failure_reason = NULL, completed_at = NULL, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3",
+            params![now, parent.id, owner_id],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn is_non_repeating_task(task: &Task) -> bool {
+    matches!(
+        serde_json::from_str::<serde_json::Value>(&task.repeat_rule),
+        Ok(serde_json::Value::Object(rule)) if rule.get("kind").and_then(serde_json::Value::as_str) == Some("none")
+    )
 }
 
 fn sync_child_task(
@@ -2085,6 +2134,269 @@ mod tests {
             },
         )
         .is_err());
+    }
+
+    #[test]
+    fn task_child_sync_derives_parent_status_and_rolls_back_invalid_sync() {
+        let conn = memory_db();
+        let owner = create_initial_account(&conn, &account("子事项状态用户")).unwrap();
+        let parent = save_task(
+            &conn,
+            &owner.id,
+            task_input("普通父事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let first = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "子事项一",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        let second = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "子事项二",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+
+        sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: parent.id.clone(),
+                children: vec![
+                    TaskChildInput {
+                        id: Some(first.id.clone()),
+                        title: first.title.clone(),
+                        status: "done".to_string(),
+                    },
+                    TaskChildInput {
+                        id: Some(second.id.clone()),
+                        title: second.title.clone(),
+                        status: "done".to_string(),
+                    },
+                ],
+                deleted_ids: vec![],
+            },
+        )
+        .unwrap();
+        let completed_parent = get_task(&conn, &owner.id, &parent.id).unwrap().unwrap();
+        assert_eq!(completed_parent.status, "done");
+        assert!(completed_parent.completed_at.is_some());
+
+        let result = sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: parent.id.clone(),
+                children: vec![
+                    TaskChildInput {
+                        id: Some(first.id.clone()),
+                        title: first.title.clone(),
+                        status: "todo".to_string(),
+                    },
+                    TaskChildInput {
+                        id: Some(first.id.clone()),
+                        title: first.title.clone(),
+                        status: "todo".to_string(),
+                    },
+                ],
+                deleted_ids: vec![],
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            get_task(&conn, &owner.id, &parent.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "done"
+        );
+        assert_eq!(
+            get_task(&conn, &owner.id, &first.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "done"
+        );
+
+        sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: parent.id.clone(),
+                children: vec![
+                    TaskChildInput {
+                        id: Some(first.id.clone()),
+                        title: first.title.clone(),
+                        status: "todo".to_string(),
+                    },
+                    TaskChildInput {
+                        id: Some(second.id.clone()),
+                        title: second.title.clone(),
+                        status: "done".to_string(),
+                    },
+                ],
+                deleted_ids: vec![],
+            },
+        )
+        .unwrap();
+        let restored_parent = get_task(&conn, &owner.id, &parent.id).unwrap().unwrap();
+        assert_eq!(restored_parent.status, "todo");
+        assert!(restored_parent.completed_at.is_none());
+    }
+
+    #[test]
+    fn task_child_sync_preserves_failed_repeating_and_empty_parent_status() {
+        let conn = memory_db();
+        let owner = create_initial_account(&conn, &account("子事项排除用户")).unwrap();
+        let failed_parent = save_task(
+            &conn,
+            &owner.id,
+            task_input("失败父事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let failed_first = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "失败子事项一",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(failed_parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        let failed_second = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "失败子事项二",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(failed_parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        set_task_status(
+            &conn,
+            &owner.id,
+            &failed_parent.id,
+            "failed",
+            Some("暂缓处理"),
+        )
+        .unwrap();
+        sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: failed_parent.id.clone(),
+                children: vec![
+                    TaskChildInput {
+                        id: Some(failed_first.id.clone()),
+                        title: failed_first.title.clone(),
+                        status: "done".to_string(),
+                    },
+                    TaskChildInput {
+                        id: Some(failed_second.id.clone()),
+                        title: failed_second.title.clone(),
+                        status: "done".to_string(),
+                    },
+                ],
+                deleted_ids: vec![],
+            },
+        )
+        .unwrap();
+        let failed_result = get_task(&conn, &owner.id, &failed_parent.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(failed_result.status, "failed");
+        assert_eq!(failed_result.failure_reason.as_deref(), Some("暂缓处理"));
+
+        let repeating_parent = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "重复父事项",
+                Some("2026-08-25"),
+                None,
+                r#"{"kind":"daily"}"#,
+                None,
+            ),
+        )
+        .unwrap();
+        let repeating_child = save_task(
+            &conn,
+            &owner.id,
+            task_input(
+                "重复子事项",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(repeating_parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: repeating_parent.id.clone(),
+                children: vec![TaskChildInput {
+                    id: Some(repeating_child.id.clone()),
+                    title: repeating_child.title,
+                    status: "done".to_string(),
+                }],
+                deleted_ids: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            get_task(&conn, &owner.id, &repeating_parent.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "todo"
+        );
+
+        let standalone = save_task(
+            &conn,
+            &owner.id,
+            task_input("已完成无子事项", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        set_task_status(&conn, &owner.id, &standalone.id, "done", None).unwrap();
+        sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: standalone.id.clone(),
+                children: vec![],
+                deleted_ids: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            get_task(&conn, &owner.id, &standalone.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "done"
+        );
     }
 
     #[test]

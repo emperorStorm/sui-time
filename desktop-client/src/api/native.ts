@@ -186,8 +186,25 @@ export async function syncTaskChildren(input: TaskChildrenInput): Promise<Task[]
       nextTasks.push({ ...created, id: crypto.randomUUID(), parentTaskId: input.parentTaskId, status: child.status, completedAt: child.status === 'done' ? now : null, updatedAt: now })
     }
   }
+  const nextChildren = nextTasks.filter(item => item.parentTaskId === input.parentTaskId)
+  if (!parent.parentTaskId && parent.status !== 'failed' && isNonRepeatingTask(parent) && nextChildren.length) {
+    const nextStatus: TaskStatus = nextChildren.every(item => item.status === 'done') ? 'done' : 'todo'
+    if (parent.status !== nextStatus) {
+      nextTasks = nextTasks.map(item => item.id === parent.id
+        ? { ...item, status: nextStatus, failureReason: null, completedAt: nextStatus === 'done' ? now : null, updatedAt: now }
+        : item)
+    }
+  }
   demoTasks = nextTasks
   return demoTasks.filter(item => item.parentTaskId === input.parentTaskId).map(item => ({ ...item }))
+}
+
+function isNonRepeatingTask(task: Task) {
+  try {
+    return (JSON.parse(task.repeatRule) as { kind?: unknown }).kind === 'none'
+  } catch {
+    return false
+  }
 }
 
 export async function setTaskStatus(taskId: string, status: TaskStatus, failureReason: string | null = null): Promise<Task> {
