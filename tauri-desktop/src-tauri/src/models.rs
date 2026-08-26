@@ -112,6 +112,15 @@ pub struct TaskChildrenInput {
     pub deleted_ids: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderNotificationRequest {
+    pub identifier: String,
+    pub title: String,
+    pub body: String,
+    pub trigger_at: i64,
+}
+
 fn default_schedule_kind() -> String {
     "all_day".to_string()
 }

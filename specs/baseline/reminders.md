@@ -2,7 +2,7 @@
 id: baseline-reminders
 title: 事项提醒基线
 status: implemented
-updated: 2026-08-14
+updated: 2026-08-26
 ---
 
 # 事项提醒基线
@@ -15,18 +15,19 @@ updated: 2026-08-14
 
 - 只有非全天、同时有 `plannedDate` 和 `plannedTime` 的父事项可设置提醒。
 - 允许的提前分钟数由 Rust 白名单校验，数组必须递增、无重复且最多三个。
-- 调度器每 30 秒检查一次，并在窗口聚焦或重新可见时补查。
-- 只发送触发时间后 15 分钟宽限期内的提醒；已发送记录保留 7 天。
-- 重复事项先按目标日期展开，再使用实例 ID、日期、偏移和触发时间去重。
-- 通知权限未授权或非 Tauri 运行时不发送。
+- macOS 使用 `UNUserNotificationCenter` 查询真实的未询问、拒绝和已允许状态；首次开启提醒先显示应用内说明，再由用户主动触发系统授权框。
+- 已拒绝时保持提醒关闭，并提供 macOS 系统通知设置入口；授权成功后可发送测试通知确认系统横幅可见。
+- 调度器每 15 分钟重建一次，并在登录、事项保存、状态变化、删除、改期、跨日刷新、窗口聚焦或重新可见时补查。
+- macOS 一次性排程当前用户未来 48 小时的未完成父事项提醒；重复事项先按目标日期展开，标识由用户、事项或实例、日期、偏移和触发时间组成。
+- 登出和组件卸载时清除本应用待发提醒；未授权或非 Tauri 运行时不发送。应用完全退出后的系统排程不作为产品承诺。
 
 ## 数据与接口
 
 - `tasks.reminder_offsets` 在 SQLite 中保存 JSON 数组，对外为 `number[]`。
-- 发送记录保存在 `localStorage`：`sui-time:reminder-deliveries:<userId>`。
-- 实现：`desktop-client/src/composables/use-task-reminders.ts` 和通知插件。
+- macOS 原生命令负责权限、测试通知和待发通知替换；浏览器演示模式保持配置界面但不支持系统通知。
+- 实现：`desktop-client/src/composables/use-task-reminders.ts`、`desktop-client/src/api/native.ts`、Tauri 原生通知桥接和通知插件回退路径。
 
 ## 验收与证据
 
 - Rust 测试覆盖合法、乱序、超量、非法偏移和无时间情况。
-- 前端验收覆盖授权、启动停止、去重、重复实例和登出后的调度器清理。
+- 前端验收覆盖授权引导、拒绝后的设置入口、测试通知、启动停止、重复实例和登出后的调度器清理。

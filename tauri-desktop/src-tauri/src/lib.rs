@@ -1,4 +1,6 @@
 mod db;
+#[cfg(target_os = "macos")]
+mod macos_notifications;
 mod models;
 
 use db::{
@@ -9,8 +11,8 @@ use db::{
     sync_task_children, today_string,
 };
 use models::{
-    AccountInput, BootState, Category, CategoryInput, Task, TaskChildrenInput, TaskInput,
-    TaskQuery, UserSession,
+    AccountInput, BootState, Category, CategoryInput, ReminderNotificationRequest, Task,
+    TaskChildrenInput, TaskInput, TaskQuery, UserSession,
 };
 
 #[tauri::command]
@@ -181,6 +183,73 @@ fn restore_app_data_command(
     restore_app_data(&app, backup_path, password)
 }
 
+#[tauri::command]
+async fn get_native_reminder_permission() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    return tauri::async_runtime::spawn_blocking(macos_notifications::permission)
+        .await
+        .map_err(|error| format!("无法读取 macOS 通知权限：{error}"))?;
+    #[cfg(not(target_os = "macos"))]
+    Ok("unsupported".to_string())
+}
+
+#[tauri::command]
+async fn request_native_reminder_permission() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    return tauri::async_runtime::spawn_blocking(macos_notifications::request_permission)
+        .await
+        .map_err(|error| format!("无法请求 macOS 通知权限：{error}"))?;
+    #[cfg(not(target_os = "macos"))]
+    Ok("unsupported".to_string())
+}
+
+#[tauri::command]
+async fn replace_native_reminders(
+    requests: Vec<ReminderNotificationRequest>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return tauri::async_runtime::spawn_blocking(move || {
+        macos_notifications::replace_reminders(requests)
+    })
+    .await
+    .map_err(|error| format!("无法同步 macOS 系统提醒：{error}"))?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = requests;
+        Err("当前系统不支持原生提醒排程".to_string())
+    }
+}
+
+#[tauri::command]
+async fn clear_native_reminders() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return tauri::async_runtime::spawn_blocking(macos_notifications::clear_reminders)
+        .await
+        .map_err(|error| format!("无法清除待发提醒：{error}"))?;
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
+#[tauri::command]
+async fn send_native_reminder_test_notification() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return tauri::async_runtime::spawn_blocking(macos_notifications::send_test_notification)
+        .await
+        .map_err(|error| format!("测试通知发送失败：{error}"))?;
+    #[cfg(not(target_os = "macos"))]
+    Err("当前系统不支持原生测试通知".to_string())
+}
+
+#[tauri::command]
+async fn open_native_reminder_notification_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return tauri::async_runtime::spawn_blocking(macos_notifications::open_notification_settings)
+        .await
+        .map_err(|error| format!("无法打开 macOS 通知设置：{error}"))?;
+    #[cfg(not(target_os = "macos"))]
+    Err("当前系统不支持打开通知设置".to_string())
+}
+
 fn require_user_id(conn: &rusqlite::Connection) -> Result<String, String> {
     active_user(conn)?
         .map(|user| user.id)
@@ -212,7 +281,13 @@ pub fn run() {
             complete_user_task_with_children,
             reschedule_user_task,
             backup_app_data_command,
-            restore_app_data_command
+            restore_app_data_command,
+            get_native_reminder_permission,
+            request_native_reminder_permission,
+            replace_native_reminders,
+            clear_native_reminders,
+            send_native_reminder_test_notification,
+            open_native_reminder_notification_settings
         ])
         .run(tauri::generate_context!())
         .expect("运行岁岁时光桌面端失败");

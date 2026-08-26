@@ -124,22 +124,22 @@
       </Transition>
     </Teleport>
 
-    <Transition name="modal">
+    <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
       <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
       <form class="modal-panel task-modal" @mousedown="closeTaskMenusOnOutsideClick" @submit.prevent="saveTaskForm">
-        <header class="task-modal-head"><button type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="!taskDraft.id || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
+        <header class="task-modal-head"><button type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="savingTask || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
         <Transition name="popover"><div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="taskDraft.priority = option.value; priorityOpen = false"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div></Transition>
         <Transition name="popover"><div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div></Transition>
         <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
-<section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" class="subtask-row"><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft"><Plus :size="20" />添加子事项</button></section>
+<section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" class="subtask-row"><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
         <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。"></textarea></label>
-        <section v-if="taskDraft.id" class="failure-section" aria-label="失败状态"><button v-if="taskDraftStatus !== 'failed'" class="failure-action" type="button" :disabled="updatingTaskStatus" @click="markTaskFailed"><span><X :size="15" /></span><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button><label v-else class="failure-reason"><span><X :size="15" /></span><div><strong>失败理由（选填）</strong><textarea v-model="taskDraft.failureReason" rows="3" maxlength="1000" placeholder="记录未能完成的原因"></textarea><small>{{ taskDraft.failureReason?.length || 0 }}/1000</small></div></label></section>
+        <section v-if="taskDraft.id" class="failure-section" aria-label="失败状态"><button v-if="taskDraftStatus !== 'failed'" class="failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><span><X :size="15" /></span><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button><label v-else class="failure-reason"><span><X :size="15" /></span><div><strong>失败理由（选填）</strong><textarea v-model="taskDraft.failureReason" rows="3" maxlength="1000" placeholder="记录未能完成的原因"></textarea><small>{{ taskDraft.failureReason?.length || 0 }}/1000</small></div></label></section>
         <footer><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><span></span><button class="quiet-button" type="button" @click="closeTaskModal">取消</button><button class="primary-button" :disabled="savingTask">{{ savingTask ? '正在保存' : '保存' }}</button></footer>
       </form>
       </div>
     </Transition>
 
-    <Transition name="modal">
+    <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
       <div v-if="completeChildrenConfirmOpen" class="modal-backdrop nested-backdrop completion-confirm-backdrop" @mousedown.self="cancelTaskCompletion">
         <section class="modal-panel completion-confirm" role="alertdialog" aria-modal="true" aria-labelledby="completion-confirm-title" aria-describedby="completion-confirm-description">
           <div class="completion-confirm-heading"><span class="completion-confirm-icon"><Check :size="20" /></span><div><h2 id="completion-confirm-title">完成全部子事项？</h2><p id="completion-confirm-description">该事项包含 {{ childCountForCompletion }} 个子事项。确认后将与父事项一起全部完成。</p></div></div>
@@ -148,15 +148,19 @@
       </div>
     </Transition>
 
-    <Transition name="modal">
+    <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
       <div v-if="timeOpen" class="modal-backdrop nested-backdrop" @mousedown.self="timeOpen = false"><TaskDateTimePicker :selection="{ plannedDate: taskDraft.plannedDate, plannedTime: taskDraft.plannedTime, plannedEndTime: taskDraft.plannedEndTime, scheduleKind: taskDraft.scheduleKind }" @close="timeOpen = false" @save="applyTimeSelection" /></div>
     </Transition>
 
-    <Transition name="modal">
-      <div v-if="reminderOpen" class="modal-backdrop nested-backdrop" @mousedown.self="reminderOpen = false"><section class="reminder-sheet" role="dialog" aria-modal="true" aria-label="设置提醒"><header><div><small>事项提醒</small><h2>提醒时间</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="reminderOpen = false"><X :size="19" /></button></header><div class="reminder-switch-row"><div><strong>是否提醒</strong><small>通过系统通知提醒你</small></div><button :class="['reminder-switch', { active: reminderEnabled }]" type="button" aria-label="开启或关闭提醒" :aria-pressed="reminderEnabled" @click="toggleReminderEnabled"><span></span></button></div><template v-if="reminderEnabled"><p class="reminder-hint">最多设置 3 个提醒</p><div class="reminder-options"><button v-for="option in reminderOptions" :key="option.value" :class="{ selected: reminderDraftOffsets.includes(option.value) }" type="button" @click="toggleReminderOffset(option.value)">{{ option.label }}</button></div></template><p class="reminder-permission">{{ reminderPermissionMessage }}<button v-if="reminderPermission !== 'granted' && reminderPermission !== 'unsupported'" type="button" @click="requestReminderAccess">请求授权</button></p><footer><span></span><button class="quiet-button" type="button" @click="reminderOpen = false">取消</button><button class="primary-button" type="button" :disabled="reminderEnabled && reminderPermission !== 'granted'" @click="saveReminderSettings">保存</button></footer></section></div>
+    <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
+      <div v-if="reminderOpen" class="modal-backdrop nested-backdrop" @mousedown.self="reminderOpen = false"><section class="reminder-sheet" role="dialog" aria-modal="true" aria-label="设置提醒"><header><div><small>事项提醒</small><h2>提醒时间</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="reminderOpen = false"><X :size="19" /></button></header><div class="reminder-switch-row"><div><strong>是否提醒</strong><small>通过系统通知提醒你</small></div><button :class="['reminder-switch', { active: reminderEnabled }]" type="button" aria-label="开启或关闭提醒" :aria-pressed="reminderEnabled" @click="toggleReminderEnabled"><span></span></button></div><template v-if="reminderEnabled"><p class="reminder-hint">最多设置 3 个提醒</p><div class="reminder-options"><button v-for="option in reminderOptions" :key="option.value" :class="{ selected: reminderDraftOffsets.includes(option.value) }" type="button" @click="toggleReminderOffset(option.value)">{{ option.label }}</button></div></template><p class="reminder-permission">{{ reminderPermissionMessage }}<button v-if="reminderPermission === 'granted'" type="button" :disabled="sendingReminderTest" @click="sendReminderTest">{{ sendingReminderTest ? '正在发送' : '发送测试通知' }}</button><button v-else-if="reminderPermission === 'denied'" type="button" @click="openReminderSettings">打开系统设置</button></p><footer><span></span><button class="quiet-button" type="button" @click="reminderOpen = false">取消</button><button class="primary-button" type="button" :disabled="reminderEnabled && reminderPermission !== 'granted'" @click="saveReminderSettings">保存</button></footer></section></div>
     </Transition>
 
-    <Transition name="modal">
+    <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
+      <div v-if="reminderPermissionGuideOpen" class="modal-backdrop nested-backdrop reminder-permission-backdrop" @mousedown.self="reminderPermissionGuideOpen = false"><section class="modal-panel reminder-permission-dialog" role="alertdialog" aria-modal="true" aria-labelledby="reminder-permission-title" aria-describedby="reminder-permission-description"><span class="reminder-permission-icon"><BellRing :size="22" /></span><div><h2 id="reminder-permission-title">{{ reminderPermission === 'denied' ? '需要开启系统通知' : '允许系统通知' }}</h2><p id="reminder-permission-description">{{ reminderPermission === 'denied' ? '请在 macOS 系统设置中允许“岁岁时光”发送通知，然后返回此处重新开启提醒。' : '岁岁时光会在事项到达提醒时间时向你发送系统通知。' }}</p></div><footer><span></span><button class="quiet-button" type="button" :disabled="requestingReminderPermission" @click="reminderPermissionGuideOpen = false">暂不启用</button><button v-if="reminderPermission === 'denied'" class="primary-button" type="button" @click="openReminderSettings">打开系统设置</button><button v-else class="primary-button" type="button" :disabled="requestingReminderPermission" @click="requestReminderAccess">{{ requestingReminderPermission ? '正在请求' : '允许通知' }}</button></footer></section></div>
+    </Transition>
+
+    <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
       <div v-if="repeatOpen" class="modal-backdrop nested-backdrop" @mousedown.self="repeatOpen = false"><section class="repeat-sheet"><header><button class="quiet-button" @click="repeatOpen = false">取消</button><h2>选择重复</h2><span></span></header><div class="repeat-list"><button v-for="option in repeatOptions" :key="option.value" :class="{ selected: repeatDraft.kind === option.value }" @click="chooseRepeat(option.value)"><div><strong>{{ option.label }}</strong><small>{{ option.hint }}</small></div><Check v-if="repeatDraft.kind === option.value" :size="18" /></button></div><div v-if="repeatDraft.kind !== 'none'" class="repeat-config"><label v-if="needsInterval">每隔<input v-model.number="repeatDraft.interval" min="1" max="365" type="number" />天</label><label>结束<select v-model="repeatDraft.endMode"><option value="never">永不结束</option><option value="date">指定日期</option><option value="count">固定次数</option></select></label><label v-if="repeatDraft.endMode === 'date'">结束日期<input v-model="repeatDraft.endDate" type="date" /></label><label v-if="repeatDraft.endMode === 'count'">次数<input v-model.number="repeatDraft.count" min="1" max="999" type="number" /></label></div><footer><span></span><button class="primary-button" @click="applyRepeat">保存规则</button></footer></section></div>
     </Transition>
 
@@ -179,7 +183,7 @@ import { completeTaskWithChildren, createAccount, currentVersion, exportEncrypte
 import type { UpdateCheckResult } from './api/native'
 import AppNotificationCenter from './components/AppNotificationCenter.vue'
 import TaskDateTimePicker, { type TaskTimeSelection } from './components/TaskDateTimePicker.vue'
-import { createTaskReminderScheduler, getReminderPermission, requestReminderPermission } from './composables/use-task-reminders'
+import { createTaskReminderScheduler, getReminderPermission, openReminderNotificationSettings, requestReminderPermission, sendReminderTestNotification, type ReminderPermission } from './composables/use-task-reminders'
 import type { BootState, Category, Priority, RepeatRule, ScheduleKind, Task, TaskInput, UserSession } from './types'
 import { resolveCalendarMeta } from './utils/calendar-meta'
 import { isRepeatingTask, parseOccurrenceId, parseOverrides, parseRepeatRule, tasksForDate as resolveTasksForDate } from './utils/task-occurrence'
@@ -237,8 +241,11 @@ const childCountForCompletion = ref(0)
 const timeOpen = ref(false)
 const reminderOpen = ref(false)
 const repeatOpen = ref(false)
-const reminderPermission = ref<'granted' | 'denied' | 'unsupported'>('unsupported')
+const reminderPermission = ref<ReminderPermission>('unsupported')
 const reminderDraftOffsets = ref<number[]>([])
+const reminderPermissionGuideOpen = ref(false)
+const requestingReminderPermission = ref(false)
+const sendingReminderTest = ref(false)
 const childDrafts = ref<Task[]>([])
 const deletedChildIds = ref<string[]>([])
 const persistedChildIds = ref<Set<string>>(new Set())
@@ -303,6 +310,7 @@ const reminderSummary = computed(() => {
 const reminderPermissionMessage = computed(() => {
   if (reminderPermission.value === 'granted') return '桌面通知已开启，提醒将在应用运行或最小化时准时送达。'
   if (reminderPermission.value === 'unsupported') return '仅桌面客户端支持系统提醒。'
+  if (reminderPermission.value === 'not_determined') return '开启提醒前，需要允许岁岁时光发送系统通知。'
   return '桌面通知未授权，请在系统通知设置中允许“岁岁时光”后重试。'
 })
 
@@ -396,7 +404,7 @@ function scheduleMidnightRefresh() {
 function startReminderScheduler() {
   reminderScheduler?.stop()
   if (!session.value) return
-  reminderScheduler = createTaskReminderScheduler(session.value.id)
+  reminderScheduler = createTaskReminderScheduler(session.value.id, message => showNotice(message, 'error'))
   reminderScheduler.start()
 }
 
@@ -465,45 +473,35 @@ async function openTaskModal(categoryId?: string | null, item?: Task, date?: str
   completeChildrenConfirmOpen.value = false
   childCountForCompletion.value = 0
   reminderOpen.value = false
+  reminderPermissionGuideOpen.value = false
   taskModalOpen.value = true
 }
 
 async function toggleTaskStatusFromModal() {
-  if (!taskDraft.id || updatingTaskStatus.value) return
+  if (savingTask.value || updatingTaskStatus.value) return
   const nextStatus: Task['status'] = taskDraftStatus.value === 'todo' ? 'done' : 'todo'
-  if (editingOccurrence.value || nextStatus === 'todo') {
+  if (!await persistTaskDraft()) return
+  if (!taskDraft.id || editingOccurrence.value || nextStatus === 'todo') {
     await applyTaskStatusFromModal(nextStatus)
     return
   }
-  const childCount = persistedChildIds.value.size
+  const childCount = effectiveChildDrafts.value.length
   if (childCount < 2) {
     await applyTaskStatusFromModal('done', true)
     return
   }
-  updatingTaskStatus.value = true
-  try {
-    childCountForCompletion.value = childCount
-    if (childCount >= 2) {
-      completeChildrenConfirmOpen.value = true
-      return
-    }
-  } catch (error) {
-    showNotice(messageOf(error), 'error')
-    return
-  } finally {
-    updatingTaskStatus.value = false
-  }
-  await applyTaskStatusFromModal('done')
+  childCountForCompletion.value = childCount
+  completeChildrenConfirmOpen.value = true
 }
 
 async function confirmTaskCompletion() {
-  if (!taskDraft.id || updatingTaskStatus.value) return
+  if (!taskDraft.id || savingTask.value || updatingTaskStatus.value) return
   await applyTaskStatusFromModal('done', true)
   if (taskDraftStatus.value === 'done') cancelTaskCompletion()
 }
 
 async function applyTaskStatusFromModal(nextStatus: Task['status'], completeChildren = false) {
-  if (!taskDraft.id || updatingTaskStatus.value) return
+  if (!taskDraft.id || savingTask.value || updatingTaskStatus.value) return
   const previousStatus = taskDraftStatus.value
   const persistedChildIds = completeChildren
     ? new Set(tasks.value.filter(task => task.parentTaskId === taskDraft.id).map(task => task.id))
@@ -533,30 +531,45 @@ async function applyTaskStatusFromModal(nextStatus: Task['status'], completeChil
 }
 
 async function markTaskFailed() {
-  if (!taskDraft.id || taskDraftStatus.value === 'failed' || updatingTaskStatus.value) return
+  if (!taskDraft.id || taskDraftStatus.value === 'failed' || savingTask.value || updatingTaskStatus.value) return
   await applyTaskStatusFromModal('failed')
 }
 
-async function saveTaskForm() {
-  if (!taskDraft.title || savingTask.value) return
+async function persistTaskDraft() {
+  if (savingTask.value) return false
+  if (!taskDraft.title) {
+    showNotice('请输入事项名称', 'error')
+    return false
+  }
   if (!taskDraft.parentTaskId && !taskDraft.categoryId) {
     showNotice('请先创建分类，再添加事项', 'error')
-    return
+    return false
   }
   savingTask.value = true
+  let childrenSynced = false
   try {
     if (taskDraft.scheduleKind === 'range' && (!taskDraft.plannedTime || !taskDraft.plannedEndTime || taskDraft.plannedTime >= taskDraft.plannedEndTime)) throw new Error('时间段的结束时间必须晚于开始时间')
     const taskInput = { ...taskDraft, categoryId: taskDraft.categoryId || null, plannedDate: taskDraft.plannedDate || null, plannedTime: taskDraft.scheduleKind === 'all_day' ? null : taskDraft.plannedTime || null, plannedEndTime: taskDraft.scheduleKind === 'range' ? taskDraft.plannedEndTime || null : null, reminderOffsets: canSetReminder.value ? [...taskDraft.reminderOffsets] : [], repeatRule: JSON.stringify(repeatDraft), failureReason: taskDraftStatus.value === 'failed' ? taskDraft.failureReason : null }
     const saved = editingOccurrence.value ? await saveOccurrence(editingOccurrence.value.source, editingOccurrence.value.date, taskInput, taskDraftStatus.value) : await saveTask(taskInput)
-    await syncTaskChildren({ parentTaskId: saved.id, children: effectiveChildDrafts.value.map(item => ({ ...(persistedChildIds.value.has(item.id) ? { id: item.id } : {}), title: item.title, status: item.status === 'done' ? 'done' : 'todo' })), deletedIds: deletedChildIds.value })
-    taskModalOpen.value = false
+    if (!editingOccurrence.value) taskDraft.id = saved.id
+    const savedChildren = await syncTaskChildren({ parentTaskId: saved.id, children: effectiveChildDrafts.value.map(item => ({ ...(persistedChildIds.value.has(item.id) ? { id: item.id } : {}), title: item.title, status: item.status === 'done' ? 'done' : 'todo' })), deletedIds: deletedChildIds.value })
+    childrenSynced = true
+    childDrafts.value = savedChildren
+    persistedChildIds.value = new Set(savedChildren.map(child => child.id))
+    deletedChildIds.value = []
     await refreshData()
     void reminderScheduler?.sync()
+    return true
   } catch (error) {
     showNotice(messageOf(error), 'error')
+    return childrenSynced
   } finally {
     savingTask.value = false
   }
+}
+
+async function saveTaskForm() {
+  if (await persistTaskDraft()) taskModalOpen.value = false
 }
 
 async function deleteTaskFromModal() {
@@ -765,7 +778,7 @@ function openTaskFromMonthOverflow(item: Task) { closeMonthOverflow(); openTaskM
 function categoryTaskCount(categoryId: string) { return tasks.value.filter(item => item.categoryId === categoryId).length }
 function taskSummary(item: Task) { return [item.plannedDate ? item.plannedDate.slice(5).replace('-', '月') + '日' : '未安排日期', item.plannedTime || '', item.notes ? '有备注' : ''].filter(Boolean).join(' · ') }
 function clearFilters() { search.value = ''; rangeStart.value = ''; rangeEnd.value = ''; refreshData() }
-function closeTaskModal() { taskModalOpen.value = false; priorityOpen.value = false; categoryMenuOpen.value = false; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0; timeOpen.value = false; reminderOpen.value = false; repeatOpen.value = false }
+function closeTaskModal() { taskModalOpen.value = false; priorityOpen.value = false; categoryMenuOpen.value = false; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0; timeOpen.value = false; reminderOpen.value = false; reminderPermissionGuideOpen.value = false; repeatOpen.value = false }
 function closeTaskMenusOnOutsideClick(event: MouseEvent) { if (!(event.target instanceof Element)) return; if (!event.target.closest('.priority-trigger, .priority-menu')) priorityOpen.value = false; if (!event.target.closest('.task-category-trigger, .task-category-menu')) categoryMenuOpen.value = false }
 function cancelTaskCompletion() { if (updatingTaskStatus.value) return; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0 }
 async function saveOccurrence(source: Task, date: string, input: TaskInput, status?: Task['status'], patch: { deleted?: boolean; plannedDate?: string | null } = {}) {
@@ -782,10 +795,24 @@ async function saveOccurrenceStatus(source: Task, date: string, status: Task['st
 }
 function chooseRepeat(kind: RepeatRule['kind']) { repeatDraft.kind = kind; if (!repeatDraft.endMode) repeatDraft.endMode = 'never' }
 function applyRepeat() { taskDraft.repeatRule = JSON.stringify(repeatDraft); repeatOpen.value = false }
-function addChildDraft() { const now = Date.now(); childDrafts.value.push({ id: crypto.randomUUID(), title: '', categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: taskDraft.id || null, status: 'todo', failureReason: null, notes: '', createdAt: now, completedAt: null, updatedAt: now }) }
-function toggleChildDraftStatus(subtask: Task) {
+function addChildDraft(afterId?: string) {
+  const now = Date.now()
+  const child = { id: crypto.randomUUID(), title: '', categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day' as const, priority: 'not_urgent_not_important' as const, repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: taskDraft.id || null, status: 'todo' as const, failureReason: null, notes: '', createdAt: now, completedAt: null, updatedAt: now }
+  const index = afterId ? childDrafts.value.findIndex(item => item.id === afterId) : -1
+  const insertionIndex = index >= 0 ? index + 1 : childDrafts.value.length
+  childDrafts.value.splice(insertionIndex, 0, child)
+  if (!afterId) return
+  void nextTick(() => document.querySelector<HTMLElement>('.task-modal')?.querySelector<HTMLInputElement>(`input[data-subtask-id="${child.id}"]`)?.focus())
+}
+async function toggleChildDraftStatus(subtask: Task) {
+  if (savingTask.value || updatingTaskStatus.value) return
+  const previousChildStatus = subtask.status
+  const previousTaskStatus = taskDraftStatus.value
   subtask.status = subtask.status === 'done' ? 'todo' : 'done'
   syncTaskDraftStatusWithChildren()
+  if (await persistTaskDraft()) return
+  subtask.status = previousChildStatus
+  taskDraftStatus.value = previousTaskStatus
 }
 function syncTaskDraftStatusWithChildren() {
   if (editingOccurrence.value || taskDraftStatus.value === 'failed' || repeatDraft.kind !== 'none' || !effectiveChildDrafts.value.length) return
@@ -804,25 +831,70 @@ function applyTimeSelection(value: TaskTimeSelection) {
 }
 async function openReminderSheet() {
   if (!canSetReminder.value) return
-  reminderPermission.value = await getReminderPermission()
-  reminderDraftOffsets.value = [...taskDraft.reminderOffsets]
-  reminderOpen.value = true
+  try {
+    reminderPermission.value = await getReminderPermission()
+    reminderDraftOffsets.value = [...taskDraft.reminderOffsets]
+    reminderOpen.value = true
+  } catch (error) {
+    showNotice(messageOf(error), 'error')
+  }
 }
 async function requestReminderAccess() {
-  reminderPermission.value = await requestReminderPermission()
-  if (reminderPermission.value === 'unsupported') {
-    showNotice('仅桌面客户端支持系统提醒', 'error')
-    return
+  if (requestingReminderPermission.value) return
+  requestingReminderPermission.value = true
+  try {
+    reminderPermission.value = await requestReminderPermission()
+    if (reminderPermission.value === 'granted') {
+      if (!reminderDraftOffsets.value.length) reminderDraftOffsets.value = [15]
+      reminderPermissionGuideOpen.value = false
+      showNotice('桌面通知已开启')
+      return
+    }
+    if (reminderPermission.value === 'unsupported') {
+      reminderPermissionGuideOpen.value = false
+      showNotice('仅桌面客户端支持系统提醒', 'error')
+      return
+    }
+    reminderPermissionGuideOpen.value = true
+  } catch (error) {
+    showNotice(messageOf(error), 'error')
+  } finally {
+    requestingReminderPermission.value = false
   }
-  if (reminderPermission.value !== 'granted') showNotice('请在系统通知设置中允许“岁岁时光”后重试', 'error')
 }
 async function toggleReminderEnabled() {
   if (reminderEnabled.value) {
     reminderDraftOffsets.value = []
     return
   }
-  await requestReminderAccess()
-  if (reminderPermission.value === 'granted') reminderDraftOffsets.value = [15]
+  if (reminderPermission.value === 'granted') {
+    reminderDraftOffsets.value = [15]
+    return
+  }
+  if (reminderPermission.value === 'unsupported') {
+    showNotice('仅桌面客户端支持系统提醒', 'error')
+    return
+  }
+  reminderPermissionGuideOpen.value = true
+}
+async function openReminderSettings() {
+  try {
+    await openReminderNotificationSettings()
+  } catch (error) {
+    showNotice(messageOf(error), 'error')
+  }
+}
+async function sendReminderTest() {
+  if (sendingReminderTest.value || reminderPermission.value !== 'granted') return
+  sendingReminderTest.value = true
+  try {
+    await sendReminderTestNotification()
+    showNotice('测试通知已发送，请留意系统横幅')
+  } catch (error) {
+    showNotice(messageOf(error), 'error')
+  } finally {
+    sendingReminderTest.value = false
+  }
 }
 function toggleReminderOffset(offset: number) {
   if (reminderDraftOffsets.value.includes(offset)) reminderDraftOffsets.value = reminderDraftOffsets.value.filter(value => value !== offset)
@@ -831,6 +903,7 @@ function toggleReminderOffset(offset: number) {
 }
 function saveReminderSettings() {
   if (reminderEnabled.value && reminderPermission.value !== 'granted') {
+    reminderPermissionGuideOpen.value = reminderPermission.value !== 'unsupported'
     showNotice('请先授权桌面通知', 'error')
     return
   }

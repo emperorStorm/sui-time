@@ -5,6 +5,15 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import type { BootState, Category, CategoryInput, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, UserSession } from '../types'
 
+export type ReminderPermission = 'not_determined' | 'granted' | 'denied' | 'unsupported'
+
+export interface NativeReminderRequest {
+  identifier: string
+  title: string
+  body: string
+  triggerAt: number
+}
+
 const GITHUB_REPOSITORY = 'emperorStorm/sui-time'
 const GITHUB_REQUEST_TIMEOUT = 8000
 const DEMO_SHOW_COMPLETED_KEY = 'sui-time:demo-user:show-completed'
@@ -51,6 +60,36 @@ export function isTauriRuntime() {
 
 function invoke<T>(command: string, args?: Record<string, unknown>) {
   return tauriInvoke<T>(command, args)
+}
+
+export async function getNativeReminderPermission(): Promise<ReminderPermission> {
+  if (!isTauriRuntime()) return 'unsupported'
+  return invoke('get_native_reminder_permission')
+}
+
+export async function requestNativeReminderPermission(): Promise<ReminderPermission> {
+  if (!isTauriRuntime()) return 'unsupported'
+  return invoke('request_native_reminder_permission')
+}
+
+export async function replaceNativeReminders(requests: NativeReminderRequest[]) {
+  if (!isTauriRuntime()) throw new Error('仅桌面客户端支持系统提醒')
+  return invoke<void>('replace_native_reminders', { requests })
+}
+
+export async function clearNativeReminders() {
+  if (!isTauriRuntime()) return
+  return invoke<void>('clear_native_reminders')
+}
+
+export async function sendNativeReminderTestNotification() {
+  if (!isTauriRuntime()) throw new Error('仅桌面客户端支持系统提醒')
+  return invoke<void>('send_native_reminder_test_notification')
+}
+
+export async function openNativeReminderNotificationSettings() {
+  if (!isTauriRuntime()) throw new Error('仅桌面客户端支持系统提醒')
+  return invoke<void>('open_native_reminder_notification_settings')
 }
 
 export async function getBootState(): Promise<BootState> {
