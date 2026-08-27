@@ -153,11 +153,11 @@
     </Transition>
 
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
-      <div v-if="reminderOpen" class="modal-backdrop nested-backdrop" @mousedown.self="reminderOpen = false"><section class="reminder-sheet" role="dialog" aria-modal="true" aria-label="设置提醒"><header><div><small>事项提醒</small><h2>提醒时间</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="reminderOpen = false"><X :size="19" /></button></header><div class="reminder-switch-row"><div><strong>是否提醒</strong><small>通过系统通知提醒你</small></div><button :class="['reminder-switch', { active: reminderEnabled }]" type="button" aria-label="开启或关闭提醒" :aria-pressed="reminderEnabled" @click="toggleReminderEnabled"><span></span></button></div><template v-if="reminderEnabled"><p class="reminder-hint">最多设置 3 个提醒</p><div class="reminder-options"><button v-for="option in reminderOptions" :key="option.value" :class="{ selected: reminderDraftOffsets.includes(option.value) }" type="button" @click="toggleReminderOffset(option.value)">{{ option.label }}</button></div></template><p class="reminder-permission">{{ reminderPermissionMessage }}<button v-if="reminderPermission === 'granted'" type="button" :disabled="sendingReminderTest" @click="sendReminderTest">{{ sendingReminderTest ? '正在发送' : '发送测试通知' }}</button><button v-else-if="reminderPermission === 'denied'" type="button" @click="openReminderSettings">打开系统设置</button></p><footer><span></span><button class="quiet-button" type="button" @click="reminderOpen = false">取消</button><button class="primary-button" type="button" :disabled="reminderEnabled && reminderPermission !== 'granted'" @click="saveReminderSettings">保存</button></footer></section></div>
+      <div v-if="reminderOpen" class="modal-backdrop nested-backdrop" @mousedown.self="reminderOpen = false"><section class="reminder-sheet" role="dialog" aria-modal="true" aria-label="设置提醒"><header><div><small>事项提醒</small><h2>提醒时间</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="reminderOpen = false"><X :size="19" /></button></header><div class="reminder-switch-row"><div><strong>是否提醒</strong><small>通过系统通知提醒你</small></div><button :class="['reminder-switch', { active: reminderEnabled }]" type="button" aria-label="开启或关闭提醒" :aria-pressed="reminderEnabled" @click="toggleReminderEnabled"><span></span></button></div><template v-if="reminderEnabled"><p class="reminder-hint">最多设置 3 个提醒</p><div class="reminder-options"><button v-for="option in reminderOptions" :key="option.value" :class="{ selected: reminderDraftOffsets.includes(option.value) }" type="button" @click="toggleReminderOffset(option.value)">{{ option.label }}</button></div></template><p class="reminder-permission">{{ reminderPermissionMessage }}<button v-if="reminderPermission === 'granted'" type="button" :disabled="sendingReminderTest" @click="sendReminderTest">{{ sendingReminderTest ? '正在发送' : '发送测试通知' }}</button><button v-else-if="reminderPermission === 'denied'" type="button" @click="openReminderSettings">打开系统设置</button><button v-else-if="reminderPermission === 'error'" type="button" :disabled="requestingReminderPermission" @click="requestReminderAccess">{{ requestingReminderPermission ? '正在重试' : '重新尝试' }}</button></p><footer><span></span><button class="quiet-button" type="button" @click="reminderOpen = false">取消</button><button class="primary-button" type="button" :disabled="reminderEnabled && reminderPermission !== 'granted'" @click="saveReminderSettings">保存</button></footer></section></div>
     </Transition>
 
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
-      <div v-if="reminderPermissionGuideOpen" class="modal-backdrop nested-backdrop reminder-permission-backdrop" @mousedown.self="reminderPermissionGuideOpen = false"><section class="modal-panel reminder-permission-dialog" role="alertdialog" aria-modal="true" aria-labelledby="reminder-permission-title" aria-describedby="reminder-permission-description"><span class="reminder-permission-icon"><BellRing :size="22" /></span><div><h2 id="reminder-permission-title">{{ reminderPermission === 'denied' ? '需要开启系统通知' : '允许系统通知' }}</h2><p id="reminder-permission-description">{{ reminderPermission === 'denied' ? '请在 macOS 系统设置中允许“岁岁时光”发送通知，然后返回此处重新开启提醒。' : '岁岁时光会在事项到达提醒时间时向你发送系统通知。' }}</p></div><footer><span></span><button class="quiet-button" type="button" :disabled="requestingReminderPermission" @click="reminderPermissionGuideOpen = false">暂不启用</button><button v-if="reminderPermission === 'denied'" class="primary-button" type="button" @click="openReminderSettings">打开系统设置</button><button v-else class="primary-button" type="button" :disabled="requestingReminderPermission" @click="requestReminderAccess">{{ requestingReminderPermission ? '正在请求' : '允许通知' }}</button></footer></section></div>
+      <div v-if="reminderPermissionGuideOpen" class="modal-backdrop nested-backdrop reminder-permission-backdrop" @mousedown.self="reminderPermissionGuideOpen = false"><section class="modal-panel reminder-permission-dialog" role="alertdialog" aria-modal="true" aria-labelledby="reminder-permission-title" aria-describedby="reminder-permission-description"><span class="reminder-permission-icon"><BellRing :size="22" /></span><div><h2 id="reminder-permission-title">{{ reminderPermissionGuideTitle }}</h2><p id="reminder-permission-description">{{ reminderPermissionGuideDescription }}</p></div><footer><span></span><button class="quiet-button" type="button" :disabled="requestingReminderPermission" @click="reminderPermissionGuideOpen = false">暂不启用</button><button v-if="reminderPermission === 'denied'" class="primary-button" type="button" @click="openReminderSettings">打开系统设置</button><button v-else class="primary-button" type="button" :disabled="requestingReminderPermission" @click="requestReminderAccess">{{ requestingReminderPermission ? '正在请求' : reminderPermission === 'error' ? '重新尝试' : '允许通知' }}</button></footer></section></div>
     </Transition>
 
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
@@ -183,7 +183,7 @@ import { completeTaskWithChildren, createAccount, currentVersion, exportEncrypte
 import type { UpdateCheckResult } from './api/native'
 import AppNotificationCenter from './components/AppNotificationCenter.vue'
 import TaskDateTimePicker, { type TaskTimeSelection } from './components/TaskDateTimePicker.vue'
-import { createTaskReminderScheduler, getReminderPermission, openReminderNotificationSettings, requestReminderPermission, sendReminderTestNotification, type ReminderPermission } from './composables/use-task-reminders'
+import { createTaskReminderScheduler, getReminderPermission, openReminderNotificationSettings, requestReminderPermission, sendReminderTestNotification, type ReminderPermission, type ReminderPermissionResult } from './composables/use-task-reminders'
 import type { BootState, Category, Priority, RepeatRule, ScheduleKind, Task, TaskInput, UserSession } from './types'
 import { resolveCalendarMeta } from './utils/calendar-meta'
 import { isRepeatingTask, parseOccurrenceId, parseOverrides, parseRepeatRule, tasksForDate as resolveTasksForDate } from './utils/task-occurrence'
@@ -242,6 +242,7 @@ const timeOpen = ref(false)
 const reminderOpen = ref(false)
 const repeatOpen = ref(false)
 const reminderPermission = ref<ReminderPermission>('unsupported')
+const reminderPermissionDetail = ref('')
 const reminderDraftOffsets = ref<number[]>([])
 const reminderPermissionGuideOpen = ref(false)
 const requestingReminderPermission = ref(false)
@@ -311,7 +312,14 @@ const reminderPermissionMessage = computed(() => {
   if (reminderPermission.value === 'granted') return '桌面通知已开启，提醒将在应用运行或最小化时准时送达。'
   if (reminderPermission.value === 'unsupported') return '仅桌面客户端支持系统提醒。'
   if (reminderPermission.value === 'not_determined') return '开启提醒前，需要允许岁岁时光发送系统通知。'
+  if (reminderPermission.value === 'error') return reminderPermissionDetail.value || '无法确认 macOS 通知权限，请重新尝试。'
   return '桌面通知未授权，请在系统通知设置中允许“岁岁时光”后重试。'
+})
+const reminderPermissionGuideTitle = computed(() => reminderPermission.value === 'denied' ? '需要开启系统通知' : reminderPermission.value === 'error' ? '无法请求系统通知' : '允许系统通知')
+const reminderPermissionGuideDescription = computed(() => {
+  if (reminderPermission.value === 'denied') return '通知权限由 macOS 管理。请在系统设置中允许“岁岁时光”发送通知，然后返回此处重新开启提醒。'
+  if (reminderPermission.value === 'error') return reminderPermissionDetail.value || 'macOS 未能完成通知授权，请确认应用仍在运行后重新尝试。'
+  return '岁岁时光会在事项到达提醒时间时向你发送系统通知。'
 })
 
 let reminderScheduler: ReturnType<typeof createTaskReminderScheduler> | null = null
@@ -832,7 +840,7 @@ function applyTimeSelection(value: TaskTimeSelection) {
 async function openReminderSheet() {
   if (!canSetReminder.value) return
   try {
-    reminderPermission.value = await getReminderPermission()
+    setReminderPermission(await getReminderPermission())
     reminderDraftOffsets.value = [...taskDraft.reminderOffsets]
     reminderOpen.value = true
   } catch (error) {
@@ -843,11 +851,11 @@ async function requestReminderAccess() {
   if (requestingReminderPermission.value) return
   requestingReminderPermission.value = true
   try {
-    reminderPermission.value = await requestReminderPermission()
+    setReminderPermission(await requestReminderPermission())
     if (reminderPermission.value === 'granted') {
       if (!reminderDraftOffsets.value.length) reminderDraftOffsets.value = [15]
       reminderPermissionGuideOpen.value = false
-      showNotice('桌面通知已开启')
+      showNotice('桌面通知已开启，已发送激活通知')
       return
     }
     if (reminderPermission.value === 'unsupported') {
@@ -861,6 +869,10 @@ async function requestReminderAccess() {
   } finally {
     requestingReminderPermission.value = false
   }
+}
+function setReminderPermission(result: ReminderPermissionResult) {
+  reminderPermission.value = result.status
+  reminderPermissionDetail.value = result.detail || ''
 }
 async function toggleReminderEnabled() {
   if (reminderEnabled.value) {

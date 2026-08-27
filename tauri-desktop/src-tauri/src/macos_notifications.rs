@@ -1,4 +1,4 @@
-use crate::models::ReminderNotificationRequest;
+use crate::models::{ReminderNotificationRequest, ReminderPermissionResult};
 
 #[repr(C)]
 struct NativeNotificationRequest {
@@ -9,27 +9,33 @@ struct NativeNotificationRequest {
 }
 
 unsafe extern "C" {
-    fn sui_time_notification_permission() -> i32;
-    fn sui_time_request_notification_permission() -> i32;
+    fn sui_time_notification_permission(error_message: *mut *mut std::ffi::c_char) -> i32;
+    fn sui_time_request_notification_permission(error_message: *mut *mut std::ffi::c_char) -> i32;
     fn sui_time_replace_notifications(
         requests: *const NativeNotificationRequest,
         count: u64,
     ) -> i32;
     fn sui_time_clear_notifications() -> i32;
-    fn sui_time_send_test_notification() -> i32;
+    fn sui_time_send_test_notification(error_message: *mut *mut std::ffi::c_char) -> i32;
     fn sui_time_open_notification_settings() -> i32;
+    fn sui_time_free_error_message(error_message: *mut std::ffi::c_char);
 }
 
 const NOT_DETERMINED: i32 = 0;
 const DENIED: i32 = 1;
 const GRANTED: i32 = 2;
+const ERROR: i32 = -1;
 
-pub fn permission() -> Result<String, String> {
-    permission_from_code(unsafe { sui_time_notification_permission() })
+pub fn permission() -> ReminderPermissionResult {
+    let mut error_message = std::ptr::null_mut();
+    let code = unsafe { sui_time_notification_permission(&mut error_message) };
+    permission_result(code, take_error_message(error_message))
 }
 
-pub fn request_permission() -> Result<String, String> {
-    permission_from_code(unsafe { sui_time_request_notification_permission() })
+pub fn request_permission() -> ReminderPermissionResult {
+    let mut error_message = std::ptr::null_mut();
+    let code = unsafe { sui_time_request_notification_permission(&mut error_message) };
+    permission_result(code, take_error_message(error_message))
 }
 
 pub fn replace_reminders(requests: Vec<ReminderNotificationRequest>) -> Result<(), String> {
@@ -79,10 +85,12 @@ pub fn clear_reminders() -> Result<(), String> {
 }
 
 pub fn send_test_notification() -> Result<(), String> {
-    if unsafe { sui_time_send_test_notification() } == 1 {
+    let mut error_message = std::ptr::null_mut();
+    if unsafe { sui_time_send_test_notification(&mut error_message) } == 1 {
         Ok(())
     } else {
-        Err("测试通知发送失败，请检查系统通知设置".to_string())
+        Err(take_error_message(error_message)
+            .unwrap_or_else(|| "测试通知发送失败，请检查系统通知设置".to_string()))
     }
 }
 
@@ -94,11 +102,52 @@ pub fn open_notification_settings() -> Result<(), String> {
     }
 }
 
-fn permission_from_code(code: i32) -> Result<String, String> {
+fn permission_result(code: i32, detail: Option<String>) -> ReminderPermissionResult {
     match code {
-        NOT_DETERMINED => Ok("not_determined".to_string()),
-        DENIED => Ok("denied".to_string()),
-        GRANTED => Ok("granted".to_string()),
-        _ => Err("无法读取 macOS 通知权限".to_string()),
+        NOT_DETERMINED => ReminderPermissionResult {
+            status: "not_determined".to_string(),
+            detail,
+        },
+        DENIED => ReminderPermissionResult {
+            status: "denied".to_string(),
+            detail,
+        },
+        GRANTED => ReminderPermissionResult {
+            status: "granted".to_string(),
+            detail,
+        },
+        ERROR | _ => ReminderPermissionResult {
+            status: "error".to_string(),
+            detail: Some(detail.unwrap_or_else(|| "无法读取 macOS 通知权限".to_string())),
+        },
+    }
+}
+
+fn take_error_message(error_message: *mut std::ffi::c_char) -> Option<String> {
+    if error_message.is_null() {
+        return None;
+    }
+    let detail = unsafe { std::ffi::CStr::from_ptr(error_message) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { sui_time_free_error_message(error_message) };
+    Some(detail)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{permission_result, DENIED, ERROR, GRANTED, NOT_DETERMINED};
+
+    #[test]
+    fn maps_native_permission_statuses_without_treating_unknown_as_denied() {
+        assert_eq!(
+            permission_result(NOT_DETERMINED, None).status,
+            "not_determined"
+        );
+        assert_eq!(permission_result(DENIED, None).status, "denied");
+        assert_eq!(permission_result(GRANTED, None).status, "granted");
+        let result = permission_result(ERROR, Some("原生调用失败".to_string()));
+        assert_eq!(result.status, "error");
+        assert_eq!(result.detail.as_deref(), Some("原生调用失败"));
     }
 }

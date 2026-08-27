@@ -5,7 +5,12 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import type { BootState, Category, CategoryInput, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, UserSession } from '../types'
 
-export type ReminderPermission = 'not_determined' | 'granted' | 'denied' | 'unsupported'
+export type ReminderPermission = 'not_determined' | 'granted' | 'denied' | 'unsupported' | 'error'
+
+export interface ReminderPermissionResult {
+  status: ReminderPermission
+  detail?: string
+}
 
 export interface NativeReminderRequest {
   identifier: string
@@ -62,13 +67,13 @@ function invoke<T>(command: string, args?: Record<string, unknown>) {
   return tauriInvoke<T>(command, args)
 }
 
-export async function getNativeReminderPermission(): Promise<ReminderPermission> {
-  if (!isTauriRuntime()) return 'unsupported'
+export async function getNativeReminderPermission(): Promise<ReminderPermissionResult> {
+  if (!isTauriRuntime()) return { status: 'unsupported' }
   return invoke('get_native_reminder_permission')
 }
 
-export async function requestNativeReminderPermission(): Promise<ReminderPermission> {
-  if (!isTauriRuntime()) return 'unsupported'
+export async function requestNativeReminderPermission(): Promise<ReminderPermissionResult> {
+  if (!isTauriRuntime()) return { status: 'unsupported' }
   return invoke('request_native_reminder_permission')
 }
 

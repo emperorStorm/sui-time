@@ -9,7 +9,8 @@ import {
   requestNativeReminderPermission,
   sendNativeReminderTestNotification,
   type NativeReminderRequest,
-  type ReminderPermission
+  type ReminderPermission,
+  type ReminderPermissionResult
 } from '../api/native'
 import type { Task } from '../types'
 import { tasksForDate } from '../utils/task-occurrence'
@@ -17,21 +18,21 @@ import { tasksForDate } from '../utils/task-occurrence'
 const SCHEDULE_HORIZON = 48 * 60 * 60_000
 const SYNC_INTERVAL = 15 * 60_000
 
-export { type ReminderPermission }
+export { type ReminderPermission, type ReminderPermissionResult }
 
-export async function getReminderPermission(): Promise<ReminderPermission> {
-  if (!isTauriRuntime()) return 'unsupported'
+export async function getReminderPermission(): Promise<ReminderPermissionResult> {
+  if (!isTauriRuntime()) return { status: 'unsupported' }
   const nativePermission = await getNativeReminderPermission()
-  if (nativePermission !== 'unsupported') return nativePermission
-  return await isPermissionGranted() ? 'granted' : 'denied'
+  if (nativePermission.status !== 'unsupported') return nativePermission
+  return { status: await isPermissionGranted() ? 'granted' : 'denied' }
 }
 
-export async function requestReminderPermission(): Promise<ReminderPermission> {
-  if (!isTauriRuntime()) return 'unsupported'
+export async function requestReminderPermission(): Promise<ReminderPermissionResult> {
+  if (!isTauriRuntime()) return { status: 'unsupported' }
   const nativePermission = await requestNativeReminderPermission()
-  if (nativePermission !== 'unsupported') return nativePermission
-  if (await isPermissionGranted()) return 'granted'
-  return await requestPermission() === 'granted' ? 'granted' : 'denied'
+  if (nativePermission.status !== 'unsupported') return nativePermission
+  if (await isPermissionGranted()) return { status: 'granted' }
+  return { status: await requestPermission() === 'granted' ? 'granted' : 'denied' }
 }
 
 export async function openReminderNotificationSettings() {
@@ -40,7 +41,10 @@ export async function openReminderNotificationSettings() {
 
 export async function sendReminderTestNotification() {
   const nativePermission = await getNativeReminderPermission()
-  if (nativePermission !== 'unsupported') return sendNativeReminderTestNotification()
+  if (nativePermission.status !== 'unsupported') {
+    if (nativePermission.status !== 'granted') throw new Error(nativePermission.detail || '请先允许系统通知')
+    return sendNativeReminderTestNotification()
+  }
   await sendNotification({ title: '岁岁时光通知测试', body: '系统提醒已经准备就绪。' })
 }
 
@@ -57,8 +61,8 @@ export function createTaskReminderScheduler(userId: string, onError?: (message: 
     const currentRevision = revision
     try {
       const nativePermission = await getNativeReminderPermission()
-      if (nativePermission !== 'unsupported') {
-        if (nativePermission !== 'granted') {
+      if (nativePermission.status !== 'unsupported') {
+        if (nativePermission.status !== 'granted') {
           await clearNativeReminders()
           return
         }
@@ -68,7 +72,7 @@ export function createTaskReminderScheduler(userId: string, onError?: (message: 
         await replaceNativeReminders(createNativeReminderRequests(userId, tasks, now))
       } else {
         await cancelAll()
-        if (stopped || currentRevision !== revision || await getReminderPermission() !== 'granted') return
+        if (stopped || currentRevision !== revision || (await getReminderPermission()).status !== 'granted') return
         const now = Date.now()
         const tasks = await listTasks({ includeCompleted: false })
         if (stopped || currentRevision !== revision) return
@@ -102,7 +106,7 @@ export function createTaskReminderScheduler(userId: string, onError?: (message: 
     document.removeEventListener('visibilitychange', syncOnVisible)
     if (!isTauriRuntime()) return
     void getNativeReminderPermission()
-      .then(permission => permission === 'unsupported' ? cancelAll() : clearNativeReminders())
+      .then(permission => permission.status === 'unsupported' ? cancelAll() : clearNativeReminders())
       .catch(() => cancelAll())
   }
 

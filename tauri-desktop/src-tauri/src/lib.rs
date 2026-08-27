@@ -11,8 +11,8 @@ use db::{
     sync_task_children, today_string,
 };
 use models::{
-    AccountInput, BootState, Category, CategoryInput, ReminderNotificationRequest, Task,
-    TaskChildrenInput, TaskInput, TaskQuery, UserSession,
+    AccountInput, BootState, Category, CategoryInput, ReminderNotificationRequest,
+    ReminderPermissionResult, Task, TaskChildrenInput, TaskInput, TaskQuery, UserSession,
 };
 
 #[tauri::command]
@@ -184,23 +184,35 @@ fn restore_app_data_command(
 }
 
 #[tauri::command]
-async fn get_native_reminder_permission() -> Result<String, String> {
+async fn get_native_reminder_permission() -> ReminderPermissionResult {
     #[cfg(target_os = "macos")]
     return tauri::async_runtime::spawn_blocking(macos_notifications::permission)
         .await
-        .map_err(|error| format!("无法读取 macOS 通知权限：{error}"))?;
+        .unwrap_or_else(|error| ReminderPermissionResult {
+            status: "error".to_string(),
+            detail: Some(format!("无法读取 macOS 通知权限：{error}")),
+        });
     #[cfg(not(target_os = "macos"))]
-    Ok("unsupported".to_string())
+    ReminderPermissionResult {
+        status: "unsupported".to_string(),
+        detail: None,
+    }
 }
 
 #[tauri::command]
-async fn request_native_reminder_permission() -> Result<String, String> {
+async fn request_native_reminder_permission() -> ReminderPermissionResult {
     #[cfg(target_os = "macos")]
     return tauri::async_runtime::spawn_blocking(macos_notifications::request_permission)
         .await
-        .map_err(|error| format!("无法请求 macOS 通知权限：{error}"))?;
+        .unwrap_or_else(|error| ReminderPermissionResult {
+            status: "error".to_string(),
+            detail: Some(format!("无法请求 macOS 通知权限：{error}")),
+        });
     #[cfg(not(target_os = "macos"))]
-    Ok("unsupported".to_string())
+    ReminderPermissionResult {
+        status: "unsupported".to_string(),
+        detail: None,
+    }
 }
 
 #[tauri::command]

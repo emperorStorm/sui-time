@@ -121,6 +121,14 @@ pub struct ReminderNotificationRequest {
     pub trigger_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReminderPermissionResult {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
 fn default_schedule_kind() -> String {
     "all_day".to_string()
 }
