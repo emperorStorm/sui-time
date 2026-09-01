@@ -12,7 +12,7 @@ use db::{
 };
 use models::{
     AccountInput, BootState, Category, CategoryInput, ReminderNotificationRequest,
-    ReminderPermissionResult, Task, TaskChildrenInput, TaskInput, TaskQuery, UserSession,
+    ReminderPermissionResult, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskView, UserSession,
 };
 
 #[tauri::command]
@@ -40,9 +40,13 @@ fn logout_user(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn save_user_show_completed(app: tauri::AppHandle, show_completed: bool) -> Result<bool, String> {
+fn save_user_show_completed(
+    app: tauri::AppHandle,
+    view: TaskView,
+    show_completed: bool,
+) -> Result<bool, String> {
     let conn = open_app_db(&app)?;
-    save_show_completed(&conn, &require_user_id(&conn)?, show_completed)
+    save_show_completed(&conn, &require_user_id(&conn)?, view, show_completed)
 }
 
 #[tauri::command]

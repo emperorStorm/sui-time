@@ -128,7 +128,7 @@ function createNativeReminderRequests(userId: string, tasks: Task[], now: number
         if (triggerAt <= now || triggerAt > now + SCHEDULE_HORIZON) continue
         requests.push({
           identifier: `sui-time:${userId}:${item.id}:${date}:${offset}:${triggerAt}`,
-          title: offset ? `提前 ${formatOffset(offset)}：${item.title}` : `现在开始：${item.title}`,
+          title: offset ? `提前 ${formatOffset(offset)}：${item.title}` : item.title,
           body: `${date.slice(5).replace('-', '月')}日 ${item.plannedTime}`,
           triggerAt
         })
@@ -145,7 +145,7 @@ function sendFallbackReminders(item: Task, date: string, now: number) {
     const triggerAt = plannedAt - offset * 60_000
     if (triggerAt <= now || triggerAt > now + SCHEDULE_HORIZON) continue
     void sendNotification({
-      title: offset ? `提前 ${formatOffset(offset)}：${item.title}` : `现在开始：${item.title}`,
+      title: offset ? `提前 ${formatOffset(offset)}：${item.title}` : item.title,
       body: `${date.slice(5).replace('-', '月')}日 ${item.plannedTime}`
     })
   }

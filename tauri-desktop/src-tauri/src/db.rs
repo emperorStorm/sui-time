@@ -22,12 +22,12 @@ use tauri::Manager;
 use uuid::Uuid;
 
 use crate::models::{
-    AccountInput, Category, CategoryInput, Task, TaskChildInput, TaskChildrenInput, TaskInput,
-    UserSession,
+    AccountInput, Category, CategoryInput, ShowCompletedByView, Task, TaskChildInput,
+    TaskChildrenInput, TaskInput, TaskView, UserSession,
 };
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -77,6 +77,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     }
     if version < 7 {
         migrate_to_v7(conn)?;
+    }
+    if version < 8 {
+        migrate_to_v8(conn)?;
     }
     Ok(())
 }
@@ -367,6 +370,31 @@ fn migrate_to_v7(conn: &Connection) -> Result<(), String> {
     transaction.commit().map_err(|error| error.to_string())
 }
 
+fn migrate_to_v8(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    if !column_exists(&transaction, "users", "show_completed_all")? {
+        transaction
+            .execute_batch(
+                "ALTER TABLE users ADD COLUMN show_completed_all INTEGER NOT NULL DEFAULT 0 CHECK(show_completed_all IN (0, 1));
+                 ALTER TABLE users ADD COLUMN show_completed_week INTEGER NOT NULL DEFAULT 0 CHECK(show_completed_week IN (0, 1));
+                 ALTER TABLE users ADD COLUMN show_completed_month INTEGER NOT NULL DEFAULT 0 CHECK(show_completed_month IN (0, 1));",
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction
+        .execute_batch(
+            "UPDATE users
+             SET show_completed_all = show_completed,
+                 show_completed_week = show_completed,
+                 show_completed_month = show_completed;
+             PRAGMA user_version = 8;",
+        )
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
 fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
     conn.query_row(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -413,7 +441,11 @@ pub fn create_initial_account(
         id: Uuid::new_v4().to_string(),
         username: input.username.trim().to_string(),
         display_name: input.username.trim().to_string(),
-        show_completed: false,
+        show_completed_by_view: ShowCompletedByView {
+            all: false,
+            week: false,
+            month: false,
+        },
     };
     let hash = password_hash(&input.password)?;
     conn.execute(
@@ -429,20 +461,26 @@ pub fn login(conn: &Connection, input: &AccountInput) -> Result<UserSession, Str
     validate_login(input)?;
     let row = conn
         .query_row(
-            "SELECT id, username, password_hash, show_completed FROM users WHERE username = ?1 COLLATE NOCASE",
+            "SELECT id, username, password_hash, show_completed_all, show_completed_week, show_completed_month
+             FROM users WHERE username = ?1 COLLATE NOCASE",
             [input.username.trim()],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, bool>(3)?,
+                    ShowCompletedByView {
+                        all: row.get(3)?,
+                        week: row.get(4)?,
+                        month: row.get(5)?,
+                    },
                 ))
             },
         )
         .optional()
         .map_err(|error| error.to_string())?;
-    let (id, username, hash, show_completed) = row.ok_or_else(|| "用户名或密码错误".to_string())?;
+    let (id, username, hash, show_completed_by_view) =
+        row.ok_or_else(|| "用户名或密码错误".to_string())?;
     let parsed = PasswordHash::new(&hash).map_err(|_| "本地账号数据异常".to_string())?;
     Argon2::default()
         .verify_password(input.password.as_bytes(), &parsed)
@@ -452,7 +490,7 @@ pub fn login(conn: &Connection, input: &AccountInput) -> Result<UserSession, Str
         id,
         display_name: username.clone(),
         username,
-        show_completed,
+        show_completed_by_view,
     })
 }
 
@@ -467,7 +505,8 @@ pub fn active_user(conn: &Connection) -> Result<Option<UserSession>, String> {
         .map_err(|error| error.to_string())?;
     let Some(id) = id else { return Ok(None) };
     conn.query_row(
-        "SELECT id, username, show_completed FROM users WHERE id = ?1",
+        "SELECT id, username, show_completed_all, show_completed_week, show_completed_month
+         FROM users WHERE id = ?1",
         [id],
         |row| {
             let username: String = row.get(1)?;
@@ -475,7 +514,11 @@ pub fn active_user(conn: &Connection) -> Result<Option<UserSession>, String> {
                 id: row.get(0)?,
                 display_name: username.clone(),
                 username,
-                show_completed: row.get(2)?,
+                show_completed_by_view: ShowCompletedByView {
+                    all: row.get(2)?,
+                    week: row.get(3)?,
+                    month: row.get(4)?,
+                },
             })
         },
     )
@@ -495,11 +538,17 @@ pub fn logout(conn: &Connection) -> Result<(), String> {
 pub fn save_show_completed(
     conn: &Connection,
     owner_id: &str,
+    view: TaskView,
     show_completed: bool,
 ) -> Result<bool, String> {
+    let column = match view {
+        TaskView::All => "show_completed_all",
+        TaskView::Week => "show_completed_week",
+        TaskView::Month => "show_completed_month",
+    };
     let changed = conn
         .execute(
-            "UPDATE users SET show_completed = ?1 WHERE id = ?2",
+            &format!("UPDATE users SET {column} = ?1 WHERE id = ?2"),
             params![show_completed, owner_id],
         )
         .map_err(|error| error.to_string())?;
@@ -1439,7 +1488,9 @@ mod tests {
         let conn = memory_db();
         assert!(needs_setup(&conn).unwrap());
         let user = create_initial_account(&conn, &account("岁岁")).unwrap();
-        assert!(!user.show_completed);
+        assert!(!user.show_completed_by_view.all);
+        assert!(!user.show_completed_by_view.week);
+        assert!(!user.show_completed_by_view.month);
         assert_eq!(active_user(&conn).unwrap().unwrap().id, user.id);
         logout(&conn).unwrap();
         assert!(active_user(&conn).unwrap().is_none());
@@ -1479,6 +1530,46 @@ mod tests {
     }
 
     #[test]
+    fn v8_migration_copies_legacy_completed_preference_to_each_view() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE users (
+               id TEXT PRIMARY KEY,
+               username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+               password_hash TEXT NOT NULL,
+               created_at INTEGER NOT NULL,
+               show_completed INTEGER NOT NULL DEFAULT 0 CHECK(show_completed IN (0, 1))
+             );
+             INSERT INTO users VALUES ('show-user', '显示终态', 'unused', 0, 1);
+             INSERT INTO users VALUES ('hide-user', '隐藏终态', 'unused', 0, 0);
+             PRAGMA user_version = 7;",
+        )
+        .unwrap();
+
+        migrate_to_v8(&conn).unwrap();
+
+        assert!(column_exists(&conn, "users", "show_completed_all").unwrap());
+        assert!(column_exists(&conn, "users", "show_completed_week").unwrap());
+        assert!(column_exists(&conn, "users", "show_completed_month").unwrap());
+        for user_id in ["show-user", "hide-user"] {
+            let expected = user_id == "show-user";
+            let values = conn
+                .query_row(
+                    "SELECT show_completed_all, show_completed_week, show_completed_month FROM users WHERE id = ?1",
+                    [user_id],
+                    |row| Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?)),
+                )
+                .unwrap();
+            assert_eq!(values, (expected, expected, expected));
+        }
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            8
+        );
+    }
+
+    #[test]
     fn v7_migration_preserves_parent_tasks_and_supports_failed_status() {
         let conn = Connection::open_in_memory().unwrap();
         configure_connection(&conn).unwrap();
@@ -1509,7 +1600,7 @@ mod tests {
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            7
+            SCHEMA_VERSION
         );
         assert!(column_exists(&conn, "tasks", "failure_reason").unwrap());
         assert_eq!(
@@ -1591,28 +1682,30 @@ mod tests {
     }
 
     #[test]
-    fn show_completed_preference_persists_and_is_user_scoped() {
+    fn show_completed_preferences_are_view_scoped_and_user_scoped() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("preference.sqlite3");
         let owner_id = {
             let conn = Connection::open(&path).unwrap();
             initialize(&conn).unwrap();
             let owner = create_initial_account(&conn, &account("偏好用户")).unwrap();
-            assert!(!owner.show_completed);
-            assert!(save_show_completed(&conn, &owner.id, true).unwrap());
+            assert!(!owner.show_completed_by_view.all);
+            assert!(save_show_completed(&conn, &owner.id, TaskView::All, true).unwrap());
+            assert!(save_show_completed(&conn, &owner.id, TaskView::Month, true).unwrap());
             conn.execute(
                 "INSERT INTO users (id, username, password_hash, created_at) VALUES ('user-b', '其他用户', 'unused', 0)",
                 [],
             )
             .unwrap();
-            assert!(!conn
+            let other_user_preferences = conn
                 .query_row(
-                    "SELECT show_completed FROM users WHERE id = 'user-b'",
+                    "SELECT show_completed_all, show_completed_week, show_completed_month FROM users WHERE id = 'user-b'",
                     [],
-                    |row| row.get::<_, bool>(0)
+                    |row| Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?)),
                 )
-                .unwrap());
-            assert!(save_show_completed(&conn, "missing-user", true).is_err());
+                .unwrap();
+            assert_eq!(other_user_preferences, (false, false, false));
+            assert!(save_show_completed(&conn, "missing-user", TaskView::Week, true).is_err());
             owner.id
         };
 
@@ -1620,10 +1713,20 @@ mod tests {
         initialize(&reopened).unwrap();
         let active = active_user(&reopened).unwrap().unwrap();
         assert_eq!(active.id, owner_id);
-        assert!(active.show_completed);
+        assert!(active.show_completed_by_view.all);
+        assert!(!active.show_completed_by_view.week);
+        assert!(active.show_completed_by_view.month);
         logout(&reopened).unwrap();
         let logged_in = login(&reopened, &account("偏好用户")).unwrap();
-        assert!(logged_in.show_completed);
+        assert!(logged_in.show_completed_by_view.all);
+        assert!(!logged_in.show_completed_by_view.week);
+        assert!(logged_in.show_completed_by_view.month);
+    }
+
+    #[test]
+    fn task_view_rejects_unknown_values() {
+        assert!(serde_json::from_str::<TaskView>(r#""all""#).is_ok());
+        assert!(serde_json::from_str::<TaskView>(r#""invalid""#).is_err());
     }
 
     #[test]

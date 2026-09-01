@@ -3,7 +3,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
-import type { BootState, Category, CategoryInput, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, UserSession } from '../types'
+import type { BootState, Category, CategoryInput, ShowCompletedByView, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, TaskView, UserSession } from '../types'
 
 export type ReminderPermission = 'not_determined' | 'granted' | 'denied' | 'unsupported' | 'error'
 
@@ -99,41 +99,52 @@ export async function openNativeReminderNotificationSettings() {
 
 export async function getBootState(): Promise<BootState> {
   if (isTauriRuntime()) return invoke('get_boot_state')
-  return { needsSetup: false, session: { id: 'demo-user', username: '时光记录者', displayName: '时光记录者', showCompleted: loadDemoShowCompleted() } }
+  return { needsSetup: false, session: { id: 'demo-user', username: '时光记录者', displayName: '时光记录者', showCompletedByView: loadDemoShowCompletedByView() } }
 }
 
 export async function createAccount(input: { username: string; password: string }): Promise<UserSession> {
   if (isTauriRuntime()) return invoke('create_account', { input })
-  saveDemoShowCompleted(false)
-  return { id: 'demo-user', username: input.username, displayName: input.username, showCompleted: false }
+  const showCompletedByView = { all: false, week: false, month: false }
+  for (const view of Object.keys(showCompletedByView) as TaskView[]) saveDemoShowCompleted(view, false)
+  return { id: 'demo-user', username: input.username, displayName: input.username, showCompletedByView }
 }
 
 export async function loginUser(input: { username: string; password: string }): Promise<UserSession> {
   if (isTauriRuntime()) return invoke('login_user', { input })
-  return { id: 'demo-user', username: input.username, displayName: input.username, showCompleted: loadDemoShowCompleted() }
+  return { id: 'demo-user', username: input.username, displayName: input.username, showCompletedByView: loadDemoShowCompletedByView() }
 }
 
 export async function logoutUser() {
   if (isTauriRuntime()) await invoke('logout_user')
 }
 
-export async function saveShowCompleted(showCompleted: boolean): Promise<boolean> {
-  if (isTauriRuntime()) return invoke('save_user_show_completed', { showCompleted })
-  saveDemoShowCompleted(showCompleted)
+export async function saveShowCompleted(view: TaskView, showCompleted: boolean): Promise<boolean> {
+  if (isTauriRuntime()) return invoke('save_user_show_completed', { view, showCompleted })
+  saveDemoShowCompleted(view, showCompleted)
   return showCompleted
 }
 
-function loadDemoShowCompleted() {
+function loadDemoShowCompletedByView(): ShowCompletedByView {
   try {
-    return window.localStorage.getItem(DEMO_SHOW_COMPLETED_KEY) === 'true'
+    const legacy = window.localStorage.getItem(DEMO_SHOW_COMPLETED_KEY) === 'true'
+    return {
+      all: loadDemoShowCompleted('all', legacy),
+      week: loadDemoShowCompleted('week', legacy),
+      month: loadDemoShowCompleted('month', legacy)
+    }
   } catch {
-    return false
+    return { all: false, week: false, month: false }
   }
 }
 
-function saveDemoShowCompleted(showCompleted: boolean) {
+function loadDemoShowCompleted(view: TaskView, fallback: boolean) {
+  const value = window.localStorage.getItem(`${DEMO_SHOW_COMPLETED_KEY}:${view}`)
+  return value === null ? fallback : value === 'true'
+}
+
+function saveDemoShowCompleted(view: TaskView, showCompleted: boolean) {
   try {
-    window.localStorage.setItem(DEMO_SHOW_COMPLETED_KEY, String(showCompleted))
+    window.localStorage.setItem(`${DEMO_SHOW_COMPLETED_KEY}:${view}`, String(showCompleted))
   } catch {
     throw new Error('无法保存显示偏好')
   }
