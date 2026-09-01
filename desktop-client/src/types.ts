@@ -2,8 +2,12 @@ export interface UserSession {
   id: string
   username: string
   displayName: string
-  showCompleted: boolean
+  showCompletedByView: ShowCompletedByView
 }
+
+export type TaskView = 'all' | 'week' | 'month'
+
+export type ShowCompletedByView = Record<TaskView, boolean>
 
 export interface BootState {
   needsSetup: boolean

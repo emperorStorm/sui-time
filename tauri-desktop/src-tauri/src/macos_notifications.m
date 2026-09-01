@@ -82,6 +82,10 @@ int sui_time_request_notification_permission(char **error_message) {
       }];
     });
     dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+    if ([requestError.domain isEqualToString:UNErrorDomain]
+        && requestError.code == UNErrorCodeNotificationsNotAllowed) {
+      return SuiTimeNotificationDenied;
+    }
     if (requestError != nil) {
       sui_time_set_error(error_message, requestError, @"macOS 无法请求通知权限");
       return SuiTimeNotificationError;

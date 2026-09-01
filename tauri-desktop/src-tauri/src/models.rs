@@ -6,7 +6,23 @@ pub struct UserSession {
     pub id: String,
     pub username: String,
     pub display_name: String,
-    pub show_completed: bool,
+    pub show_completed_by_view: ShowCompletedByView,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowCompletedByView {
+    pub all: bool,
+    pub week: bool,
+    pub month: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskView {
+    All,
+    Week,
+    Month,
 }
 
 #[derive(Debug, Serialize)]
