@@ -3,7 +3,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
-import type { BootState, Category, CategoryInput, ShowCompletedByView, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, TaskView, UserSession } from '../types'
+import type { BootState, Category, CategoryInput, Priority, ShowCompletedByView, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, TaskView, UserSession } from '../types'
 
 export type ReminderPermission = 'not_determined' | 'granted' | 'denied' | 'unsupported' | 'error'
 
@@ -22,6 +22,8 @@ export interface NativeReminderRequest {
 const GITHUB_REPOSITORY = 'emperorStorm/sui-time'
 const GITHUB_REQUEST_TIMEOUT = 8000
 const DEMO_SHOW_COMPLETED_KEY = 'sui-time:demo-user:show-completed'
+const DEMO_LAST_TASK_CATEGORY_KEY = 'sui-time:last-task-category'
+const DEMO_LAST_TASK_PRIORITY_KEY = 'sui-time:last-task-priority'
 
 const demoCategories: Category[] = [
   { id: 'work', name: '工作', color: '#4D82D5', icon: 'briefcase-business', sortOrder: 1 },
@@ -124,6 +126,45 @@ export async function saveShowCompleted(view: TaskView, showCompleted: boolean):
   return showCompleted
 }
 
+export async function getLastTaskCategory(): Promise<string | null> {
+  if (isTauriRuntime()) return invoke('get_user_last_task_category')
+  try {
+    return window.localStorage.getItem(`${DEMO_LAST_TASK_CATEGORY_KEY}:demo-user`)
+  } catch {
+    return null
+  }
+}
+
+export async function saveLastTaskCategory(categoryId: string): Promise<string> {
+  if (isTauriRuntime()) return invoke('save_user_last_task_category', { categoryId })
+  try {
+    window.localStorage.setItem(`${DEMO_LAST_TASK_CATEGORY_KEY}:demo-user`, categoryId)
+    return categoryId
+  } catch {
+    throw new Error('无法保存最近使用分类')
+  }
+}
+
+export async function getLastTaskPriority(): Promise<Priority | null> {
+  if (isTauriRuntime()) return invoke('get_user_last_task_priority')
+  try {
+    const priority = window.localStorage.getItem(`${DEMO_LAST_TASK_PRIORITY_KEY}:demo-user`)
+    return priority as Priority | null
+  } catch {
+    return null
+  }
+}
+
+export async function saveLastTaskPriority(priority: Priority): Promise<Priority> {
+  if (isTauriRuntime()) return invoke('save_user_last_task_priority', { priority })
+  try {
+    window.localStorage.setItem(`${DEMO_LAST_TASK_PRIORITY_KEY}:demo-user`, priority)
+    return priority
+  } catch {
+    throw new Error('无法保存最近使用优先级')
+  }
+}
+
 function loadDemoShowCompletedByView(): ShowCompletedByView {
   try {
     const legacy = window.localStorage.getItem(DEMO_SHOW_COMPLETED_KEY) === 'true'
@@ -189,14 +230,43 @@ export async function saveTask(input: TaskInput): Promise<Task> {
   const category = demoCategories.find(item => item.id === input.categoryId)
   const now = Date.now()
   const existing = input.id ? demoTasks.find(item => item.id === input.id) : undefined
+  const occurrenceOverrides = preserveTerminalOverrideHistory(existing, input.occurrenceOverrides)
   const repeating = (() => {
     try { return JSON.parse(input.repeatRule).kind !== 'none' } catch { return false }
   })()
   const status: TaskStatus = repeating ? 'todo' : existing?.status || 'todo'
-  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides: input.occurrenceOverrides, reminderOffsets: input.reminderOffsets, parentTaskId: input.parentTaskId, failureReason: status === 'failed' ? normalizeFailureReason(input.failureReason) : null, notes: input.notes, status, createdAt: existing?.createdAt || now, completedAt: repeating ? null : existing?.completedAt || null, updatedAt: now }
+  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides, reminderOffsets: input.reminderOffsets, parentTaskId: input.parentTaskId, failureReason: status === 'failed' ? normalizeFailureReason(input.failureReason) : null, notes: input.notes, status, createdAt: existing?.createdAt || now, completedAt: repeating ? null : existing?.completedAt || null, updatedAt: now }
   if (existing) demoTasks = demoTasks.map(item => item.id === result.id ? result : item)
   else demoTasks.push(result)
   return result
+}
+
+function preserveTerminalOverrideHistory(existing: Task | undefined, value: string) {
+  if (!existing) return value
+  let parsed: Record<string, Partial<Task> & { deleted?: boolean }>
+  try {
+    parsed = JSON.parse(value || '{}')
+  } catch {
+    return value
+  }
+  const snapshot: Partial<Task> = {
+    title: existing.title,
+    categoryId: existing.categoryId,
+    plannedTime: existing.plannedTime,
+    plannedEndTime: existing.plannedEndTime,
+    scheduleKind: existing.scheduleKind,
+    priority: existing.priority,
+    reminderOffsets: [...existing.reminderOffsets],
+    notes: existing.notes,
+    repeatRule: existing.repeatRule,
+  }
+  Object.values(parsed).forEach(override => {
+    if (override.deleted || (override.status !== 'done' && override.status !== 'failed')) return
+    Object.entries(snapshot).forEach(([key, field]) => {
+      if (override[key as keyof Task] === undefined) (override as Record<string, unknown>)[key] = field
+    })
+  })
+  return JSON.stringify(parsed)
 }
 
 export async function removeTask(taskId: string) {

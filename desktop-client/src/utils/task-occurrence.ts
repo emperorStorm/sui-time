@@ -72,23 +72,29 @@ export function tasksForDate(tasks: Task[], date: string) {
     const overrides = parseOverrides(item)
     const repeating = isRepeatingTask(item)
     const result: Task[] = []
-    if (occursOn(item, date) && !overrides[date]?.deleted) {
-      const override = overrides[date]
+    const directOverride = overrides[date]
+    if ((occursOn(item, date) || isTerminalOverride(directOverride)) && !directOverride?.deleted && (directOverride?.plannedDate === undefined || directOverride.plannedDate === date)) {
       result.push({
         ...item,
-        ...override,
+        ...directOverride,
         id: repeating ? occurrenceId(item.id, date) : item.id,
-        status: repeating ? (override?.status || 'todo') : (override?.status || item.status),
+        status: repeating ? (directOverride?.status || 'todo') : (directOverride?.status || item.status),
         plannedDate: date,
       })
     }
+    if (result.length) return result
     Object.entries(overrides).forEach(([sourceDate, override]) => {
-      if (override.plannedDate === date && !override.deleted && sourceDate !== date && occursOn(item, sourceDate)) {
-        result.push({ ...item, ...override, id: occurrenceId(item.id, sourceDate), status: override.status || 'todo', plannedDate: date })
-      }
+      if (result.length) return
+      if (sourceDate === date || override.plannedDate !== date) return
+      if (!isTerminalOverride(override) && !occursOn(item, sourceDate)) return
+      result.push({ ...item, ...override, id: occurrenceId(item.id, sourceDate), status: override.status || 'todo', plannedDate: date })
     })
     return result
   })
+}
+
+function isTerminalOverride(override: Partial<Task> & { deleted?: boolean } | undefined) {
+  return override?.status === 'done' || override?.status === 'failed'
 }
 
 function parseDate(value: string) {

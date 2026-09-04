@@ -27,6 +27,8 @@ use crate::models::{
 };
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
+const LAST_TASK_CATEGORY_KEY_PREFIX: &str = "last_task_category:";
+const LAST_TASK_PRIORITY_KEY_PREFIX: &str = "last_task_priority:";
 const SCHEMA_VERSION: i64 = 8;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
@@ -558,6 +560,126 @@ pub fn save_show_completed(
     Ok(show_completed)
 }
 
+pub fn get_last_task_category(conn: &Connection, owner_id: &str) -> Result<Option<String>, String> {
+    let key = last_task_category_key(owner_id);
+    let category_id = conn
+        .query_row(
+            "SELECT setting_value FROM app_settings WHERE setting_key = ?1",
+            [&key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let Some(category_id) = category_id else {
+        return Ok(None);
+    };
+    let valid = conn
+        .query_row(
+            "SELECT 1 FROM categories WHERE id = ?1 AND owner_id = ?2",
+            params![category_id, owner_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .is_some();
+    if valid {
+        Ok(Some(category_id))
+    } else {
+        conn.execute("DELETE FROM app_settings WHERE setting_key = ?1", [&key])
+            .map_err(|error| error.to_string())?;
+        Ok(None)
+    }
+}
+
+pub fn save_last_task_category(
+    conn: &Connection,
+    owner_id: &str,
+    category_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let key = last_task_category_key(owner_id);
+    let category_id = category_id.map(str::trim).filter(|value| !value.is_empty());
+    let Some(category_id) = category_id else {
+        conn.execute("DELETE FROM app_settings WHERE setting_key = ?1", [&key])
+            .map_err(|error| error.to_string())?;
+        return Ok(None);
+    };
+    let category_id = verify_category(conn, owner_id, Some(category_id))?
+        .ok_or_else(|| "分类不存在或无权使用".to_string())?;
+    conn.execute(
+        "INSERT INTO app_settings (setting_key, setting_value) VALUES (?1, ?2)
+         ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value",
+        params![key, category_id],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(Some(category_id))
+}
+
+fn last_task_category_key(owner_id: &str) -> String {
+    format!("{LAST_TASK_CATEGORY_KEY_PREFIX}{owner_id}")
+}
+
+pub fn get_last_task_priority(conn: &Connection, owner_id: &str) -> Result<Option<String>, String> {
+    let key = last_task_priority_key(owner_id);
+    let priority = conn
+        .query_row(
+            "SELECT setting_value FROM app_settings WHERE setting_key = ?1",
+            [&key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let Some(priority) = priority else {
+        return Ok(None);
+    };
+    if is_valid_priority(&priority) {
+        Ok(Some(priority))
+    } else {
+        conn.execute("DELETE FROM app_settings WHERE setting_key = ?1", [&key])
+            .map_err(|error| error.to_string())?;
+        Ok(None)
+    }
+}
+
+pub fn save_last_task_priority(
+    conn: &Connection,
+    owner_id: &str,
+    priority: &str,
+) -> Result<String, String> {
+    if !is_valid_priority(priority) {
+        return Err("优先级无效".to_string());
+    }
+    let owner_exists = conn
+        .query_row("SELECT 1 FROM users WHERE id = ?1", [owner_id], |_| Ok(()))
+        .optional()
+        .map_err(|error| error.to_string())?
+        .is_some();
+    if !owner_exists {
+        return Err("账号不存在或无权修改".to_string());
+    }
+    let key = last_task_priority_key(owner_id);
+    conn.execute(
+        "INSERT INTO app_settings (setting_key, setting_value) VALUES (?1, ?2)
+         ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value",
+        params![key, priority],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(priority.to_string())
+}
+
+fn last_task_priority_key(owner_id: &str) -> String {
+    format!("{LAST_TASK_PRIORITY_KEY_PREFIX}{owner_id}")
+}
+
+fn is_valid_priority(priority: &str) -> bool {
+    [
+        "urgent_important",
+        "important_not_urgent",
+        "urgent_not_important",
+        "not_urgent_not_important",
+    ]
+    .contains(&priority)
+}
+
 pub fn list_categories(conn: &Connection, owner_id: &str) -> Result<Vec<Category>, String> {
     let mut statement = conn.prepare("SELECT id, name, color, icon, sort_order FROM categories WHERE owner_id = ?1 ORDER BY sort_order, name COLLATE NOCASE")
         .map_err(|error| error.to_string())?;
@@ -614,6 +736,7 @@ pub fn delete_category(conn: &Connection, owner_id: &str, category_id: &str) -> 
     let transaction = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
+    let last_category_key = last_task_category_key(owner_id);
     transaction
         .execute(
             "UPDATE tasks SET category_id = NULL, updated_at = ?1 WHERE owner_id = ?2 AND category_id = ?3",
@@ -629,6 +752,12 @@ pub fn delete_category(conn: &Connection, owner_id: &str, category_id: &str) -> 
     if changed == 0 {
         return Err("分类不存在或无权删除".to_string());
     }
+    transaction
+        .execute(
+            "DELETE FROM app_settings WHERE setting_key = ?1 AND setting_value = ?2",
+            params![last_category_key, category_id],
+        )
+        .map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
 }
 
@@ -704,10 +833,13 @@ pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<
     validate_time(input.planned_end_time.as_deref())?;
     validate_task_options(&input)?;
     let failure_reason = normalize_failure_reason(input.failure_reason.as_deref())?;
-    let occurrence_overrides = normalize_occurrence_overrides(&input.occurrence_overrides)?;
     let category_id = verify_category(conn, owner_id, input.category_id.as_deref())?;
     let now = now_millis();
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let existing = get_task(conn, owner_id, &id)?;
+    let occurrence_overrides = normalize_occurrence_overrides(&input.occurrence_overrides)?;
+    let occurrence_overrides =
+        preserve_terminal_override_history(existing.as_ref(), &occurrence_overrides)?;
     let changed = conn.execute(
         "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'todo', NULL, ?14, ?15, NULL, ?15)
@@ -1057,6 +1189,54 @@ fn normalize_occurrence_overrides(value: &str) -> Result<String, String> {
                     .map(serde_json::Value::String)
                     .unwrap_or(serde_json::Value::Null),
             );
+        }
+    }
+    serde_json::to_string(&parsed).map_err(|error| error.to_string())
+}
+
+fn preserve_terminal_override_history(
+    existing: Option<&Task>,
+    value: &str,
+) -> Result<String, String> {
+    let Some(existing) = existing else {
+        return Ok(value.to_string());
+    };
+    let mut parsed: serde_json::Value =
+        serde_json::from_str(value).map_err(|_| "重复事项实例配置无效".to_string())?;
+    let overrides = parsed
+        .as_object_mut()
+        .ok_or_else(|| "重复事项实例配置无效".to_string())?;
+    let snapshot = serde_json::json!({
+        "title": existing.title,
+        "categoryId": existing.category_id,
+        "plannedTime": existing.planned_time,
+        "plannedEndTime": existing.planned_end_time,
+        "scheduleKind": existing.schedule_kind,
+        "priority": existing.priority,
+        "reminderOffsets": existing.reminder_offsets,
+        "notes": existing.notes,
+        "repeatRule": existing.repeat_rule,
+    });
+    let snapshot = snapshot
+        .as_object()
+        .ok_or_else(|| "重复事项实例配置无效".to_string())?;
+    for override_value in overrides.values_mut() {
+        let Some(override_item) = override_value.as_object_mut() else {
+            return Err("重复事项实例配置无效".to_string());
+        };
+        let terminal = matches!(
+            override_item
+                .get("status")
+                .and_then(serde_json::Value::as_str),
+            Some("done") | Some("failed")
+        );
+        if !terminal || override_item.get("deleted") == Some(&serde_json::Value::Bool(true)) {
+            continue;
+        }
+        for (key, field) in snapshot {
+            override_item
+                .entry(key.clone())
+                .or_insert_with(|| field.clone());
         }
     }
     serde_json::to_string(&parsed).map_err(|error| error.to_string())
@@ -1840,6 +2020,89 @@ mod tests {
     }
 
     #[test]
+    fn last_task_category_is_account_scoped_and_cleared_on_delete() {
+        let conn = memory_db();
+        let user = create_initial_account(&conn, &account("用户甲")).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at) VALUES ('user-b', '用户乙', 'unused', 0)",
+            [],
+        )
+        .unwrap();
+        let category_a = save_category(
+            &conn,
+            &user.id,
+            CategoryInput {
+                id: None,
+                name: "工作".to_string(),
+                color: "#4F8EF7".to_string(),
+                icon: "briefcase-business".to_string(),
+                sort_order: 0,
+            },
+        )
+        .unwrap();
+        let category_b = save_category(
+            &conn,
+            "user-b",
+            CategoryInput {
+                id: None,
+                name: "生活".to_string(),
+                color: "#13A66A".to_string(),
+                icon: "house".to_string(),
+                sort_order: 0,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            save_last_task_category(&conn, &user.id, Some(&category_a.id)).unwrap(),
+            Some(category_a.id.clone())
+        );
+        assert_eq!(
+            get_last_task_category(&conn, &user.id).unwrap(),
+            Some(category_a.id.clone())
+        );
+        assert!(save_last_task_category(&conn, &user.id, Some(&category_b.id)).is_err());
+        assert_eq!(get_last_task_category(&conn, "user-b").unwrap(), None);
+
+        delete_category(&conn, &user.id, &category_a.id).unwrap();
+        assert_eq!(get_last_task_category(&conn, &user.id).unwrap(), None);
+    }
+
+    #[test]
+    fn last_task_priority_is_validated_and_persists_per_account() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("priority.sqlite3");
+        let conn = Connection::open(&path).unwrap();
+        initialize(&conn).unwrap();
+        let user = create_initial_account(&conn, &account("用户甲")).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, username, password_hash, created_at) VALUES ('user-b', '用户乙', 'unused', 0)",
+            [],
+        )
+        .unwrap();
+
+        assert!(save_last_task_priority(&conn, &user.id, "invalid").is_err());
+        assert!(save_last_task_priority(&conn, "missing-user", "urgent_important").is_err());
+        assert_eq!(
+            save_last_task_priority(&conn, &user.id, "important_not_urgent").unwrap(),
+            "important_not_urgent"
+        );
+        assert_eq!(
+            get_last_task_priority(&conn, &user.id).unwrap(),
+            Some("important_not_urgent".to_string())
+        );
+        assert_eq!(get_last_task_priority(&conn, "user-b").unwrap(), None);
+        drop(conn);
+
+        let reopened = Connection::open(&path).unwrap();
+        initialize(&reopened).unwrap();
+        assert_eq!(
+            get_last_task_priority(&reopened, &user.id).unwrap(),
+            Some("important_not_urgent".to_string())
+        );
+    }
+
+    #[test]
     fn failed_category_deletion_keeps_task_association() {
         let conn = memory_db();
         let user = create_initial_account(&conn, &account("用户甲")).unwrap();
@@ -1950,6 +2213,64 @@ mod tests {
         assert_eq!(updated.status, "todo");
         assert!(updated.failure_reason.is_none());
         assert!(updated.completed_at.is_none());
+    }
+
+    #[test]
+    fn repeating_task_update_preserves_terminal_override_snapshot() {
+        let conn = memory_db();
+        let user = create_initial_account(&conn, &account("重复历史用户")).unwrap();
+        let source = save_task(
+            &conn,
+            &user.id,
+            task_input(
+                "旧版复盘",
+                Some("2026-08-03"),
+                Some("09:00"),
+                r#"{"kind":"weekly"}"#,
+                None,
+            ),
+        )
+        .unwrap();
+        let mut with_history = task_input(
+            "旧版复盘",
+            Some("2026-08-03"),
+            Some("09:00"),
+            r#"{"kind":"weekly"}"#,
+            None,
+        );
+        with_history.id = Some(source.id.clone());
+        with_history.occurrence_overrides = serde_json::json!({
+            "2026-08-03": { "status": "done" },
+            "2026-08-10": { "status": "failed", "failureReason": "临时中止" }
+        })
+        .to_string();
+        let with_overrides = save_task(&conn, &user.id, with_history).unwrap();
+
+        let mut changed = task_input(
+            "新版复盘",
+            Some("2026-08-04"),
+            Some("10:00"),
+            r#"{"kind":"weekly_slots","weekdays":[2]}"#,
+            None,
+        );
+        changed.id = Some(source.id);
+        changed.occurrence_overrides = with_overrides.occurrence_overrides;
+        let updated = save_task(&conn, &user.id, changed).unwrap();
+        let overrides: serde_json::Value =
+            serde_json::from_str(&updated.occurrence_overrides).unwrap();
+
+        for date in ["2026-08-03", "2026-08-10"] {
+            assert_eq!(overrides[date]["title"], "旧版复盘");
+            assert_eq!(overrides[date]["plannedTime"], "09:00");
+            assert_eq!(overrides[date]["repeatRule"], r#"{"kind":"weekly"}"#);
+        }
+        assert_eq!(overrides["2026-08-03"]["status"], "done");
+        assert_eq!(overrides["2026-08-10"]["status"], "failed");
+        assert_eq!(updated.title, "新版复盘");
+        assert_eq!(
+            updated.repeat_rule,
+            r#"{"kind":"weekly_slots","weekdays":[2]}"#
+        );
     }
 
     #[test]
