@@ -128,13 +128,13 @@
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
       <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
       <form class="modal-panel task-modal" @mousedown="closeTaskMenusOnOutsideClick" @submit.prevent="saveTaskForm">
-        <header class="task-modal-head"><span v-if="editingRepeatRule" class="task-check modal-check task-repeat" title="重复事项请在周或月视图中更新单次状态"><CircleDot :size="18" /></span><button v-else type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="savingTask || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost" type="button" title="关闭" @click="closeTaskModal"><X :size="20" /></button></div></header>
+        <header class="task-modal-head"><span v-if="editingRepeatRule" class="task-check modal-check task-repeat" title="重复事项请在周或月视图中更新单次状态"><CircleDot :size="18" /></span><button v-else type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="savingTask || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button></div></header>
         <Transition name="popover"><div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="taskDraft.priority = option.value; priorityOpen = false"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div></Transition>
         <Transition name="popover"><div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div></Transition>
         <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
 <section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" class="subtask-row"><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
         <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。"></textarea></label>
-        <footer><div class="task-footer-start"><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><button v-if="taskDraft.id && !editingRepeatRule && taskDraftStatus !== 'failed'" class="failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><X :size="15" /><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button></div><span></span><button class="quiet-button" type="button" @click="closeTaskModal">取消</button><button class="primary-button" :disabled="savingTask">{{ savingTask ? '正在保存' : '保存' }}</button></footer>
+        <footer><div class="task-footer-start"><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><button v-if="taskDraft.id && !editingRepeatRule && taskDraftStatus !== 'failed'" class="quiet-button failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button></div><span></span><button class="quiet-button" type="button" @click="closeTaskModal">取消</button><button class="primary-button" :disabled="savingTask">{{ savingTask ? '正在保存' : '保存' }}</button></footer>
       </form>
       </div>
     </Transition>
@@ -179,7 +179,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { AlarmClock, ArrowRight, BellRing, BookOpen, BriefcaseBusiness, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, CircleMinus, Dumbbell, Download, Eye, EyeOff, HeartPulse, House, Info, Lightbulb, LayoutGrid, LogOut, Pencil, Plane, Plus, RefreshCw, RotateCcw, Search, ShoppingBag, Tags as CategoryIcon, Target, Trash2, Upload, UsersRound, Utensils, WalletCards, X } from 'lucide-vue-next'
-import { completeTaskWithChildren, createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, listCategories, listTaskChildren, listTasks, loginUser, logoutUser, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveShowCompleted, saveTask, setTaskStatus, syncTaskChildren } from './api/native'
+import { completeTaskWithChildren, createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, getLastTaskCategory, getLastTaskPriority, listCategories, listTaskChildren, listTasks, loginUser, logoutUser, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveLastTaskCategory, saveLastTaskPriority, saveShowCompleted, saveTask, setTaskStatus, syncTaskChildren } from './api/native'
 import type { UpdateCheckResult } from './api/native'
 import AppNotificationCenter from './components/AppNotificationCenter.vue'
 import TaskDateTimePicker, { type TaskTimeSelection } from './components/TaskDateTimePicker.vue'
@@ -221,6 +221,8 @@ const notificationCenter = ref<{ checkForUpdate: (openWhenFound?: boolean) => Pr
 const brandMenu = ref<HTMLElement | null>(null)
 const brandMenuOpen = ref(false)
 const taskModalOpen = ref(false)
+const lastTaskCategoryId = ref<string | null>(null)
+const lastTaskPriority = ref<Priority>('not_urgent_not_important')
 const categoryModalOpen = ref(false)
 const backupModalOpen = ref(false)
 const backupMode = ref<'export' | 'restore'>('export')
@@ -342,6 +344,8 @@ onMounted(async () => {
     showCompletedByView.value = session.value?.showCompletedByView ?? { all: false, week: false, month: false }
     if (session.value) {
       await refreshData()
+      await loadLastTaskCategory()
+      await loadLastTaskPriority()
       scheduleMidnightRefresh()
       startReminderScheduler()
     }
@@ -388,6 +392,8 @@ async function submitAuth() {
     showCompletedByView.value = session.value.showCompletedByView
     if (bootState.value) bootState.value.needsSetup = false
     await refreshData()
+    await loadLastTaskCategory()
+    await loadLastTaskPriority()
     scheduleMidnightRefresh()
     startReminderScheduler()
   } catch (error) {
@@ -404,6 +410,46 @@ async function refreshData() {
   if (requestId !== dataRequestId) return
   categories.value = nextCategories
   tasks.value = nextTasks
+  if (lastTaskCategoryId.value && !nextCategories.some(category => category.id === lastTaskCategoryId.value)) lastTaskCategoryId.value = nextCategories[0]?.id ?? null
+}
+
+async function loadLastTaskCategory() {
+  try {
+    const categoryId = await getLastTaskCategory()
+    lastTaskCategoryId.value = categoryId && categories.value.some(category => category.id === categoryId)
+      ? categoryId
+      : categories.value[0]?.id ?? null
+  } catch {
+    lastTaskCategoryId.value = categories.value[0]?.id ?? null
+  }
+}
+
+async function rememberLastTaskCategory(categoryId: string | null) {
+  if (!categoryId || !categories.value.some(category => category.id === categoryId)) return
+  try {
+    lastTaskCategoryId.value = await saveLastTaskCategory(categoryId)
+  } catch (error) {
+    showNotice(messageOf(error), 'error')
+  }
+}
+
+async function loadLastTaskPriority() {
+  try {
+    const priority = await getLastTaskPriority()
+    lastTaskPriority.value = priority && priorityOptions.some(option => option.value === priority)
+      ? priority
+      : 'not_urgent_not_important'
+  } catch {
+    lastTaskPriority.value = 'not_urgent_not_important'
+  }
+}
+
+async function rememberLastTaskPriority(priority: Priority) {
+  try {
+    lastTaskPriority.value = await saveLastTaskPriority(priority)
+  } catch (error) {
+    showNotice(messageOf(error), 'error')
+  }
 }
 
 function scheduleMidnightRefresh() {
@@ -437,6 +483,8 @@ async function handleLogout() {
   showCompletedByView.value = { all: false, week: false, month: false }
   tasks.value = []
   categories.value = []
+  lastTaskCategoryId.value = null
+  lastTaskPriority.value = 'not_urgent_not_important'
   authForm.password = ''
 }
 
@@ -483,7 +531,8 @@ async function openTaskModal(categoryId?: string | null, item?: Task, date?: str
   const occurrence = item ? parseOccurrenceId(item.id) : null
   editingOccurrence.value = occurrence ? { source: tasks.value.find(task => task.id === occurrence.sourceId) || item!, date: occurrence.date } : null
   taskDraftStatus.value = item?.status || 'todo'
-  Object.assign(taskDraft, item ? { id: item.id, title: item.title, categoryId: item.categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: [...item.reminderOffsets], parentTaskId: item.parentTaskId, failureReason: item.failureReason, notes: item.notes } : { id: undefined, title: '', categoryId: categoryId ?? categories.value[0]?.id ?? null, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, failureReason: null, notes: '' })
+  const defaultCategoryId = categoryId ?? (lastTaskCategoryId.value && categories.value.some(category => category.id === lastTaskCategoryId.value) ? lastTaskCategoryId.value : categories.value[0]?.id ?? null)
+  Object.assign(taskDraft, item ? { id: item.id, title: item.title, categoryId: item.categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: [...item.reminderOffsets], parentTaskId: item.parentTaskId, failureReason: item.failureReason, notes: item.notes } : { id: undefined, title: '', categoryId: defaultCategoryId, plannedDate: date ?? null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', priority: lastTaskPriority.value, repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, failureReason: null, notes: '' })
   Object.assign(repeatDraft, parseRepeatRule(taskDraft.repeatRule))
   const parentTaskId = editingOccurrence.value?.source.id || item?.id
   childDrafts.value = parentTaskId ? await listTaskChildren(parentTaskId) : []
@@ -501,14 +550,14 @@ async function openTaskModal(categoryId?: string | null, item?: Task, date?: str
 async function toggleTaskStatusFromModal() {
   if (editingRepeatRule.value || savingTask.value || updatingTaskStatus.value) return
   const nextStatus: Task['status'] = taskDraftStatus.value === 'todo' ? 'done' : 'todo'
-  if (!await persistTaskDraft()) return
+  if (!await persistTaskDraft(false)) return
   if (!taskDraft.id || editingOccurrence.value || nextStatus === 'todo') {
-    await applyTaskStatusFromModal(nextStatus)
+    if (await applyTaskStatusFromModal(nextStatus) && nextStatus === 'done') closeTaskModal()
     return
   }
   const childCount = effectiveChildDrafts.value.length
   if (childCount < 2) {
-    await applyTaskStatusFromModal('done', true)
+    if (await applyTaskStatusFromModal('done', true)) closeTaskModal()
     return
   }
   childCountForCompletion.value = childCount
@@ -517,12 +566,14 @@ async function toggleTaskStatusFromModal() {
 
 async function confirmTaskCompletion() {
   if (!taskDraft.id || savingTask.value || updatingTaskStatus.value) return
-  await applyTaskStatusFromModal('done', true)
-  if (taskDraftStatus.value === 'done') cancelTaskCompletion()
+  if (await applyTaskStatusFromModal('done', true)) {
+    cancelTaskCompletion()
+    closeTaskModal()
+  }
 }
 
 async function applyTaskStatusFromModal(nextStatus: Task['status'], completeChildren = false) {
-  if (!taskDraft.id || savingTask.value || updatingTaskStatus.value) return
+  if (!taskDraft.id || savingTask.value || updatingTaskStatus.value) return false
   const previousStatus = taskDraftStatus.value
   const persistedChildIds = completeChildren
     ? new Set(tasks.value.filter(task => task.parentTaskId === taskDraft.id).map(task => task.id))
@@ -543,9 +594,10 @@ async function applyTaskStatusFromModal(nextStatus: Task['status'], completeChil
     if (nextStatus !== 'failed') taskDraft.failureReason = null
     await refreshData()
     void reminderScheduler?.sync()
-    if (nextStatus === 'todo') showNotice('事项已恢复')
+    return true
   } catch (error) {
     showNotice(messageOf(error), 'error')
+    return false
   } finally {
     updatingTaskStatus.value = false
   }
@@ -556,7 +608,7 @@ async function markTaskFailed() {
   await applyTaskStatusFromModal('failed')
 }
 
-async function persistTaskDraft() {
+async function persistTaskDraft(rememberPriority = true) {
   if (savingTask.value) return false
   if (!taskDraft.title) {
     showNotice('请输入事项名称', 'error')
@@ -574,6 +626,8 @@ async function persistTaskDraft() {
     const saved = editingOccurrence.value ? await saveOccurrence(editingOccurrence.value.source, editingOccurrence.value.date, taskInput, taskDraftStatus.value) : await saveTask(taskInput)
     if (!editingOccurrence.value) taskDraft.id = saved.id
     const savedChildren = await syncTaskChildren({ parentTaskId: saved.id, children: effectiveChildDrafts.value.map(item => ({ ...(persistedChildIds.value.has(item.id) ? { id: item.id } : {}), title: item.title, status: item.status === 'done' ? 'done' : 'todo' })), deletedIds: deletedChildIds.value })
+    await rememberLastTaskCategory(taskInput.categoryId)
+    if (rememberPriority) await rememberLastTaskPriority(taskInput.priority)
     childrenSynced = true
     childDrafts.value = savedChildren
     persistedChildIds.value = new Set(savedChildren.map(child => child.id))
@@ -649,6 +703,7 @@ async function deleteCategory(category: Category) {
   if (!window.confirm(`删除“${category.name}”后，关联事项将变为未分类。是否继续？`)) return
   try {
     await removeCategory(category.id)
+    if (lastTaskCategoryId.value === category.id) lastTaskCategoryId.value = categories.value.find(item => item.id !== category.id)?.id ?? null
     await refreshData()
     showNotice('分类已删除，关联事项已保留')
   } catch (error) {
@@ -688,6 +743,7 @@ async function dropOnGroup(categoryId: string) {
       if (!item) return
       await saveTask({ id: item.id, title: item.title, categoryId, plannedDate: item.plannedDate, plannedTime: item.plannedTime, plannedEndTime: item.plannedEndTime, scheduleKind: item.scheduleKind, priority: item.priority, repeatRule: item.repeatRule, occurrenceOverrides: item.occurrenceOverrides, reminderOffsets: item.reminderOffsets, parentTaskId: item.parentTaskId, failureReason: item.failureReason, notes: item.notes })
     }
+    await rememberLastTaskCategory(categoryId)
     await refreshData()
     void reminderScheduler?.sync()
   } catch (error) {

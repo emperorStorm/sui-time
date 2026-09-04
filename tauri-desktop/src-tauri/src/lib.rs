@@ -5,10 +5,11 @@ mod models;
 
 use db::{
     active_user, backup_app_data, complete_task_with_children, count_unfinished_task_children,
-    create_initial_account, delete_category, delete_task, list_categories, list_task_children,
-    list_tasks, login, logout, needs_setup, open_app_db, reschedule_overdue_tasks, reschedule_task,
-    restore_app_data, save_category, save_show_completed, save_task, set_task_status,
-    sync_task_children, today_string,
+    create_initial_account, delete_category, delete_task, get_last_task_category,
+    get_last_task_priority, list_categories, list_task_children, list_tasks, login, logout,
+    needs_setup, open_app_db, reschedule_overdue_tasks, reschedule_task, restore_app_data,
+    save_category, save_last_task_category, save_last_task_priority, save_show_completed,
+    save_task, set_task_status, sync_task_children, today_string,
 };
 use models::{
     AccountInput, BootState, Category, CategoryInput, ReminderNotificationRequest,
@@ -47,6 +48,33 @@ fn save_user_show_completed(
 ) -> Result<bool, String> {
     let conn = open_app_db(&app)?;
     save_show_completed(&conn, &require_user_id(&conn)?, view, show_completed)
+}
+
+#[tauri::command]
+fn get_user_last_task_category(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let conn = open_app_db(&app)?;
+    get_last_task_category(&conn, &require_user_id(&conn)?)
+}
+
+#[tauri::command]
+fn save_user_last_task_category(
+    app: tauri::AppHandle,
+    category_id: Option<String>,
+) -> Result<Option<String>, String> {
+    let conn = open_app_db(&app)?;
+    save_last_task_category(&conn, &require_user_id(&conn)?, category_id.as_deref())
+}
+
+#[tauri::command]
+fn get_user_last_task_priority(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let conn = open_app_db(&app)?;
+    get_last_task_priority(&conn, &require_user_id(&conn)?)
+}
+
+#[tauri::command]
+fn save_user_last_task_priority(app: tauri::AppHandle, priority: String) -> Result<String, String> {
+    let conn = open_app_db(&app)?;
+    save_last_task_priority(&conn, &require_user_id(&conn)?, &priority)
 }
 
 #[tauri::command]
@@ -284,6 +312,10 @@ pub fn run() {
             login_user,
             logout_user,
             save_user_show_completed,
+            get_user_last_task_category,
+            save_user_last_task_category,
+            get_user_last_task_priority,
+            save_user_last_task_priority,
             list_user_categories,
             save_user_category,
             remove_user_category,
