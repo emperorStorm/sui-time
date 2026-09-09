@@ -29,7 +29,7 @@ use crate::models::{
 const ACTIVE_USER_KEY: &str = "active_user_id";
 const LAST_TASK_CATEGORY_KEY_PREFIX: &str = "last_task_category:";
 const LAST_TASK_PRIORITY_KEY_PREFIX: &str = "last_task_priority:";
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -82,6 +82,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     }
     if version < 8 {
         migrate_to_v8(conn)?;
+    }
+    if version < 9 {
+        migrate_to_v9(conn)?;
     }
     Ok(())
 }
@@ -393,6 +396,34 @@ fn migrate_to_v8(conn: &Connection) -> Result<(), String> {
                  show_completed_month = show_completed;
              PRAGMA user_version = 8;",
         )
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn migrate_to_v9(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch("ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;")
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute(
+            "UPDATE tasks
+             SET sort_order = (
+               SELECT COUNT(*) FROM tasks sibling
+               WHERE sibling.owner_id = tasks.owner_id
+                 AND sibling.parent_task_id = tasks.parent_task_id
+                 AND sibling.parent_task_id IS NOT NULL
+                 AND (sibling.created_at < tasks.created_at
+                   OR (sibling.created_at = tasks.created_at AND sibling.id < tasks.id))
+             )
+             WHERE parent_task_id IS NOT NULL",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute_batch("PRAGMA user_version = 9;")
         .map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
 }
@@ -763,7 +794,7 @@ pub fn delete_category(conn: &Connection, owner_id: &str, category_id: &str) -> 
 
 pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String> {
     let mut statement = conn.prepare(
-        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
+        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.sort_order, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
          FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id
          WHERE tasks.owner_id = ?1
          ORDER BY CASE WHEN tasks.planned_date IS NULL THEN 1 ELSE 0 END, tasks.planned_date, tasks.planned_time, tasks.created_at DESC",
@@ -783,10 +814,10 @@ pub fn list_task_children(
     get_task(conn, owner_id, parent_task_id)?.ok_or_else(|| "事项不存在或无权修改".to_string())?;
     let mut statement = conn
         .prepare(
-            "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
+            "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.sort_order, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
              FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id
              WHERE tasks.owner_id = ?1 AND tasks.parent_task_id = ?2
-             ORDER BY tasks.created_at, tasks.id",
+             ORDER BY tasks.sort_order, tasks.created_at, tasks.id",
         )
         .map_err(|error| error.to_string())?;
     let rows = statement
@@ -894,7 +925,11 @@ pub fn sync_task_children(
 
     let now = now_millis();
     let mut seen_ids = HashSet::new();
+    let mut seen_sort_orders = HashSet::new();
     for child in input.children {
+        if child.sort_order < 0 || !seen_sort_orders.insert(child.sort_order) {
+            return Err("子事项顺序无效".to_string());
+        }
         sync_child_task(
             &transaction,
             owner_id,
@@ -972,6 +1007,9 @@ fn sync_child_task(
     if !["todo", "done"].contains(&child.status.as_str()) {
         return Err("子事项状态无效".to_string());
     }
+    if child.sort_order < 0 {
+        return Err("子事项顺序无效".to_string());
+    }
     let completed_at = if child.status == "done" {
         Some(now)
     } else {
@@ -983,8 +1021,8 @@ fn sync_child_task(
         }
         let changed = conn
             .execute(
-                "UPDATE tasks SET title = ?1, status = ?2, failure_reason = NULL, completed_at = ?3, updated_at = ?4 WHERE id = ?5 AND owner_id = ?6 AND parent_task_id = ?7",
-                params![title, child.status, completed_at, now, id, owner_id, parent_task_id],
+                "UPDATE tasks SET title = ?1, status = ?2, failure_reason = NULL, completed_at = ?3, sort_order = ?4, updated_at = ?5 WHERE id = ?6 AND owner_id = ?7 AND parent_task_id = ?8",
+                params![title, child.status, completed_at, child.sort_order, now, id, owner_id, parent_task_id],
             )
             .map_err(|error| error.to_string())?;
         if changed == 0 {
@@ -994,9 +1032,9 @@ fn sync_child_task(
     }
 
     conn.execute(
-        "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at)
-         VALUES (?1, ?2, ?3, NULL, NULL, NULL, NULL, 'all_day', 'not_urgent_not_important', '{\"kind\":\"none\"}', '{}', '[]', ?4, ?5, NULL, '', ?6, ?7, ?6)",
-        params![Uuid::new_v4().to_string(), owner_id, title, parent_task_id, child.status, now, completed_at],
+        "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, sort_order, parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at)
+         VALUES (?1, ?2, ?3, NULL, NULL, NULL, NULL, 'all_day', 'not_urgent_not_important', '{\"kind\":\"none\"}', '{}', '[]', ?4, ?5, ?6, NULL, '', ?7, ?8, ?7)",
+        params![Uuid::new_v4().to_string(), owner_id, title, child.sort_order, parent_task_id, child.status, now, completed_at],
     )
     .map_err(|error| error.to_string())?;
     Ok(())
@@ -1112,7 +1150,7 @@ pub fn reschedule_task(
 
 fn get_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<Option<Task>, String> {
     conn.query_row(
-        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
+        "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.sort_order, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
          FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id WHERE tasks.id = ?1 AND tasks.owner_id = ?2",
         params![task_id, owner_id], task_from_row,
     ).optional().map_err(|error| error.to_string())
@@ -1134,13 +1172,14 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         repeat_rule: row.get(11)?,
         occurrence_overrides: row.get(12)?,
         reminder_offsets: serde_json::from_str(&row.get::<_, String>(13)?).unwrap_or_default(),
-        parent_task_id: row.get(14)?,
-        status: row.get(15)?,
-        notes: row.get(16)?,
-        created_at: row.get(17)?,
-        completed_at: row.get(18)?,
-        updated_at: row.get(19)?,
-        failure_reason: row.get(20)?,
+        sort_order: row.get(14)?,
+        parent_task_id: row.get(15)?,
+        status: row.get(16)?,
+        notes: row.get(17)?,
+        created_at: row.get(18)?,
+        completed_at: row.get(19)?,
+        updated_at: row.get(20)?,
+        failure_reason: row.get(21)?,
     })
 }
 
@@ -2499,11 +2538,13 @@ mod tests {
                 children: vec![
                     TaskChildInput {
                         id: Some(first.id.clone()),
+                        sort_order: 0,
                         title: "已更新子事项".to_string(),
                         status: "done".to_string(),
                     },
                     TaskChildInput {
                         id: None,
+                        sort_order: 1,
                         title: "新增子事项".to_string(),
                         status: "todo".to_string(),
                     },
@@ -2519,6 +2560,33 @@ mod tests {
         assert!(get_task(&conn, &owner.id, &second.id).unwrap().is_none());
 
         let added = children.iter().find(|child| child.id != first.id).unwrap();
+        let reordered = sync_task_children(
+            &conn,
+            &owner.id,
+            TaskChildrenInput {
+                parent_task_id: parent.id.clone(),
+                children: vec![
+                    TaskChildInput {
+                        id: Some(added.id.clone()),
+                        sort_order: 0,
+                        title: added.title.clone(),
+                        status: "todo".to_string(),
+                    },
+                    TaskChildInput {
+                        id: Some(first.id.clone()),
+                        sort_order: 1,
+                        title: "已更新子事项".to_string(),
+                        status: "done".to_string(),
+                    },
+                ],
+                deleted_ids: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(reordered[0].id, added.id);
+        assert_eq!(reordered[1].id, first.id);
+        assert_eq!(reordered[0].sort_order, 0);
+        assert_eq!(reordered[1].sort_order, 1);
         let result = sync_task_children(
             &conn,
             &owner.id,
@@ -2527,11 +2595,13 @@ mod tests {
                 children: vec![
                     TaskChildInput {
                         id: Some(first.id.clone()),
+                        sort_order: 0,
                         title: "不应保存".to_string(),
                         status: "todo".to_string(),
                     },
                     TaskChildInput {
                         id: Some(first.id.clone()),
+                        sort_order: 1,
                         title: "重复子事项".to_string(),
                         status: "todo".to_string(),
                     },
@@ -2603,11 +2673,13 @@ mod tests {
                 children: vec![
                     TaskChildInput {
                         id: Some(first.id.clone()),
+                        sort_order: 0,
                         title: first.title.clone(),
                         status: "done".to_string(),
                     },
                     TaskChildInput {
                         id: Some(second.id.clone()),
+                        sort_order: 1,
                         title: second.title.clone(),
                         status: "done".to_string(),
                     },
@@ -2628,11 +2700,13 @@ mod tests {
                 children: vec![
                     TaskChildInput {
                         id: Some(first.id.clone()),
+                        sort_order: 0,
                         title: first.title.clone(),
                         status: "todo".to_string(),
                     },
                     TaskChildInput {
                         id: Some(first.id.clone()),
+                        sort_order: 1,
                         title: first.title.clone(),
                         status: "todo".to_string(),
                     },
@@ -2664,11 +2738,13 @@ mod tests {
                 children: vec![
                     TaskChildInput {
                         id: Some(first.id.clone()),
+                        sort_order: 0,
                         title: first.title.clone(),
                         status: "todo".to_string(),
                     },
                     TaskChildInput {
                         id: Some(second.id.clone()),
+                        sort_order: 1,
                         title: second.title.clone(),
                         status: "done".to_string(),
                     },
@@ -2732,11 +2808,13 @@ mod tests {
                 children: vec![
                     TaskChildInput {
                         id: Some(failed_first.id.clone()),
+                        sort_order: 0,
                         title: failed_first.title.clone(),
                         status: "done".to_string(),
                     },
                     TaskChildInput {
                         id: Some(failed_second.id.clone()),
+                        sort_order: 1,
                         title: failed_second.title.clone(),
                         status: "done".to_string(),
                     },
@@ -2782,6 +2860,7 @@ mod tests {
                 parent_task_id: repeating_parent.id.clone(),
                 children: vec![TaskChildInput {
                     id: Some(repeating_child.id.clone()),
+                    sort_order: 0,
                     title: repeating_child.title,
                     status: "done".to_string(),
                 }],

@@ -42,7 +42,7 @@ let demoTasks: Task[] = [
 function task(title: string, categoryId: string | null, plannedDate: string | null, plannedTime: string | null, notes: string): Task {
   const category = demoCategories.find(item => item.id === categoryId)
   const now = Date.now()
-  return { id: crypto.randomUUID(), title, categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate, plannedTime, plannedEndTime: null, scheduleKind: plannedTime ? 'point' : 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], parentTaskId: null, failureReason: null, notes, status: 'todo', createdAt: now, completedAt: null, updatedAt: now }
+  return { id: crypto.randomUUID(), title, categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate, plannedTime, plannedEndTime: null, scheduleKind: plannedTime ? 'point' : 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], sortOrder: 0, parentTaskId: null, failureReason: null, notes, status: 'todo', createdAt: now, completedAt: null, updatedAt: now }
 }
 
 function today() {
@@ -235,7 +235,7 @@ export async function saveTask(input: TaskInput): Promise<Task> {
     try { return JSON.parse(input.repeatRule).kind !== 'none' } catch { return false }
   })()
   const status: TaskStatus = repeating ? 'todo' : existing?.status || 'todo'
-  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides, reminderOffsets: input.reminderOffsets, parentTaskId: input.parentTaskId, failureReason: status === 'failed' ? normalizeFailureReason(input.failureReason) : null, notes: input.notes, status, createdAt: existing?.createdAt || now, completedAt: repeating ? null : existing?.completedAt || null, updatedAt: now }
+  const result: Task = { id: input.id || crypto.randomUUID(), title: input.title, categoryId: input.categoryId, categoryName: category?.name ?? null, categoryColor: category?.color ?? null, categoryIcon: category?.icon ?? null, plannedDate: input.plannedDate, plannedTime: input.plannedTime, plannedEndTime: input.plannedEndTime, scheduleKind: input.scheduleKind, priority: input.priority, repeatRule: input.repeatRule, occurrenceOverrides, reminderOffsets: input.reminderOffsets, sortOrder: existing?.sortOrder || 0, parentTaskId: input.parentTaskId, failureReason: status === 'failed' ? normalizeFailureReason(input.failureReason) : null, notes: input.notes, status, createdAt: existing?.createdAt || now, completedAt: repeating ? null : existing?.completedAt || null, updatedAt: now }
   if (existing) demoTasks = demoTasks.map(item => item.id === result.id ? result : item)
   else demoTasks.push(result)
   return result
@@ -278,7 +278,7 @@ export async function listTaskChildren(parentTaskId: string): Promise<Task[]> {
   if (isTauriRuntime()) return invoke('list_user_task_children', { parentTaskId })
   const parent = demoTasks.find(item => item.id === parentTaskId)
   if (!parent) throw new Error('事项不存在')
-  return demoTasks.filter(item => item.parentTaskId === parentTaskId).map(item => ({ ...item }))
+  return demoTasks.filter(item => item.parentTaskId === parentTaskId).sort((left, right) => left.sortOrder - right.sortOrder).map(item => ({ ...item }))
 }
 
 export async function syncTaskChildren(input: TaskChildrenInput): Promise<Task[]> {
@@ -305,10 +305,10 @@ export async function syncTaskChildren(input: TaskChildrenInput): Promise<Task[]
   for (const child of input.children) {
     const existing = child.id ? currentById.get(child.id) : undefined
     if (existing) {
-      nextTasks = nextTasks.map(item => item.id === existing.id ? { ...item, title: child.title.trim(), status: child.status, failureReason: null, completedAt: child.status === 'done' ? now : null, updatedAt: now } : item)
+      nextTasks = nextTasks.map(item => item.id === existing.id ? { ...item, title: child.title.trim(), status: child.status, sortOrder: child.sortOrder, failureReason: null, completedAt: child.status === 'done' ? now : null, updatedAt: now } : item)
     } else {
       const created = task(child.title.trim(), null, null, null, '')
-      nextTasks.push({ ...created, id: crypto.randomUUID(), parentTaskId: input.parentTaskId, status: child.status, completedAt: child.status === 'done' ? now : null, updatedAt: now })
+      nextTasks.push({ ...created, id: crypto.randomUUID(), parentTaskId: input.parentTaskId, sortOrder: child.sortOrder, status: child.status, completedAt: child.status === 'done' ? now : null, updatedAt: now })
     }
   }
   const nextChildren = nextTasks.filter(item => item.parentTaskId === input.parentTaskId)
@@ -321,7 +321,7 @@ export async function syncTaskChildren(input: TaskChildrenInput): Promise<Task[]
     }
   }
   demoTasks = nextTasks
-  return demoTasks.filter(item => item.parentTaskId === input.parentTaskId).map(item => ({ ...item }))
+  return demoTasks.filter(item => item.parentTaskId === input.parentTaskId).sort((left, right) => left.sortOrder - right.sortOrder).map(item => ({ ...item }))
 }
 
 function isNonRepeatingTask(task: Task) {

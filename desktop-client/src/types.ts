@@ -45,6 +45,7 @@ export interface Task {
   repeatRule: string
   occurrenceOverrides: string
   reminderOffsets: number[]
+  sortOrder: number
   parentTaskId: string | null
   status: TaskStatus
   failureReason: string | null
@@ -75,6 +76,7 @@ export interface TaskChildInput {
   id?: string
   title: string
   status: Extract<TaskStatus, 'todo' | 'done'>
+  sortOrder: number
 }
 
 export interface TaskChildrenInput {

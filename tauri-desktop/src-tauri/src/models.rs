@@ -76,6 +76,7 @@ pub struct Task {
     pub repeat_rule: String,
     pub occurrence_overrides: String,
     pub reminder_offsets: Vec<i64>,
+    pub sort_order: i64,
     pub parent_task_id: Option<String>,
     pub status: String,
     pub failure_reason: Option<String>,
@@ -118,6 +119,8 @@ pub struct TaskChildInput {
     pub id: Option<String>,
     pub title: String,
     pub status: String,
+    #[serde(default)]
+    pub sort_order: i64,
 }
 
 #[derive(Debug, Deserialize)]
