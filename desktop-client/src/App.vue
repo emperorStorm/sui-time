@@ -89,7 +89,7 @@
 
         <section v-else-if="currentView === 'month'" class="page plan-page month-page">
           <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate(false)"><CalendarRange :size="15" />回到本月</button></div>
-          <div class="month-calendar">
+          <div class="month-calendar" :style="{ '--month-rows': monthWeekCount }">
             <div class="month-weekdays"><span v-for="label in weekdayLabels" :key="label">{{ label }}</span></div>
             <div class="month-grid">
               <section v-for="day in monthDays" :key="day.date" :class="['month-day', { muted: !day.inMonth, today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
@@ -132,9 +132,9 @@
         <Transition name="popover"><div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="selectTaskPriority(option.value)"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div></Transition>
         <Transition name="popover"><div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div></Transition>
         <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
-<section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="(subtask, index) in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id }]" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-move" title="上移子事项" aria-label="上移子事项" :disabled="index === 0" @click="moveChildDraft(index, -1)">↑</button><button type="button" class="subtask-move" title="下移子事项" aria-label="下移子事项" :disabled="index === childDrafts.length - 1" @click="moveChildDraft(index, 1)">↓</button><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
+<section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id && !childDropAfter, 'is-drag-over-after': dragOverChildId === subtask.id && childDropAfter }]" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id, $event)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" draggable="true" @dragstart.stop="startChildDrag(subtask.id, $event)" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
         <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。"></textarea></label>
-        <footer><div class="task-footer-start"><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><button v-if="taskDraft.id && !editingRepeatRule && taskDraftStatus !== 'failed'" class="quiet-button failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button></div><span class="task-save-state" :class="{ error: taskSaveError }">{{ taskSaveError || (savingTask ? '正在保存…' : '已自动保存') }}</span><button v-if="taskSaveError" class="quiet-button" type="button" @click="retryTaskAutoSave">重试</button></footer>
+        <footer><div class="task-footer-start"><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><button v-if="taskDraft.id && !editingRepeatRule && taskDraftStatus !== 'failed'" class="quiet-button failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button></div><span v-if="taskSaveError || savingTask" class="task-save-state" :class="{ error: taskSaveError }">{{ taskSaveError || '正在保存…' }}</span><button v-if="taskSaveError" class="quiet-button" type="button" @click="retryTaskAutoSave">重试</button></footer>
       </form>
       </div>
     </Transition>
@@ -255,6 +255,7 @@ const persistedChildIds = ref<Set<string>>(new Set())
 const taskDraftStatus = ref<Task['status']>('todo')
 const draggedChildId = ref<string | null>(null)
 const dragOverChildId = ref<string | null>(null)
+const childDropAfter = ref(false)
 const taskSaveError = ref('')
 const taskAutoSaveTimer = ref<number | undefined>(undefined)
 const taskAutoSaveQueued = ref(false)
@@ -305,6 +306,7 @@ const selectedTaskCategory = computed(() => categories.value.find(category => ca
 const orderedCategories = computed(() => [...categories.value].sort((left, right) => left.sortOrder - right.sortOrder))
 const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) => ({ date, day: Number(date.slice(-2)), weekday: weekdayLabels[index] })))
 const monthDays = computed(() => calendarDays(monthAnchor.value).map(day => ({ ...day, ...resolveCalendarMeta(day.date), tasks: tasksForDate(day.date) })))
+const monthWeekCount = computed(() => monthDays.value.length / 7)
 const monthOverflowTasks = computed(() => monthDays.value.find(day => day.date === monthOverflowDate.value)?.tasks || [])
 const weekLabel = computed(() => formatMonth(weekAnchor.value))
 const monthLabel = computed(() => formatMonth(monthAnchor.value))
@@ -924,28 +926,24 @@ function startChildDrag(id: string, event: DragEvent) {
     event.dataTransfer.setData('text/plain', id)
   }
 }
-function dragOverChild(id: string) {
-  if (draggedChildId.value && draggedChildId.value !== id) dragOverChildId.value = id
+function dragOverChild(id: string, event: DragEvent) {
+  if (!draggedChildId.value || draggedChildId.value === id) return
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  childDropAfter.value = event.clientY > rect.top + rect.height / 2
+  dragOverChildId.value = id
 }
 function dropChild(targetId: string) {
   const sourceId = draggedChildId.value
   if (!sourceId || sourceId === targetId) return endChildDrag()
   const sourceIndex = childDrafts.value.findIndex(item => item.id === sourceId)
-  const targetIndex = childDrafts.value.findIndex(item => item.id === targetId)
-  if (sourceIndex < 0 || targetIndex < 0) return endChildDrag()
+  if (sourceIndex < 0) return endChildDrag()
   const [moved] = childDrafts.value.splice(sourceIndex, 1)
-  childDrafts.value.splice(sourceIndex < targetIndex ? targetIndex - 1 : targetIndex, 0, moved)
+  const newTargetIndex = childDrafts.value.findIndex(item => item.id === targetId)
+  if (newTargetIndex >= 0) childDrafts.value.splice(newTargetIndex + (childDropAfter.value ? 1 : 0), 0, moved)
   scheduleTaskAutoSave(0)
   endChildDrag()
 }
-function endChildDrag() { draggedChildId.value = null; dragOverChildId.value = null }
-function moveChildDraft(index: number, offset: number) {
-  const targetIndex = index + offset
-  if (targetIndex < 0 || targetIndex >= childDrafts.value.length) return
-  const [moved] = childDrafts.value.splice(index, 1)
-  childDrafts.value.splice(targetIndex, 0, moved)
-  scheduleTaskAutoSave(0)
-}
+function endChildDrag() { draggedChildId.value = null; dragOverChildId.value = null; childDropAfter.value = false }
 async function toggleChildDraftStatus(subtask: Task) {
   if (savingTask.value || updatingTaskStatus.value) return
   subtask.status = subtask.status === 'done' ? 'todo' : 'done'

@@ -1,6 +1,6 @@
 [package]
 name = "sui-time-desktop"
-version = "0.3.11"
+version = "0.3.12"
 description = "岁岁时光桌面客户端"
 authors = ["wangjun"]
 edition = "2021"
