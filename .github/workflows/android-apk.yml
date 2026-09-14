@@ -105,11 +105,12 @@ jobs:
           const fs = require('fs');
           const version = process.env.VERSION;
           const tag = process.env.TAG;
-          const root = `${process.env.OSS_BASE_URL.replace(/\/+$/, '')}/sui-time/releases/${tag}`;
+          // 阿里云 OSS 默认域名禁止分发 .apk（ApkDownloadForbidden），下载地址指向 GitHub Release
+          const repo = process.env.GITHUB_REPOSITORY;
           const manifest = {
             version,
             notes: '',
-            url: `${root}/sui-time-${version}-android.apk`,
+            url: `https://github.com/${repo}/releases/download/${tag}/sui-time-${version}-android.apk`,
             pubDate: new Date().toISOString()
           };
           fs.writeFileSync('latest-android.json', JSON.stringify(manifest, null, 2) + '\n');

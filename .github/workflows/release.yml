@@ -179,11 +179,11 @@ jobs:
           const fs = require('fs');
           const apk = fs.readdirSync('release-assets').find(name => name.endsWith('-android.apk'));
           const version = process.env.TAG.replace(/^v/, '');
-          const root = `${process.env.OSS_BASE_URL.replace(/\/+$/, '')}/sui-time/releases/${process.env.TAG}`;
+          // 阿里云 OSS 默认域名禁止分发 .apk，下载地址指向 GitHub Release
           const manifest = {
             version,
             notes: '',
-            url: `${root}/${encodeURIComponent(apk)}`,
+            url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.TAG}/sui-time-${version}-android.apk`,
             pubDate: new Date().toISOString()
           };
           fs.writeFileSync('release-assets/latest-android.json', JSON.stringify(manifest, null, 2) + '\n');
