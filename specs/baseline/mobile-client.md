@@ -37,8 +37,11 @@ updated: 2026-09-14
 
 ## APK 打包
 
-- APK 由用户在 HBuilderX 中导入 `uni-client/`，生成/绑定 DCloud appid、配置安卓证书后云打包或本地打包。
-- CI（release.yml）只做 H5 构建校验；APK 由用户提供后上传 GitHub Release 与 OSS，再生成 `latest-android.json`。
+- APK 由 CI 离线打包自动构建：打 `v*` tag（或手动 dispatch `android-apk.yml`）后，GitHub Actions 执行 `npm run build:app` → 从 OSS 拉取 DCloud 离线打包 SDK（`sui-time/sdk/Android-SDK-5.24.zip`，常驻 OSS）→ `scripts/prepare-android.mjs` 组装安卓工程（`uni-client/android/`，不入库）→ Gradle 用仓库 Secrets 里的 keystore 签名打包。
+- `uni-client/android-templates/` 为离线打包模板（manifest/control 用占位符）；`scripts/prepare-android.mjs` 注入 appkey、版本号、签名配置与 uni-app www 资源。
+- DCloud 离线打包 Key 存于 Secrets `DCLOUD_APPKEY`；appid `__UNI__SUI_TIME`，包名 `fun.upup.suitime`，证书为自生成 keystore（`~/sui-time-release/sui-time-android.keystore`，**必须离线备份**，丢失后已装用户无法升级）。
+- APK 上传 GitHub Release 与 OSS 后生成 `latest-android.json`。
+- 阿里云 OSS 默认域名禁止分发 `.apk`（`ApkDownloadForbidden`），因此 `latest-android.json` 的 `url` 指向 GitHub Release 下载地址；若后续绑定自定义域名（CNAME）则可改回 OSS。
 
 ## 验收与证据
 
