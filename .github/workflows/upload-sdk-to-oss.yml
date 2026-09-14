@@ -1,0 +1,31 @@
+name: Upload Android SDK to OSS (one-time)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  upload-sdk:
+    runs-on: ubuntu-latest
+    env:
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+    steps:
+      - name: Download SDK zip from temp release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download sdk-android-5.24 --repo "$GITHUB_REPOSITORY" --pattern "*.zip" --dir sdk
+      - name: Upload SDK zip to OSS
+        run: |
+          pip install oss2 -q
+          python <<'PY'
+          import os
+          from pathlib import Path
+          import oss2
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, os.environ['OSS_ENDPOINT'], os.environ['OSS_BUCKET'])
+          zip_file = next(Path('sdk').glob('*.zip'))
+          bucket.put_object_from_file('sui-time/sdk/Android-SDK-5.24.zip', str(zip_file))
+          print('uploaded', zip_file.stat().st_size, 'bytes')
+          PY

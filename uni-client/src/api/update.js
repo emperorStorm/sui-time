@@ -1,7 +1,7 @@
 import { toast } from '../utils/platform'
 
-// 发布时替换为实际 OSS 地址（与发布脚本 ALIYUN_OSS_BASE_URL 对应）
-export const OSS_BASE_URL = 'https://sui-time.oss-cn-hangzhou.aliyuncs.com'
+// 与 GitHub Variables ALIYUN_OSS_BASE_URL 保持一致
+export const OSS_BASE_URL = 'https://suisui-package.oss-cn-hangzhou.aliyuncs.com'
 const UPDATE_MANIFEST_URL = `${OSS_BASE_URL}/sui-time/latest-android.json`
 const GITHUB_REPOSITORY = 'emperorStorm/sui-time'
 const GITHUB_REQUEST_TIMEOUT = 8000
