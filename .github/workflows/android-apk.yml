@@ -74,7 +74,7 @@ jobs:
           PY
       - name: Assemble Android offline packing project
         shell: bash
-        run: node scripts/prepare-android.mjs --sdk "Android-SDK.zip" --www dist/build/app --appkey "$DCLOUD_APPKEY"
+        run: node scripts/prepare-android.mjs --sdk "$GITHUB_WORKSPACE/Android-SDK.zip" --www dist/build/app --appkey "$DCLOUD_APPKEY"
         working-directory: uni-client
       - name: Build signed APK
         shell: bash
