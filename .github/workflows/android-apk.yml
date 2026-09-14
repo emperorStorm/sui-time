@@ -1,0 +1,122 @@
+name: Build Android APK
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.4.0"
+        required: true
+        type: string
+
+jobs:
+  build-android-apk:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      DCLOUD_APPKEY: ${{ secrets.DCLOUD_APPKEY }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS }}
+      OSS_BASE_URL: ${{ vars.ALIYUN_OSS_BASE_URL }}
+      OSS_BUCKET: ${{ vars.ALIYUN_OSS_BUCKET }}
+      OSS_ENDPOINT: ${{ vars.ALIYUN_OSS_ENDPOINT }}
+      ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+      ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+    steps:
+      - name: Compute version from tag
+        shell: bash
+        run: |
+          tag="${TAG}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "Tag must use vX.Y.Z"; exit 1; }
+          echo "VERSION=${tag#v}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: uni-client/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Android build tools
+        shell: bash
+        run: |
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" >/dev/null || true
+      - name: Build uni-app App resources
+        run: |
+          npm ci
+          npm run build:app
+        working-directory: uni-client
+      - name: Download uni-app offline SDK from OSS
+        shell: bash
+        run: |
+          for name in OSS_BASE_URL OSS_BUCKET OSS_ENDPOINT ALIYUN_ACCESS_KEY_ID ALIYUN_ACCESS_KEY_SECRET; do
+            [[ -n "${!name}" ]] || { echo "Missing $name"; exit 1; }
+          done
+          pip install oss2 -q
+          python <<'PY'
+          import os
+          import oss2
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, os.environ['OSS_ENDPOINT'], os.environ['OSS_BUCKET'])
+          bucket.get_object_to_file('sui-time/sdk/Android-SDK-5.24.zip', 'Android-SDK.zip')
+          PY
+      - name: Assemble Android offline packing project
+        shell: bash
+        run: node scripts/prepare-android.mjs --sdk "Android-SDK.zip" --www dist/build/app --appkey "$DCLOUD_APPKEY"
+        working-directory: uni-client
+      - name: Build signed APK
+        shell: bash
+        run: ./gradlew assembleRelease --no-daemon
+        working-directory: uni-client/android
+      - name: Upload APK to GitHub Release and OSS
+        shell: bash
+        run: |
+          apk=$(ls uni-client/android/app/build/outputs/apk/release/*.apk | head -1)
+          [[ -n "$apk" ]] || { echo "未找到 APK"; exit 1; }
+          cp "$apk" "sui-time-${VERSION}-android.apk"
+          gh release upload "$TAG" "sui-time-${VERSION}-android.apk" --repo "$GITHUB_REPOSITORY" --clobber
+          pip install oss2 -q
+          python <<'PY'
+          import os
+          import oss2
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, os.environ['OSS_ENDPOINT'], os.environ['OSS_BUCKET'])
+          apk = f"sui-time-{os.environ['VERSION']}-android.apk"
+          bucket.put_object_from_file(f"sui-time/releases/{os.environ['TAG']}/{apk}", apk)
+          PY
+      - name: Generate and upload latest-android.json
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const version = process.env.VERSION;
+          const tag = process.env.TAG;
+          const root = `${process.env.OSS_BASE_URL.replace(/\/+$/, '')}/sui-time/releases/${tag}`;
+          const manifest = {
+            version,
+            notes: '',
+            url: `${root}/sui-time-${version}-android.apk`,
+            pubDate: new Date().toISOString()
+          };
+          fs.writeFileSync('latest-android.json', JSON.stringify(manifest, null, 2) + '\n');
+          NODE
+          pip install oss2 -q
+          python <<'PY'
+          import os
+          import oss2
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, os.environ['OSS_ENDPOINT'], os.environ['OSS_BUCKET'])
+          bucket.put_object_from_file('sui-time/latest-android.json', 'latest-android.json')
+          PY
