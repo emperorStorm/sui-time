@@ -1,0 +1,23 @@
+{
+  "name": "岁岁时光",
+  "appid": "__UNI__SUI_TIME",
+  "description": "本地优先的待办与时间规划",
+  "versionName": "0.4.0",
+  "versionCode": "400",
+  "transformPx": false,
+  "h5": {
+    "router": {
+      "mode": "hash"
+    },
+    "devServer": {
+      "port": 5182
+    }
+  },
+  "app-plus": {
+    "compilerVersion": 3,
+    "nvueCompiler": "uni-app",
+    "compatible": {
+      "ignoreVersion": true
+    }
+  }
+}

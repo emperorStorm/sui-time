@@ -16,5 +16,6 @@ Spec 记录具体能力的需求、边界、数据契约和验收标准；真实
 | 逾期待办顺延 | `baseline/overdue-rescheduling.md` |
 | 加密备份与恢复 | `baseline/backup-restore.md` |
 | 更新与通知中心 | `baseline/update-notifications.md` |
+| 移动端客户端 | `baseline/mobile-client.md` |
 
-移动端、云同步、PostgreSQL 和业务服务器不属于当前基线。
+云同步、PostgreSQL 和业务服务器不属于当前基线。

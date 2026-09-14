@@ -1,0 +1,24 @@
+{
+  "pages": [
+    { "path": "pages/tasks/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "事项" } },
+    { "path": "pages/planning/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "规划" } },
+    { "path": "pages/profile/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "我的" } }
+  ],
+  "tabBar": {
+    "color": "#8a96a3",
+    "selectedColor": "#2996f6",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/tasks/index", "text": "事项" },
+      { "pagePath": "pages/planning/index", "text": "规划" },
+      { "pagePath": "pages/profile/index", "text": "我的" }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "岁岁时光",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f7f8fa"
+  }
+}

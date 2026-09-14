@@ -78,7 +78,7 @@
         </section>
 
         <section v-else-if="currentView === 'week'" class="page plan-page week-page">
-          <div class="period-bar"><button class="icon-button bordered" title="上一周" @click="moveWeek(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ weekLabel }}</button><button class="icon-button bordered" title="下一周" @click="moveWeek(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate(false)"><CalendarDays :size="15" />回到本周</button></div>
+          <div class="period-bar"><button class="icon-button bordered" title="上一周" @click="moveWeek(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ weekLabel }}</button><button class="icon-button bordered" title="下一周" @click="moveWeek(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate()"><CalendarDays :size="15" />回到本周</button></div>
           <div class="week-grid">
             <section v-for="day in weekDays" :key="day.date" :class="['week-day', { today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
               <header><span class="week-day-number">{{ day.day }}</span><strong>{{ day.weekday }}</strong><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="17" /></button></header>
@@ -88,7 +88,7 @@
         </section>
 
         <section v-else-if="currentView === 'month'" class="page plan-page month-page">
-          <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate(false)"><CalendarRange :size="15" />回到本月</button></div>
+          <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate()"><CalendarRange :size="15" />回到本月</button></div>
           <div class="month-calendar" :style="{ '--month-rows': monthWeekCount }">
             <div class="month-weekdays"><span v-for="label in weekdayLabels" :key="label">{{ label }}</span></div>
             <div class="month-grid">
@@ -210,7 +210,7 @@ const draggedTaskId = ref<string | null>(null)
 const monthOverflowDate = ref<string | null>(null)
 const monthOverflowPanel = ref<HTMLElement | null>(null)
 const monthOverflowStyle = ref<Record<string, string>>({})
-const version = ref('0.3.0')
+const version = ref('0.4.0')
 const notice = ref<Notice | null>(null)
 const submitting = ref(false)
 const savingShowCompleted = ref(false)
@@ -528,14 +528,13 @@ function closeBrandMenuOnOutsideClick(event: MouseEvent) {
   if (brandMenu.value && !brandMenu.value.contains(event.target as Node)) brandMenuOpen.value = false
 }
 
-async function resetCurrentDate(showSuccess = true) {
+async function resetCurrentDate() {
   const currentDate = todayString()
   todayDate.value = currentDate
   weekAnchor.value = currentDate
   monthAnchor.value = currentDate
   try {
     await refreshData()
-    if (showSuccess) showNotice('已回到今天')
   } catch (error) {
     showNotice(messageOf(error), 'error')
   }

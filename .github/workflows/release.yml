@@ -159,3 +159,32 @@ jobs:
               bucket.put_object_from_file(f"{root}/{file.name}", str(file))
           bucket.put_object_from_file('sui-time/latest.json', 'release-assets/latest.json')
           PY
+      - name: Generate latest-android.json when APK present
+        shell: bash
+        run: |
+          apk=$(ls release-assets/*-android.apk 2>/dev/null | head -1 || true)
+          if [[ -z "$apk" ]]; then
+            echo "未发现安卓 APK，跳过 latest-android.json 生成"
+            exit 0
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const apk = fs.readdirSync('release-assets').find(name => name.endsWith('-android.apk'));
+          const version = process.env.TAG.replace(/^v/, '');
+          const root = `${process.env.OSS_BASE_URL.replace(/\/+$/, '')}/sui-time/releases/${process.env.TAG}`;
+          const manifest = {
+            version,
+            notes: '',
+            url: `${root}/${encodeURIComponent(apk)}`,
+            pubDate: new Date().toISOString()
+          };
+          fs.writeFileSync('release-assets/latest-android.json', JSON.stringify(manifest, null, 2) + '\n');
+          NODE
+          pip install oss2
+          python <<'PY'
+          import os
+          import oss2
+          auth = oss2.Auth(os.environ['ALIYUN_ACCESS_KEY_ID'], os.environ['ALIYUN_ACCESS_KEY_SECRET'])
+          bucket = oss2.Bucket(auth, os.environ['OSS_ENDPOINT'], os.environ['OSS_BUCKET'])
+          bucket.put_object_from_file('sui-time/latest-android.json', 'release-assets/latest-android.json')
+          PY

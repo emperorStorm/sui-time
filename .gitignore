@@ -6,6 +6,9 @@ desktop-client/node_modules/
 desktop-client/dist/
 tauri-desktop/node_modules/
 tauri-desktop/src-tauri/target/
+uni-client/node_modules/
+uni-client/dist/
+uni-client/unpackage/
 
 # Release secrets and local overrides
 .env

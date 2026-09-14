@@ -6,6 +6,7 @@
 | --- | --- |
 | Vue、TypeScript、样式 | `cd desktop-client && npm run build` |
 | Rust、command、SQLite | `cd tauri-desktop/src-tauri && cargo test`、`cargo fmt --check` |
+| 移动端（uni-client） | `cd uni-client && npm run build:h5`，移动视口 Playwright 主流程 |
 | 原型源码 | Skill 的 `validate_prototype.py`、单 HTML 导出、Playwright 主流程 |
 | 任意仓库文件 | `git diff --check`、复核 `git status --short` |
 | 发版配置 | 本地配置生成检查 + 对应 CI/Release 真实状态，不用本地构建代替远端结论 |

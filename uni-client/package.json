@@ -1,0 +1,23 @@
+{
+  "name": "sui-time-uni-client",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:h5": "uni --platform h5",
+    "build:h5": "uni build --platform h5",
+    "dev:app": "uni --platform app",
+    "build:app": "uni build --platform app"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-5010420260703001",
+    "@dcloudio/uni-app-plus": "3.0.0-5010420260703001",
+    "@dcloudio/uni-components": "3.0.0-5010420260703001",
+    "@dcloudio/uni-h5": "3.0.0-5010420260703001",
+    "vue": "^3.4.38"
+  },
+  "devDependencies": {
+    "@dcloudio/vite-plugin-uni": "3.0.0-5010420260703001",
+    "vite": "^5.4.0"
+  }
+}

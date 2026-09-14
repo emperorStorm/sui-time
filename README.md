@@ -1,12 +1,14 @@
 # 岁岁时光
 
-岁岁时光是一款本地优先的个人待办与时间规划桌面应用。当前版本为 `0.3.0`，使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建，主要数据保存在本机，不依赖业务服务器或云端账号。
+岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.4.0`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
 
 ![岁岁时光本地优先数据架构](docs/assets/sui-time-local-first-sync.png)
 
-> 架构图中的移动端、同步 API、PostgreSQL 和 OSS 数据同步属于后续演进方向。当前运行时只实现桌面本地层；OSS 仅用于发布桌面更新资产。
+> 架构图中的云同步、PostgreSQL 和 OSS 数据同步属于后续演进方向。当前运行时只实现本地层：桌面端为 Tauri + SQLite，移动端为 UniApp + 本地存储；OSS 仅用于发布更新资产。
 
 ## 当前能力
+
+桌面端：
 
 - 本地账号初始化、登录、会话保持和退出登录。
 - 分类新增、编辑、删除、颜色、图标和顺序管理。
@@ -20,6 +22,13 @@
 - 使用 Argon2 和 AES-256-GCM 的加密备份与恢复。
 - 启动自动检查、关于页手动检查、应用内更新通知、下载进度、失败重试、安装和重启。
 
+移动端（安卓，UniApp）：
+
+- 事项：分类筛选、今天/7天内/稍后分组、完成切换、隐藏已完成。
+- 规划：月历视图、上下月切换、点日期新建事项。
+- 我的：资料、隐藏完成开关、恢复演示数据、检查更新（引导下载 APK）。
+- 数据本地存储独立实现，与桌面 SQLite 不互通；APK 由 HBuilderX 打包。
+
 ## 项目结构
 
 ```text
@@ -27,6 +36,7 @@ sui-time/
 ├── desktop-client/              # Vue 3 + TypeScript 桌面界面
 ├── tauri-desktop/               # Tauri CLI、桌面开发和打包入口
 │   └── src-tauri/               # Rust command、SQLite、系统插件和桌面配置
+├── uni-client/                  # UniApp 安卓移动端（Vue 3、纯 JS、本地存储）
 ├── prototypes/                  # 可维护源码与单 HTML 交互原型
 ├── specs/                       # 功能基线、变更需求和验收证据
 ├── rules/                       # 长期项目架构、编码和验证规则
@@ -87,7 +97,9 @@ Vue 页面
 
 GitHub Actions 构建 macOS 与 Windows 安装包、签名更新资产并创建 Release，随后把不可变安装包和当前 `latest.json` 同步到 OSS。密钥只能配置在 GitHub Secrets/Variables，禁止写入仓库。
 
-浏览器模式只能验证“当前已是最新版本”的降级分支和通知界面；真实签名、下载、安装和重启必须使用 Tauri 安装包或 CI/Release 环境验证。
+安卓移动端不使用 Tauri updater。App 内”检查更新”读取 OSS 的 `sui-time/latest-android.json`，发现新版本后用系统浏览器打开 APK 直链下载，用户手动安装。APK 由 HBuilderX 打包后上传 Release 与 OSS，再生成该元数据文件。
+
+浏览器模式只能验证”当前已是最新版本”的降级分支和通知界面；真实签名、下载、安装和重启必须使用 Tauri 安装包或 CI/Release 环境验证。
 
 ## 本地开发
 
@@ -100,6 +112,9 @@ cd desktop-client
 npm install
 
 cd ../tauri-desktop
+npm install
+
+cd ../uni-client
 npm install
 ```
 
@@ -119,6 +134,15 @@ npm run dev
 
 浏览器界面使用内存演示数据，系统通知、备份恢复、真实更新安装等能力只在 Tauri 桌面环境可用。
 
+启动移动端 H5 预览（移动端开发主入口）：
+
+```bash
+cd uni-client
+npm run dev:h5
+```
+
+移动端 H5 使用本地存储演示数据，端口 5182；APK 打包见 `specs/baseline/mobile-client.md`。
+
 ## 构建与验证
 
 ```bash
@@ -131,8 +155,13 @@ cd ../tauri-desktop/src-tauri
 cargo test
 cargo fmt --check
 
+# 移动端 H5 与 APP 资源构建
+cd ../../uni-client
+npm run build:h5
+npm run build:app
+
 # 仓库空白和冲突检查
-cd ../..
+cd ..
 git diff --check
 ```
 
@@ -156,10 +185,11 @@ npm run tauri:build
 
 ## 当前限制
 
-- 当前没有移动客户端。
+- 移动端暂无云同步，与桌面数据不互通。
 - 当前没有云同步、跨设备同步或业务服务器。
 - 当前不使用 PostgreSQL 保存业务数据。
 - 提醒依赖应用保持运行并获得系统通知权限。
 - 备份恢复和真实更新安装只在 Tauri 桌面运行时可用。
+- 安卓 APK 由 HBuilderX 打包，真实安装与更新下载需真机验收。
 
 本地优先架构图的可编辑源文件位于 [`docs/assets/sui-time-local-first-sync.drawio`](docs/assets/sui-time-local-first-sync.drawio)。

@@ -27,3 +27,11 @@
 - 代码命名、缩进、括号和注释保持当前目录一致。
 - 非复用逻辑不单独抽方法；复用前先确认至少存在两个真实调用方或明显复杂边界。
 - 单个函数不超过 200 行，关键业务分支用简短中文注释说明原因，不解释显而易见语句。
+
+## 移动端（uni-client）
+
+- 使用 Vue 3 Composition API 与纯 JS（无 TypeScript/pinia/scss），布局单位用 rpx。
+- 数据访问只通过 `src/api/store.js`，持久化由 `src/api/storage.js` 统一封装。
+- 与桌面端共享语义的三个文件为 `types.ts`、`utils/task-occurrence.ts`、`utils/calendar-meta.ts`（移动端为 JS 版）；修改桌面端这些文件时同步核对 `uni-client` 对应实现。
+- 重复规则首版只支持 none/daily/weekly/monthly/yearly，编辑页不展示其余高级选项。
+- 安卓平台分支用 `// #ifdef APP-PLUS` 注释块隔离，H5 端保持演示行为。

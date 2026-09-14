@@ -5,10 +5,18 @@
 - `desktop-client/`：Vue 3、`<script setup>`、TypeScript、Vite 和桌面界面。
 - `tauri-desktop/`：Tauri CLI、桌面开发与打包脚本。
 - `tauri-desktop/src-tauri/`：Rust command、SQLite、系统插件和桌面配置。
+- `uni-client/`：UniApp（Vue 3、纯 JS、rpx）安卓移动端，本地存储独立实现，与桌面数据不互通。
 - `prototypes/`：脱离生产运行时的可交互原型，不作为业务数据真值。
 - `.github/workflows/release.yml`：macOS/Windows 构建、GitHub Release 和 OSS 更新元数据同步。
 
-当前应用只实现本地层。不得把 README 架构图中的移动端、同步 API、PostgreSQL 或 OSS 规划当作可调用服务。
+当前应用只实现本地层。不得把 README 架构图中的同步 API、PostgreSQL 或 OSS 同步规划当作可调用服务。
+
+## 移动端（uni-client）边界
+
+- 页面与逻辑纯前端实现，数据走 `uni.setStorageSync`（key `sui-time-mobile:v1`），不依赖桌面 Rust/SQLite。
+- 字段语义对齐 `desktop-client/src/types.ts`；`src/utils/occurrence.js` 复刻桌面重复实例展开。
+- APK 由 HBuilderX 云打包/本地打包产出（用户操作），CI 只做 H5 构建校验。
+- 安卓更新走 `sui-time/latest-android.json`（OSS），App 内引导浏览器下载 APK 手动安装，不使用 Tauri updater。
 
 ## 分层规则
 

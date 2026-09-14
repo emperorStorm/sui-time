@@ -1,6 +1,6 @@
 # 岁岁时光多端交互原型
 
-本目录是岁岁时光的需求与交互参考，不是生产客户端。当前只实现桌面端；移动端保留目录和数据语义说明，不代表移动应用已经存在。
+本目录是岁岁时光的需求与交互参考，不是生产客户端。桌面与移动端原型仅用于确认视觉与交互；生产移动端已由 `uni-client/` 实现，移动端原型保留为参考稿。
 
 ## 入口与交付物
 
@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 可维护源码 | `desktop/index.html` | 已实现，可直接用浏览器打开 |
 | 单文件评审稿 | `dist/sui-time-reference.html` | 由统一脚本生成，可独立打开 |
-| 移动端 | `mobile/README.md` | 仅预留，未实现 |
+| 移动端 | `mobile/index.html` | 参考稿，已由 `uni-client/` 生产实现 |
 | 共享数据 | `shared/data.js` | 原型模拟数据 |
 | 设计变量与素材 | `shared/tokens.css`、`shared/assets/` | 本地资源 |
 
@@ -26,6 +26,16 @@
 | 二级弹层 | 日期与时间 | 事项弹层“日期与时间” | 时间点、时间段、全天、清除 |
 | 二级弹层 | 重复规则 | 事项弹层“重复” | 不重复、日/周/月/年、记忆曲线 |
 | 弹层 | 基础设置 | 齿轮或账号菜单 | 主题、紧凑导航、仅显示本周、恢复数据 |
+
+移动端（`mobile/index.html`）页面清单：
+
+| 类型 | 名称 | 入口/动作 | 主要状态 |
+| --- | --- | --- | --- |
+| 主视图 | 事项 | 底部 Tab「事项」 | 分类筛选、今天/7天内/稍后分组、完成切换 |
+| 主视图 | 规划 | 底部 Tab「规划」 | 上下月、月历事项、溢出数量、点击日期新建 |
+| 主视图 | 我的 | 底部 Tab「我的」 | 资料卡、显示开关、恢复演示数据 |
+| 底部弹层 | 事项编辑 | 悬浮 + 或事项条目 | 新增、编辑、删除、校验失败 |
+| 底部弹层 | 检查更新 | 我的 → 检查更新 | 已是最新/发现新版本/下载中（界面示意） |
 
 ## 关键流程
 
@@ -77,4 +87,4 @@ python3 /Users/wangjun/.codex/skills/build-interactive-prototype/scripts/validat
 python3 /Users/wangjun/.codex/skills/build-interactive-prototype/scripts/export_single_html.py prototypes/sui-time-reference
 ```
 
-浏览器验收必须分别打开 `desktop/index.html` 和 `dist/sui-time-reference.html`，使用独立 Playwright Chromium 与临时用户数据目录。完成后关闭浏览器并清理临时目录。
+浏览器验收必须分别打开 `desktop/index.html` 和 `dist/sui-time-reference.html`，移动端打开 `mobile/index.html` 并使用移动视口，均使用独立 Playwright Chromium 与临时用户数据目录。完成后关闭浏览器并清理临时目录。

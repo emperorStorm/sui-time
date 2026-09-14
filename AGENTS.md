@@ -4,11 +4,12 @@
 
 ## 项目事实
 
-- 当前产品是本地优先的桌面待办与时间规划应用。
-- 前端为 Vue 3.5、TypeScript、Vite；原生层为 Tauri 2、Rust、SQLite。
-- 账号、会话、分类和事项保存在操作系统应用数据目录的 `sui-time.sqlite3`。
-- 当前运行时不依赖业务服务器。移动端、云同步、PostgreSQL 和 OSS 同步属于规划，不是已实现能力。
-- 包管理器使用 npm，保留两个目录中的 `package-lock.json`。
+- 当前产品是本地优先的待办与时间规划应用，含桌面端与安卓移动端。
+- 桌面端：前端为 Vue 3.5、TypeScript、Vite；原生层为 Tauri 2、Rust、SQLite。
+- 移动端：`uni-client/` 为 UniApp（Vue 3、纯 JS、rpx）安卓客户端，数据用本地存储独立实现，与桌面 SQLite 不互通。
+- 账号、会话、分类和事项保存在操作系统应用数据目录的 `sui-time.sqlite3`（桌面端）。
+- 当前运行时不依赖业务服务器。云同步、PostgreSQL 和 OSS 同步属于规划，不是已实现能力。
+- 包管理器使用 npm，保留三个目录中的 `package-lock.json`（desktop-client、tauri-desktop、uni-client）。
 
 ## 开始任务前
 
@@ -33,6 +34,7 @@
 cd desktop-client && npm run build
 cd tauri-desktop/src-tauri && cargo test
 cd tauri-desktop/src-tauri && cargo fmt --check
+cd uni-client && npm run build:h5
 git diff --check
 ```
 

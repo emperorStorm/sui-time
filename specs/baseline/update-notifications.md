@@ -32,3 +32,9 @@ updated: 2026-08-14
 
 - 浏览器模式只验证通知 UI 和无更新分支；真实下载、签名、安装、重启必须在 Tauri 安装包或 CI/Release 中验证。
 - 前端构建覆盖类型和模板，人工验收覆盖去重、已读、进度、失败重试和已安装状态。
+
+## 安卓移动端（uni-client）
+
+- Tauri updater 不支持安卓。安卓端检查 `sui-time/latest-android.json`（OSS），见 `specs/baseline/mobile-client.md`。
+- 安卓更新说明同样优先 GitHub compare，失败回退 manifest `notes`。
+- 下载为浏览器直链降级方案：`plus.runtime.openURL` 打开 APK，用户手动安装；原生下载安装器留待后续版本。
