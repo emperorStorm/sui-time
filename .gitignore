@@ -9,6 +9,8 @@ tauri-desktop/src-tauri/target/
 uni-client/node_modules/
 uni-client/dist/
 uni-client/unpackage/
+uni-client/android/
+uni-client/.android-sdk-cache/
 
 # Release secrets and local overrides
 .env

@@ -18,6 +18,11 @@
     "nvueCompiler": "uni-app",
     "compatible": {
       "ignoreVersion": true
+    },
+    "distribute": {
+      "android": {
+        "packageName": "fun.upup.suitime"
+      }
     }
   }
 }
