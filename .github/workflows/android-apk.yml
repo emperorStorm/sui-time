@@ -82,6 +82,8 @@ jobs:
         working-directory: uni-client/android
       - name: Upload APK to GitHub Release and OSS
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           apk=$(ls uni-client/android/app/build/outputs/apk/release/*.apk | head -1)
           [[ -n "$apk" ]] || { echo "未找到 APK"; exit 1; }
