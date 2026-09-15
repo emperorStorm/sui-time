@@ -80,9 +80,12 @@ jobs:
         shell: bash
         # 阿里云 Maven 镜像偶发 502，重试最多 3 次
         run: |
+          # 从 manifest.json 读取版本号传入 gradle
+          VC=$(node -p "require('$GITHUB_WORKSPACE/uni-client/src/manifest.json').versionCode")
+          VN=$(node -p "require('$GITHUB_WORKSPACE/uni-client/src/manifest.json').versionName")
           for attempt in 1 2 3; do
-            echo "==> gradle 构建第 $attempt 次"
-            if ./gradlew assembleRelease --no-daemon; then
+            echo "==> gradle 构建第 $attempt 次 (versionCode=$VC versionName=$VN)"
+            if ./gradlew assembleRelease --no-daemon -PversionCode="$VC" -PversionName="$VN"; then
               exit 0
             fi
             [[ $attempt -lt 3 ]] || exit 1
