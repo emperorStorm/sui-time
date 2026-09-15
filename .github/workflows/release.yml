@@ -96,7 +96,7 @@ jobs:
           args: ${{ matrix.args }} --config src-tauri/tauri.conf.release.json
 
   build-android-apk:
-    needs: release-info
+    needs: [release-info, build-and-release]
     permissions:
       contents: write
     uses: ./.github/workflows/android-apk.yml
