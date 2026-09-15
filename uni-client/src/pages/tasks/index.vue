@@ -1,34 +1,44 @@
 <template>
   <view class="page tasks-page">
     <view class="topbar">
-      <view class="topbar-title">事项</view>
-      <view class="topbar-action" @click="resetToday">↻</view>
+      <view class="topbar-menu" @click="onMenu">
+        <text class="menu-icon">≡</text>
+        <view v-if="todoCount" class="menu-badge"><text>{{ todoCount > 99 ? '99+' : todoCount }}</text></view>
+      </view>
+      <view class="topbar-title">本周事项 <text class="title-arrow">▾</text></view>
+      <view class="topbar-action" @click="onMore"><text>···</text></view>
     </view>
 
     <scroll-view class="filter-bar" scroll-x>
       <view :class="['filter-chip', 'chip-all', filter === 'all' ? 'active' : '']" @click="filter = 'all'"><text>全部</text></view>
-      <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', filter === cat.id ? 'active' : '']" :style="{ background: cat.color }" @click="filter = cat.id">
+      <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', 'chip-cat', filter === cat.id ? 'active' : '']" :style="{ background: cat.color, '--chip-color': cat.color }" @click="filter = cat.id">
         <text>{{ cat.name }}</text>
       </view>
+      <view class="filter-chip chip-add" @click="manageVisible = true"><text>＋</text></view>
     </scroll-view>
 
     <scroll-view class="task-scroll" scroll-y>
       <view v-if="groups.length" class="shell">
         <view v-for="group in groups" :key="group.label" class="task-group panel">
-          <view class="group-header">
+          <view class="group-header" @click="toggleGroup(group.label)">
             <text class="group-label">{{ group.label }}</text>
-            <text class="group-count">{{ group.items.length }}</text>
-          </view>
-          <view v-for="task in group.items" :key="task.id" class="task-item" @click="openEdit(task)">
-            <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="{ borderColor: colorOf(task) }" @click.stop="toggle(task)">
-              <text v-if="task.status === 'done'">✓</text>
+            <view class="group-right">
+              <text class="group-count">{{ group.items.length }}</text>
+              <text :class="['group-arrow', isCollapsed(group.label) ? 'collapsed' : '']">∧</text>
             </view>
-            <view class="task-main">
-              <text :class="['task-title', task.status === 'done' ? 'is-done' : '']">{{ task.title }}</text>
-              <text class="task-meta">{{ metaOf(task) }}</text>
-            </view>
-            <text class="task-chevron">›</text>
           </view>
+          <template v-if="!isCollapsed(group.label)">
+            <view v-for="task in group.items" :key="task.id" class="task-item" @click="openEdit(task)">
+              <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="checkStyle(task)" @click.stop="toggle(task)">
+                <text v-if="task.status === 'done'">✓</text>
+              </view>
+              <view class="task-main">
+                <text :class="['task-title', task.status === 'done' ? 'is-done' : '']">{{ task.title }}</text>
+                <text class="task-meta">{{ metaOf(task) }}</text>
+              </view>
+              <text class="task-chevron">⌄</text>
+            </view>
+          </template>
         </view>
       </view>
       <view v-else class="list-empty">
@@ -39,6 +49,7 @@
     <view class="fab" @click="openEdit(null)"><text>＋</text></view>
 
     <TaskEditSheet :visible="sheetVisible" :task="editingTask" @close="closeSheet" @saved="reload" />
+    <CategoryManageSheet :visible="manageVisible" @close="manageVisible = false" @changed="onCategoriesChanged" />
   </view>
 </template>
 
@@ -46,7 +57,8 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
-import { getCategories, listTasks, setTaskStatus, getSettings, categoryById } from '../../api/store'
+import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
+import { getCategories, listTasks, setTaskStatus, getSettings, categoryById, toggleGroupCollapsed, listChildren } from '../../api/store'
 import { repeatLabel } from '../../utils/occurrence'
 import { shortDate, weekday, todayString } from '../../utils/date'
 import { toast } from '../../utils/platform'
@@ -56,6 +68,15 @@ const filter = ref('all')
 const allTasks = ref([])
 const sheetVisible = ref(false)
 const editingTask = ref(null)
+const manageVisible = ref(false)
+const collapsedGroups = ref(getSettings().collapsedGroups || [])
+
+const todoCount = computed(() => allTasks.value.filter((task) => !task.parentTaskId && task.status !== 'done').length)
+
+function onCategoriesChanged() {
+  categories.value = getCategories()
+  if (filter.value !== 'all' && !categories.value.some((cat) => cat.id === filter.value)) filter.value = 'all'
+}
 
 const groups = computed(() => {
   const hideCompleted = getSettings().hideCompleted
@@ -77,6 +98,15 @@ onShow(load)
 function load() {
   allTasks.value = [...listTasks()]
   categories.value = [...getCategories()]
+  collapsedGroups.value = getSettings().collapsedGroups || []
+}
+
+function isCollapsed(label) {
+  return collapsedGroups.value.includes(label)
+}
+
+function toggleGroup(label) {
+  collapsedGroups.value = toggleGroupCollapsed(label)
 }
 
 function occursOnToday(task, today) {
@@ -118,17 +148,23 @@ function colorOf(task) {
   return categoryById(task.categoryId)?.color || '#8b98a8'
 }
 
+function checkStyle(task) {
+  const color = colorOf(task)
+  return task.status === 'done' ? { borderColor: color, background: color } : { borderColor: color }
+}
+
 function metaOf(task) {
   const parts = []
   if (task.plannedDate) {
     parts.push(task.plannedDate === todayString() ? '今天' : `${shortDate(task.plannedDate)} ${weekday(task.plannedDate)}`)
   }
   const kind = parseKind(task.repeatRule)
-  if (kind !== 'none') parts.push(repeatLabel(kind))
+  if (kind !== 'none') parts.push(`↻ ${repeatLabel(kind)}`)
   if (task.plannedTime) parts.push(task.plannedTime)
-  if (task.parentTaskId) {
-    const parent = allTasks.value.find((item) => item.id === task.parentTaskId)
-    if (parent) parts.push(`子任务·${parent.title}`)
+  const children = listChildren(task.id)
+  if (children.length) {
+    const done = children.filter((child) => child.status === 'done').length
+    parts.push(`子任务${done}/${children.length}`)
   }
   return parts.join(' ')
 }
@@ -152,10 +188,12 @@ function reload() {
   load()
 }
 
-function resetToday() {
-  filter.value = 'all'
-  load()
-  toast('已刷新')
+function onMenu() {
+  toast('菜单功能敬请期待')
+}
+
+function onMore() {
+  toast('更多功能敬请期待')
 }
 </script>
 
@@ -165,10 +203,75 @@ function resetToday() {
   flex-direction: column;
 }
 
+.topbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28rpx;
+}
+
+.topbar-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72rpx;
+  height: 72rpx;
+}
+
+.menu-icon {
+  color: #3d4a58;
+  font-size: 44rpx;
+  font-weight: 600;
+}
+
+.menu-badge {
+  position: absolute;
+  top: 6rpx;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32rpx;
+  height: 32rpx;
+  padding: 0 8rpx;
+  border-radius: 999rpx;
+  background: #f5533f;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+}
+
+.topbar-title {
+  flex: 1;
+  color: #26282d;
+  font-size: 34rpx;
+  font-weight: 600;
+  text-align: center;
+}
+
+.title-arrow {
+  color: #8a96a3;
+  font-size: 28rpx;
+}
+
+.topbar-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72rpx;
+  height: 72rpx;
+  color: #3d4a58;
+  font-size: 36rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+}
+
 .filter-bar {
   flex: 0 0 auto;
   white-space: nowrap;
-  padding: 20rpx 28rpx;
+  padding: 16rpx 28rpx;
   background: var(--panel);
   border-bottom: 2rpx solid var(--line);
 }
@@ -177,32 +280,58 @@ function resetToday() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 60rpx;
-  margin-right: 16rpx;
-  padding: 0 30rpx;
-  border-radius: 999rpx;
+  height: 56rpx;
+  margin-right: 2rpx;
+  padding: 0 28rpx;
+  border-radius: 10rpx;
   color: #fff;
   font-size: 26rpx;
+  font-weight: 400;
+}
+
+.filter-chip.chip-cat,
+.filter-chip.chip-add {
+  position: relative;
+  border-radius: 12rpx 12rpx 4rpx 12rpx;
+}
+
+.filter-chip.chip-cat::after,
+.filter-chip.chip-add::after {
+  content: '';
+  position: absolute;
+  right: 8rpx;
+  bottom: -8rpx;
+  border-left: 10rpx solid transparent;
+  border-right: 0 solid transparent;
+  border-top: 12rpx solid var(--chip-color, #a8cff0);
 }
 
 .filter-chip.chip-all {
-  background: #eceef2;
-  color: #4a4e54;
+  background: transparent;
+  color: #26282d;
+  padding: 0 20rpx;
+  margin-right: 12rpx;
 }
 
 .filter-chip.chip-all.active {
-  background: var(--blue);
-  color: #fff;
+  color: #26282d;
+  font-weight: 600;
+}
+
+.filter-chip.chip-add {
+  background: #a8cff0;
+  padding: 0 24rpx;
+  font-size: 32rpx;
 }
 
 .task-scroll {
   flex: 1;
   min-height: 0;
-  padding: 24rpx 28rpx 40rpx;
+  padding: 28rpx 28rpx 40rpx;
 }
 
 .task-group {
-  margin-bottom: 24rpx;
+  margin-bottom: 28rpx;
   overflow: hidden;
 }
 
@@ -210,50 +339,63 @@ function resetToday() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24rpx 32rpx 12rpx;
+  padding: 28rpx 32rpx 16rpx;
 }
 
 .group-label {
-  font-size: 30rpx;
-  font-weight: 700;
+  color: #26282d;
+  font-size: 32rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+}
+
+.group-right {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
 }
 
 .group-count {
-  color: var(--muted);
-  font-size: 24rpx;
+  color: #b8bdc4;
+  font-size: 26rpx;
+}
+
+.group-arrow {
+  color: #c4c9cf;
+  font-size: 26rpx;
+  transition: transform 0.2s ease;
+}
+
+.group-arrow.collapsed {
+  transform: rotate(180deg);
 }
 
 .task-item {
   display: flex;
   align-items: center;
-  gap: 20rpx;
-  padding: 24rpx 32rpx;
+  gap: 22rpx;
+  padding: 26rpx 32rpx;
 }
 
 .task-item + .task-item {
-  border-top: 2rpx solid var(--line);
+  border-top: 1rpx solid var(--line);
 }
 
 .task-item:active {
-  background: #f4f8fd;
+  background: #f6f9fc;
 }
 
 .task-check {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48rpx;
-  height: 48rpx;
-  flex: 0 0 48rpx;
-  border: 3rpx solid var(--blue);
+  width: 42rpx;
+  height: 42rpx;
+  flex: 0 0 42rpx;
+  border: 2.5rpx solid var(--blue);
   border-radius: 50%;
   color: #fff;
-  font-size: 26rpx;
-}
-
-.task-check.done {
-  background: var(--blue);
-  border-color: var(--blue);
+  font-size: 24rpx;
 }
 
 .task-main {
@@ -264,30 +406,32 @@ function resetToday() {
 .task-title {
   display: block;
   overflow: hidden;
-  color: #393c41;
+  color: #2e3136;
   font-size: 30rpx;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .task-title.is-done {
-  color: var(--muted);
+  color: #b8bdc4;
+  font-weight: 400;
   text-decoration: line-through;
 }
 
 .task-meta {
   display: block;
-  margin-top: 6rpx;
+  margin-top: 8rpx;
   overflow: hidden;
-  color: #a5a9ae;
+  color: #b8bdc4;
   font-size: 24rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .task-chevron {
-  color: #c4c9cf;
-  font-size: 36rpx;
+  color: #d3d7dc;
+  font-size: 30rpx;
 }
 
 .list-empty {
@@ -309,8 +453,9 @@ function resetToday() {
   border-radius: 50%;
   background: #4aa7f8;
   color: #fff;
-  font-size: 56rpx;
-  box-shadow: 0 10rpx 24rpx rgba(48, 147, 231, 0.4);
+  font-size: 52rpx;
+  font-weight: 300;
+  box-shadow: 0 12rpx 28rpx rgba(48, 147, 231, 0.32);
 }
 
 .fab:active {

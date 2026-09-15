@@ -127,13 +127,13 @@
 
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
       <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
-      <form class="modal-panel task-modal" @mousedown="closeTaskMenusOnOutsideClick" @submit.prevent="persistTaskDraft()">
-        <header class="task-modal-head"><span v-if="editingRepeatRule" class="task-check modal-check task-repeat" title="重复事项请在周或月视图中更新单次状态"><CircleDot :size="18" /></span><button v-else type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="savingTask || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost task-close" type="button" title="关闭任务弹窗" aria-label="关闭任务弹窗" @click="closeTaskModal"><X :size="19" /></button></div></header>
+      <form class="modal-panel task-modal" @mousedown="closeTaskMenusOnOutsideClick($event); handleTaskModalBlankClick($event)" @submit.prevent="persistTaskDraft()">
+        <header class="task-modal-head"><span v-if="editingRepeatRule" class="task-check modal-check task-repeat" title="重复事项请在周或月视图中更新单次状态"><CircleDot :size="18" /></span><button v-else type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="savingTask || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" @blur="flushTaskDraftSave" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost task-close" type="button" title="关闭任务弹窗" aria-label="关闭任务弹窗" @click="closeTaskModal"><X :size="19" /></button></div></header>
         <Transition name="popover"><div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="selectTaskPriority(option.value)"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div></Transition>
         <Transition name="popover"><div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div></Transition>
         <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
-<section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id && !childDropAfter, 'is-drag-over-after': dragOverChildId === subtask.id && childDropAfter }]" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id, $event)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" draggable="true" @dragstart.stop="startChildDrag(subtask.id, $event)" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
-        <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。"></textarea></label>
+<section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id && !childDropAfter, 'is-drag-over-after': dragOverChildId === subtask.id && childDropAfter }]" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id, $event)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" draggable="true" @dragstart.stop="startChildDrag(subtask.id, $event)" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @blur="flushTaskDraftSave" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
+        <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。" @blur="flushTaskDraftSave"></textarea></label>
         <footer><div class="task-footer-start"><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><button v-if="taskDraft.id && !editingRepeatRule && taskDraftStatus !== 'failed'" class="quiet-button failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button></div><span v-if="taskSaveError || savingTask" class="task-save-state" :class="{ error: taskSaveError }">{{ taskSaveError || '正在保存…' }}</span><button v-if="taskSaveError" class="quiet-button" type="button" @click="retryTaskAutoSave">重试</button></footer>
       </form>
       </div>
@@ -210,7 +210,7 @@ const draggedTaskId = ref<string | null>(null)
 const monthOverflowDate = ref<string | null>(null)
 const monthOverflowPanel = ref<HTMLElement | null>(null)
 const monthOverflowStyle = ref<Record<string, string>>({})
-const version = ref('0.4.0')
+const version = ref('0.5.0')
 const notice = ref<Notice | null>(null)
 const submitting = ref(false)
 const savingShowCompleted = ref(false)
@@ -257,7 +257,7 @@ const draggedChildId = ref<string | null>(null)
 const dragOverChildId = ref<string | null>(null)
 const childDropAfter = ref(false)
 const taskSaveError = ref('')
-const taskAutoSaveTimer = ref<number | undefined>(undefined)
+const taskDraftDirty = ref(false)
 const taskAutoSaveQueued = ref(false)
 const taskAutoSaveSuspended = ref(false)
 const priorityOptions: Array<{ value: Priority; label: string; mark: string }> = [
@@ -346,6 +346,7 @@ onMounted(async () => {
   document.addEventListener('keydown', closeTaskModalOnEscape)
   document.addEventListener('scroll', closeMonthOverflowOnScroll, true)
   window.addEventListener('resize', closeMonthOverflow)
+  window.addEventListener('blur', flushTaskDraftOnWindowBlur)
   try {
     version.value = await currentVersion()
     bootState.value = await getBootState()
@@ -372,10 +373,10 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', closeTaskModalOnEscape)
   document.removeEventListener('scroll', closeMonthOverflowOnScroll, true)
   window.removeEventListener('resize', closeMonthOverflow)
+  window.removeEventListener('blur', flushTaskDraftOnWindowBlur)
   window.clearTimeout(filterTimer)
   window.clearTimeout(midnightRefreshTimer)
   window.clearTimeout(monthOverflowCloseTimer)
-  window.clearTimeout(taskAutoSaveTimer.value)
   reminderScheduler?.stop()
 })
 
@@ -393,7 +394,7 @@ watch(currentView, view => {
   void refreshData().catch(error => showNotice(messageOf(error), 'error'))
 })
 watch([taskDraft, repeatDraft, childDrafts], () => {
-  if (taskModalOpen.value && !taskAutoSaveSuspended.value) scheduleTaskAutoSave()
+  if (taskModalOpen.value && !taskAutoSaveSuspended.value) taskDraftDirty.value = true
 }, { deep: true, flush: 'sync' })
 
 async function submitAuth() {
@@ -542,7 +543,7 @@ async function resetCurrentDate() {
 
 async function openTaskModal(categoryId?: string | null, item?: Task, date?: string) {
   taskAutoSaveSuspended.value = true
-  window.clearTimeout(taskAutoSaveTimer.value)
+  taskDraftDirty.value = false
   const occurrence = item ? parseOccurrenceId(item.id) : null
   editingOccurrence.value = occurrence ? { source: tasks.value.find(task => task.id === occurrence.sourceId) || item!, date: occurrence.date } : null
   taskDraftStatus.value = item?.status || 'todo'
@@ -655,6 +656,7 @@ async function persistTaskDraft(rememberPriority = true, showValidation = true) 
     persistedChildIds.value = new Set(savedChildren.map(child => child.id))
     deletedChildIds.value = []
     taskAutoSaveSuspended.value = false
+    taskDraftDirty.value = false
     await refreshData()
     void reminderScheduler?.sync()
     return true
@@ -668,21 +670,15 @@ async function persistTaskDraft(rememberPriority = true, showValidation = true) 
   }
 }
 
-function scheduleTaskAutoSave(delay = 500) {
-  if (!taskModalOpen.value || taskAutoSaveSuspended.value) return
-  window.clearTimeout(taskAutoSaveTimer.value)
-  taskAutoSaveTimer.value = window.setTimeout(() => { taskAutoSaveQueued.value = true; void runTaskAutoSave() }, delay)
-}
-async function runTaskAutoSave() {
-  if (!taskAutoSaveQueued.value || savingTask.value) return
-  taskAutoSaveQueued.value = false
+async function flushTaskDraftSave() {
+  if (!taskModalOpen.value || taskAutoSaveSuspended.value || !taskDraftDirty.value) return
   await persistTaskDraft(true, false)
-  if (taskAutoSaveQueued.value) scheduleTaskAutoSave(0)
 }
-function retryTaskAutoSave() { taskSaveError.value = ''; taskAutoSaveQueued.value = true; void runTaskAutoSave() }
+function flushTaskDraftOnWindowBlur() { void flushTaskDraftSave() }
+function retryTaskAutoSave() { taskSaveError.value = ''; taskDraftDirty.value = true; void flushTaskDraftSave() }
 async function saveTaskForm() {
-  taskAutoSaveQueued.value = true
-  await runTaskAutoSave()
+  taskDraftDirty.value = true
+  await flushTaskDraftSave()
 }
 
 async function deleteTaskFromModal() {
@@ -890,8 +886,9 @@ function openTaskFromMonthOverflow(item: Task) { closeMonthOverflow(); openTaskM
 function categoryTaskCount(categoryId: string) { return tasks.value.filter(item => item.categoryId === categoryId).length }
 function taskSummary(item: Task) { return [item.plannedDate ? item.plannedDate.slice(5).replace('-', '月') + '日' : '未安排日期', item.plannedTime || '', item.notes ? '有备注' : ''].filter(Boolean).join(' · ') }
 function clearFilters() { search.value = ''; rangeStart.value = ''; rangeEnd.value = ''; refreshData() }
-function closeTaskModal() { window.clearTimeout(taskAutoSaveTimer.value); taskAutoSaveTimer.value = undefined; taskModalOpen.value = false; priorityOpen.value = false; categoryMenuOpen.value = false; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0; timeOpen.value = false; reminderOpen.value = false; reminderPermissionGuideOpen.value = false; repeatOpen.value = false; draggedChildId.value = null; dragOverChildId.value = null }
+function closeTaskModal() { void flushTaskDraftSave(); taskModalOpen.value = false; priorityOpen.value = false; categoryMenuOpen.value = false; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0; timeOpen.value = false; reminderOpen.value = false; reminderPermissionGuideOpen.value = false; repeatOpen.value = false; draggedChildId.value = null; dragOverChildId.value = null }
 function closeTaskMenusOnOutsideClick(event: MouseEvent) { if (!(event.target instanceof Element)) return; if (!event.target.closest('.priority-trigger, .priority-menu')) priorityOpen.value = false; if (!event.target.closest('.task-category-trigger, .task-category-menu')) categoryMenuOpen.value = false }
+function handleTaskModalBlankClick(event: MouseEvent) { if (!(event.target instanceof Element)) return; if (!event.target.closest('input, textarea, select, button, a, [draggable="true"]')) void flushTaskDraftSave() }
 function cancelTaskCompletion() { if (updatingTaskStatus.value) return; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0 }
 async function saveOccurrence(source: Task, date: string, input: TaskInput, status?: Task['status'], patch: { deleted?: boolean; plannedDate?: string | null } = {}) {
   const overrides = parseOverrides(source)
@@ -906,7 +903,7 @@ async function saveOccurrenceStatus(source: Task, date: string, status: Task['st
   return saveTask({ ...source, occurrenceOverrides: JSON.stringify(overrides) })
 }
 function chooseRepeat(kind: RepeatRule['kind']) { repeatDraft.kind = kind; if (!repeatDraft.endMode) repeatDraft.endMode = 'never' }
-function applyRepeat() { taskDraft.repeatRule = JSON.stringify(repeatDraft); repeatOpen.value = false; scheduleTaskAutoSave(0) }
+function applyRepeat() { taskDraft.repeatRule = JSON.stringify(repeatDraft); repeatOpen.value = false; void flushTaskDraftSave() }
 function addChildDraft(afterId?: string) {
   const now = Date.now()
   const child = { id: crypto.randomUUID(), title: '', categoryId: null, categoryName: null, categoryColor: null, categoryIcon: null, plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day' as const, priority: 'not_urgent_not_important' as const, repeatRule: '{"kind":"none"}', occurrenceOverrides: '{}', reminderOffsets: [], sortOrder: childDrafts.value.length, parentTaskId: taskDraft.id || null, status: 'todo' as const, failureReason: null, notes: '', createdAt: now, completedAt: null, updatedAt: now }
@@ -939,7 +936,7 @@ function dropChild(targetId: string) {
   const [moved] = childDrafts.value.splice(sourceIndex, 1)
   const newTargetIndex = childDrafts.value.findIndex(item => item.id === targetId)
   if (newTargetIndex >= 0) childDrafts.value.splice(newTargetIndex + (childDropAfter.value ? 1 : 0), 0, moved)
-  scheduleTaskAutoSave(0)
+  void flushTaskDraftSave()
   endChildDrag()
 }
 function endChildDrag() { draggedChildId.value = null; dragOverChildId.value = null; childDropAfter.value = false }
@@ -947,7 +944,7 @@ async function toggleChildDraftStatus(subtask: Task) {
   if (savingTask.value || updatingTaskStatus.value) return
   subtask.status = subtask.status === 'done' ? 'todo' : 'done'
   syncTaskDraftStatusWithChildren()
-  scheduleTaskAutoSave(0)
+  void flushTaskDraftSave()
 }
 function syncTaskDraftStatusWithChildren() {
   if (editingOccurrence.value || taskDraftStatus.value === 'failed' || repeatDraft.kind !== 'none' || !effectiveChildDrafts.value.length) return
@@ -957,15 +954,15 @@ function removeChildDraft(id: string) {
   if (persistedChildIds.value.has(id)) deletedChildIds.value = [...deletedChildIds.value, id]
   childDrafts.value = childDrafts.value.filter(item => item.id !== id)
   syncTaskDraftStatusWithChildren()
-  scheduleTaskAutoSave(0)
+  void flushTaskDraftSave()
 }
-function selectTaskCategory(categoryId: string) { taskDraft.categoryId = categoryId; categoryMenuOpen.value = false; scheduleTaskAutoSave(0) }
-function selectTaskPriority(priority: Priority) { taskDraft.priority = priority; priorityOpen.value = false; scheduleTaskAutoSave(0) }
+function selectTaskCategory(categoryId: string) { taskDraft.categoryId = categoryId; categoryMenuOpen.value = false; void flushTaskDraftSave() }
+function selectTaskPriority(priority: Priority) { taskDraft.priority = priority; priorityOpen.value = false; void flushTaskDraftSave() }
 function applyTimeSelection(value: TaskTimeSelection) {
   Object.assign(taskDraft, value)
   if (value.scheduleKind === 'all_day') taskDraft.reminderOffsets = []
   timeOpen.value = false
-  scheduleTaskAutoSave(0)
+  void flushTaskDraftSave()
 }
 async function openReminderSheet() {
   if (!canSetReminder.value) return
@@ -1051,7 +1048,7 @@ function saveReminderSettings() {
   }
   taskDraft.reminderOffsets = [...reminderDraftOffsets.value]
   reminderOpen.value = false
-  scheduleTaskAutoSave(0)
+  void flushTaskDraftSave()
 }
 function formatReminderOffset(offset: number) { return offset === 0 ? '准时提醒' : offset >= 60 ? `提前 ${offset / 60} 小时` : `提前 ${offset} 分钟` }
 function moveWeek(offset: number) { weekAnchor.value = addDays(weekAnchor.value, offset * 7) }

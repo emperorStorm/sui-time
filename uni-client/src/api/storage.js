@@ -7,11 +7,11 @@ function seedData() {
   const today = todayString()
   return {
     profile: { name: '暴走的小陌', phone: '182****9035', signature: '暴走方知深浅' },
-    settings: { hideCompleted: true },
+    settings: { hideCompleted: true, collapsedGroups: [] },
     categories: [
-      { id: 'work', name: '工作', color: '#7299d5', icon: '▣', sortOrder: 0 },
-      { id: 'growth', name: '自增', color: '#12bd75', icon: '▮', sortOrder: 1 },
-      { id: 'life', name: '生活', color: '#ff8545', icon: '♨', sortOrder: 2 }
+      { id: 'work', name: '工作', color: '#7299d5', icon: 'monitor', sortOrder: 0 },
+      { id: 'growth', name: '自增', color: '#12bd75', icon: 'bookmark', sortOrder: 1 },
+      { id: 'life', name: '生活', color: '#ff8545', icon: 'flower', sortOrder: 2 }
     ],
     tasks: [
       { id: 't1', title: '一体化门户集成', categoryId: 'growth', plannedDate: today, plannedTime: null, scheduleKind: 'all_day', priority: 'urgent_not_important', repeatRule: '{"kind":"none"}', parentTaskId: null, status: 'todo', notes: '', createdAt: Date.now(), updatedAt: Date.now() },
@@ -29,7 +29,9 @@ let cache = null
 export function load() {
   if (cache) return cache
   try {
-    const raw = uni.getStorageSync(STORAGE_KEY)
+    let raw = uni.getStorageSync(STORAGE_KEY)
+    // H5 下 uni.getStorageSync 可能返回 {type, data} 包装结构，需解包
+    if (raw && raw.data && typeof raw.data === 'object' && (raw.data.categories || raw.data.tasks)) raw = raw.data
     if (raw && raw.categories && raw.tasks) {
       cache = raw
       return cache

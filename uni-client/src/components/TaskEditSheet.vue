@@ -1,6 +1,7 @@
 <template>
-  <view v-if="visible" class="sheet-layer">
-    <view class="sheet">
+  <transition name="sheet">
+    <view v-if="visible" class="sheet-layer" @click="emit('close')">
+      <view class="sheet" @click.stop>
       <view class="sheet-header">
         <view v-if="draft.id" class="sheet-delete" @click="remove">删除</view>
         <view v-else class="sheet-delete spacer" />
@@ -46,8 +47,9 @@
         </view>
         <textarea class="note-area" v-model="draft.notes" placeholder="备注：记录一些细节，未来的自己会感谢你。" maxlength="500" />
       </scroll-view>
+      </view>
     </view>
-  </view>
+  </transition>
 </template>
 
 <script setup>
@@ -64,7 +66,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'saved'])
 
-const categories = getCategories()
+const categories = ref(getCategories())
 const repeatKinds = ['none', 'daily', 'weekly', 'monthly', 'yearly']
 const priorities = [
   ['urgent_important', '重要且紧急'],
@@ -76,7 +78,7 @@ const priorities = [
 const draft = reactive({
   id: '',
   title: '',
-  categoryId: categories[0]?.id || '',
+  categoryId: categories.value[0]?.id || '',
   plannedDate: '',
   repeatKind: 'none',
   priority: 'not_urgent_not_important',
@@ -88,13 +90,14 @@ watch(
   () => props.visible,
   (visible) => {
     if (!visible) return
+    categories.value = getCategories()
     const source = props.task
     if (source && source.id) {
       const loaded = findTask(source.id)
       Object.assign(draft, {
         id: source.id,
         title: loaded?.title || '',
-        categoryId: loaded?.categoryId || categories[0]?.id || '',
+        categoryId: loaded?.categoryId || categories.value[0]?.id || '',
         plannedDate: loaded?.plannedDate || '',
         repeatKind: parseRepeatKind(loaded?.repeatRule),
         priority: loaded?.priority || 'not_urgent_not_important',
@@ -105,7 +108,7 @@ watch(
       Object.assign(draft, {
         id: '',
         title: '',
-        categoryId: categories[0]?.id || '',
+        categoryId: categories.value[0]?.id || '',
         plannedDate: props.presetDate || '',
         repeatKind: 'none',
         priority: 'not_urgent_not_important',
@@ -183,9 +186,29 @@ function remove() {
 </script>
 
 <style scoped>
+.sheet-enter-active,
+.sheet-leave-active {
+  transition: opacity 0.28s ease;
+}
+
+.sheet-enter-from,
+.sheet-leave-to {
+  opacity: 0;
+}
+
+.sheet-enter-active .sheet,
+.sheet-leave-active .sheet {
+  transition: transform 0.28s ease;
+}
+
+.sheet-enter-from .sheet,
+.sheet-leave-to .sheet {
+  transform: translateY(100%);
+}
+
 .sheet-layer {
   position: fixed;
-  z-index: 200;
+  z-index: 1000;
   inset: 0;
   display: flex;
   align-items: flex-end;

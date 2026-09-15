@@ -1,6 +1,7 @@
 <template>
-  <view v-if="visible" class="sheet-layer" @click="close">
-    <view class="sheet update-sheet" @click.stop>
+  <transition name="sheet">
+    <view v-if="visible" class="sheet-layer" @click="close">
+      <view class="sheet update-sheet" @click.stop>
       <view v-if="status === 'found'" class="update-body">
         <view class="update-icon">⇪</view>
         <text class="update-title">发现新版本 v{{ latestVersion }}</text>
@@ -24,8 +25,9 @@
         <text class="update-desc">岁岁时光 v{{ currentVersion }}</text>
         <view class="primary-button" @click="close">完成</view>
       </view>
+      </view>
     </view>
-  </view>
+  </transition>
 </template>
 
 <script setup>
@@ -51,9 +53,29 @@ function download() {
 </script>
 
 <style scoped>
+.sheet-enter-active,
+.sheet-leave-active {
+  transition: opacity 0.28s ease;
+}
+
+.sheet-enter-from,
+.sheet-leave-to {
+  opacity: 0;
+}
+
+.sheet-enter-active .sheet,
+.sheet-leave-active .sheet {
+  transition: transform 0.28s ease;
+}
+
+.sheet-enter-from .sheet,
+.sheet-leave-to .sheet {
+  transform: translateY(100%);
+}
+
 .sheet-layer {
   position: fixed;
-  z-index: 200;
+  z-index: 1000;
   inset: 0;
   display: flex;
   align-items: flex-end;

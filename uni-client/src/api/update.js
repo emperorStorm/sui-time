@@ -6,7 +6,7 @@ const UPDATE_MANIFEST_URL = `${OSS_BASE_URL}/sui-time/latest-android.json`
 const GITHUB_REPOSITORY = 'emperorStorm/sui-time'
 const GITHUB_REQUEST_TIMEOUT = 8000
 
-export const APP_VERSION = '0.4.0'
+export const APP_VERSION = '0.5.0'
 
 function parseVersion(value) {
   const parts = String(value || '').replace(/^v/, '').split('.')

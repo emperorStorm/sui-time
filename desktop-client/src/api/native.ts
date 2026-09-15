@@ -378,7 +378,7 @@ export async function rescheduleTask(taskId: string, plannedDate: string | null)
 }
 
 export async function currentVersion() {
-  return isTauriRuntime() ? getVersion() : '0.4.0'
+  return isTauriRuntime() ? getVersion() : '0.5.0'
 }
 
 export interface UpdateCheckResult {

@@ -10,6 +10,40 @@ export function categoryById(id) {
   return load().categories.find((item) => item.id === id) || null
 }
 
+export function saveCategory(category) {
+  const data = load()
+  const now = Date.now()
+  if (category.id) {
+    const index = data.categories.findIndex((item) => item.id === category.id)
+    if (index >= 0) data.categories[index] = { ...data.categories[index], ...category, updatedAt: now }
+  } else {
+    category.id = `c${now}`
+    category.sortOrder = data.categories.length
+    category.createdAt = now
+    category.updatedAt = now
+    data.categories.push({ ...category })
+  }
+  persist()
+  return category
+}
+
+export function reorderCategories(ids) {
+  const data = load()
+  ids.forEach((id, index) => {
+    const cat = data.categories.find((item) => item.id === id)
+    if (cat) cat.sortOrder = index
+  })
+  data.categories.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+  persist()
+}
+
+export function removeCategory(id) {
+  const data = load()
+  data.categories = data.categories.filter((item) => item.id !== id)
+  data.tasks.forEach((task) => { if (task.categoryId === id) task.categoryId = null })
+  persist()
+}
+
 export function listTasks() {
   return load().tasks
 }
@@ -105,6 +139,17 @@ export function setSetting(key, value) {
   const data = load()
   data.settings[key] = value
   persist()
+}
+
+export function toggleGroupCollapsed(label) {
+  const data = load()
+  const collapsed = [...(data.settings.collapsedGroups || [])]
+  const index = collapsed.indexOf(label)
+  if (index >= 0) collapsed.splice(index, 1)
+  else collapsed.push(label)
+  data.settings.collapsedGroups = collapsed
+  persist()
+  return collapsed
 }
 
 export function getProfile() {

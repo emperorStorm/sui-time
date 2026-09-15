@@ -2,7 +2,9 @@
   "pages": [
     { "path": "pages/tasks/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "事项" } },
     { "path": "pages/planning/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "规划" } },
-    { "path": "pages/profile/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "我的" } }
+    { "path": "pages/profile/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "我的" } },
+    { "path": "pages/diary/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "日记" } },
+    { "path": "pages/goals/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "目标" } }
   ],
   "tabBar": {
     "color": "#8a96a3",
@@ -10,9 +12,11 @@
     "backgroundColor": "#ffffff",
     "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/tasks/index", "text": "事项" },
-      { "pagePath": "pages/planning/index", "text": "规划" },
-      { "pagePath": "pages/profile/index", "text": "我的" }
+      { "pagePath": "pages/diary/index", "text": "日记", "iconPath": "static/tabbar/diary.png", "selectedIconPath": "static/tabbar/diary-active.png" },
+      { "pagePath": "pages/tasks/index", "text": "事项", "iconPath": "static/tabbar/tasks.png", "selectedIconPath": "static/tabbar/tasks-active.png" },
+      { "pagePath": "pages/planning/index", "text": "规划", "iconPath": "static/tabbar/planning.png", "selectedIconPath": "static/tabbar/planning-active.png" },
+      { "pagePath": "pages/goals/index", "text": "目标", "iconPath": "static/tabbar/goals.png", "selectedIconPath": "static/tabbar/goals-active.png" },
+      { "pagePath": "pages/profile/index", "text": "我的", "iconPath": "static/tabbar/profile.png", "selectedIconPath": "static/tabbar/profile-active.png" }
     ]
   },
   "globalStyle": {

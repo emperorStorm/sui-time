@@ -2,14 +2,15 @@
   "name": "岁岁时光",
   "appid": "__UNI__DACC2E3",
   "description": "本地优先的待办与时间规划",
-  "versionName": "0.4.0",
-  "versionCode": "400",
+  "versionName": "0.5.0",
+  "versionCode": "500",
   "transformPx": false,
   "h5": {
     "router": {
       "mode": "hash"
     },
     "devServer": {
+      "host": "0.0.0.0",
       "port": 5182
     }
   },

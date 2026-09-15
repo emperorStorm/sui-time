@@ -7,16 +7,16 @@ page,
 body {
   --ink: #26282d;
   --muted: #969ba5;
-  --line: #eceef2;
-  --canvas: #f7f8fa;
+  --line: #f0f1f4;
+  --canvas: #f5f6f8;
   --panel: #ffffff;
   --blue: #2996f6;
   --blue-soft: #dceeff;
   --green: #10bf75;
   --orange: #ff8445;
   --danger: #f06368;
-  --radius: 24rpx;
-  --shadow: 0 16rpx 36rpx rgba(30, 44, 61, 0.1);
+  --radius: 28rpx;
+  --shadow: 0 8rpx 28rpx rgba(30, 44, 61, 0.07);
 }
 
 page {
@@ -81,5 +81,13 @@ page {
 
 .topbar .topbar-action:active {
   background: #eef2f6;
+}
+
+/* H5 下 uni-modal 需高于底部弹层（sheet-layer z-index 1000）与原生 tabBar */
+uni-modal,
+.uni-modal,
+uni-modal .uni-modal__mask,
+uni-modal .uni-modal__content {
+  z-index: 2000 !important;
 }
 </style>
