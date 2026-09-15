@@ -97,6 +97,8 @@ jobs:
 
   build-android-apk:
     needs: release-info
+    permissions:
+      contents: write
     uses: ./.github/workflows/android-apk.yml
     with:
       tag: ${{ needs.release-info.outputs.tag }}
