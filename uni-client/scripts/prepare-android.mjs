@@ -84,7 +84,7 @@ async function main() {
   }
 
   console.log('==> 4/5 注入 uni-app www 资源…');
-  const wwwDest = path.join(out, 'app', 'src', 'main', 'assets', 'apps', '__UNI__SUI_TIME', 'www');
+  const wwwDest = path.join(out, 'app', 'src', 'main', 'assets', 'apps', '__UNI__DACC2E3', 'www');
   await copyDir(www, wwwDest);
 
   console.log('==> 5/5 渲染模板（appkey/版本/签名）…');
