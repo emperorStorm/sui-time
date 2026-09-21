@@ -95,7 +95,7 @@
               <section v-for="day in monthDays" :key="day.date" :class="['month-day', { muted: !day.inMonth, today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
                 <header>
                   <div class="month-date-meta"><time :datetime="day.date">{{ day.day }}</time><span class="month-lunar">{{ day.lunarLabel }}</span></div>
-                  <div class="month-date-actions"><span v-if="day.marker" class="month-calendar-marker" :title="day.marker">{{ day.marker }}</span><button v-if="day.tasks.length > 4" class="more-items" type="button" :aria-label="`${day.date} 还有 ${day.tasks.length - 4} 项，查看当天全部事项`" aria-haspopup="dialog" :aria-expanded="monthOverflowDate === day.date" @mouseenter="openMonthOverflow(day.date, $event)" @mouseleave="scheduleMonthOverflowClose" @focus="openMonthOverflow(day.date, $event)" @blur="scheduleMonthOverflowClose" @click="openMonthOverflow(day.date, $event)">{{ day.tasks.length - 4 }}+</button><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button></div>
+                  <div class="month-date-actions"><span v-if="day.holiday" class="month-holiday-badge" :class="day.holiday.isOffDay ? 'off' : 'work'" role="img" :title="holidayDescription(day.holiday)" :aria-label="holidayDescription(day.holiday)">{{ day.holiday.isOffDay ? '休' : '班' }}</span><span v-if="day.marker" class="month-calendar-marker" :title="day.marker">{{ day.marker }}</span><button v-if="day.tasks.length > 4" class="more-items" type="button" :aria-label="`${day.date} 还有 ${day.tasks.length - 4} 项，查看当天全部事项`" aria-haspopup="dialog" :aria-expanded="monthOverflowDate === day.date" @mouseenter="openMonthOverflow(day.date, $event)" @mouseleave="scheduleMonthOverflowClose" @focus="openMonthOverflow(day.date, $event)" @blur="scheduleMonthOverflowClose" @click="openMonthOverflow(day.date, $event)">{{ day.tasks.length - 4 }}+</button><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button></div>
                 </header>
                 <div class="month-items">
                   <button v-for="item in day.tasks.slice(0, 4)" :key="item.id" :class="['month-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button>
@@ -179,12 +179,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { AlarmClock, ArrowRight, BellRing, BookOpen, BriefcaseBusiness, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, CircleMinus, Dumbbell, Download, Eye, EyeOff, GripVertical, HeartPulse, House, Info, Lightbulb, LayoutGrid, LogOut, Pencil, Plane, Plus, RefreshCw, RotateCcw, Search, ShoppingBag, Tags as CategoryIcon, Target, Trash2, Upload, UsersRound, Utensils, WalletCards, X } from 'lucide-vue-next'
-import { completeTaskWithChildren, createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, getLastTaskCategory, getLastTaskPriority, listCategories, listTaskChildren, listTasks, loginUser, logoutUser, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveLastTaskCategory, saveLastTaskPriority, saveShowCompleted, saveTask, setTaskStatus, syncTaskChildren } from './api/native'
+import { completeTaskWithChildren, createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, getCachedHolidayCalendar, getLastTaskCategory, getLastTaskPriority, listCategories, listTaskChildren, listTasks, loginUser, logoutUser, refreshHolidayCalendar, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveLastTaskCategory, saveLastTaskPriority, saveShowCompleted, saveTask, setTaskStatus, syncTaskChildren } from './api/native'
 import type { UpdateCheckResult } from './api/native'
 import AppNotificationCenter from './components/AppNotificationCenter.vue'
 import TaskDateTimePicker, { type TaskTimeSelection } from './components/TaskDateTimePicker.vue'
 import { createTaskReminderScheduler, getReminderPermission, openReminderNotificationSettings, requestReminderPermission, sendReminderTestNotification, type ReminderPermission, type ReminderPermissionResult } from './composables/use-task-reminders'
-import type { BootState, Category, Priority, RepeatRule, ScheduleKind, ShowCompletedByView, Task, TaskInput, TaskView, UserSession } from './types'
+import type { BootState, Category, HolidayDay, Priority, RepeatRule, ScheduleKind, ShowCompletedByView, Task, TaskInput, TaskView, UserSession } from './types'
 import { resolveCalendarMeta } from './utils/calendar-meta'
 import { isRepeatingTask, parseOccurrenceId, parseOverrides, parseRepeatRule, tasksForDate as resolveTasksForDate } from './utils/task-occurrence'
 
@@ -206,6 +206,7 @@ const showCompletedByView = ref<ShowCompletedByView>({ all: false, week: false, 
 const weekAnchor = ref(todayString())
 const monthAnchor = ref(todayString())
 const todayDate = ref(todayString())
+const holidayByDate = ref<Record<string, HolidayDay>>({})
 const draggedTaskId = ref<string | null>(null)
 const monthOverflowDate = ref<string | null>(null)
 const monthOverflowPanel = ref<HTMLElement | null>(null)
@@ -305,7 +306,9 @@ const taskGroups = computed(() => categories.value.map(category => ({ ...categor
 const selectedTaskCategory = computed(() => categories.value.find(category => category.id === taskDraft.categoryId))
 const orderedCategories = computed(() => [...categories.value].sort((left, right) => left.sortOrder - right.sortOrder))
 const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) => ({ date, day: Number(date.slice(-2)), weekday: weekdayLabels[index] })))
-const monthDays = computed(() => calendarDays(monthAnchor.value).map(day => ({ ...day, ...resolveCalendarMeta(day.date), tasks: tasksForDate(day.date) })))
+const monthCalendarDays = computed(() => calendarDays(monthAnchor.value))
+const visibleHolidayYears = computed(() => [...new Set(monthCalendarDays.value.map(day => Number(day.date.slice(0, 4))))])
+const monthDays = computed(() => monthCalendarDays.value.map(day => ({ ...day, ...resolveCalendarMeta(day.date), holiday: holidayByDate.value[day.date] || null, tasks: tasksForDate(day.date) })))
 const monthWeekCount = computed(() => monthDays.value.length / 7)
 const monthOverflowTasks = computed(() => monthDays.value.find(day => day.date === monthOverflowDate.value)?.tasks || [])
 const weekLabel = computed(() => formatMonth(weekAnchor.value))
@@ -338,6 +341,15 @@ const reminderPermissionGuideDescription = computed(() => {
 let reminderScheduler: ReturnType<typeof createTaskReminderScheduler> | null = null
 let monthOverflowTrigger: HTMLElement | null = null
 let monthOverflowCloseTimer: number | undefined
+let holidayRefreshRequestId = 0
+
+function handleWindowFocus() {
+  if (session.value) void refreshVisibleHolidayCalendar(true)
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible' && session.value) void refreshVisibleHolidayCalendar(true)
+}
 
 onMounted(async () => {
   document.addEventListener('mousedown', closeBrandMenuOnOutsideClick)
@@ -347,6 +359,8 @@ onMounted(async () => {
   document.addEventListener('scroll', closeMonthOverflowOnScroll, true)
   window.addEventListener('resize', closeMonthOverflow)
   window.addEventListener('blur', flushTaskDraftOnWindowBlur)
+  window.addEventListener('focus', handleWindowFocus)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   try {
     version.value = await currentVersion()
     bootState.value = await getBootState()
@@ -354,6 +368,7 @@ onMounted(async () => {
     showCompletedByView.value = session.value?.showCompletedByView ?? { all: false, week: false, month: false }
     if (session.value) {
       await refreshData()
+      void refreshVisibleHolidayCalendar(true)
       await loadLastTaskCategory()
       await loadLastTaskPriority()
       scheduleMidnightRefresh()
@@ -374,6 +389,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('scroll', closeMonthOverflowOnScroll, true)
   window.removeEventListener('resize', closeMonthOverflow)
   window.removeEventListener('blur', flushTaskDraftOnWindowBlur)
+  window.removeEventListener('focus', handleWindowFocus)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.clearTimeout(filterTimer)
   window.clearTimeout(midnightRefreshTimer)
   window.clearTimeout(monthOverflowCloseTimer)
@@ -387,6 +404,9 @@ watch([search, rangeStart, rangeEnd], () => {
   if (!session.value) return
   window.clearTimeout(filterTimer)
   filterTimer = window.setTimeout(() => { void refreshData() }, 180)
+})
+watch(monthAnchor, () => {
+  if (session.value) void refreshVisibleHolidayCalendar(false)
 })
 watch([currentView, monthAnchor, showCompleted], closeMonthOverflow)
 watch(currentView, view => {
@@ -407,6 +427,7 @@ async function submitAuth() {
     showCompletedByView.value = session.value.showCompletedByView
     if (bootState.value) bootState.value.needsSetup = false
     await refreshData()
+    void refreshVisibleHolidayCalendar(true)
     await loadLastTaskCategory()
     await loadLastTaskPriority()
     scheduleMidnightRefresh()
@@ -426,6 +447,16 @@ async function refreshData() {
   categories.value = nextCategories
   tasks.value = nextTasks
   if (lastTaskCategoryId.value && !nextCategories.some(category => category.id === lastTaskCategoryId.value)) lastTaskCategoryId.value = nextCategories[0]?.id ?? null
+}
+
+async function refreshVisibleHolidayCalendar(force: boolean) {
+  const years = visibleHolidayYears.value
+  if (!years.length) return
+  const requestId = ++holidayRefreshRequestId
+  holidayByDate.value = { ...holidayByDate.value, ...getCachedHolidayCalendar(years) }
+  const refreshed = await refreshHolidayCalendar(years, force)
+  if (requestId !== holidayRefreshRequestId || !session.value) return
+  holidayByDate.value = { ...holidayByDate.value, ...refreshed }
 }
 
 async function loadLastTaskCategory() {
@@ -498,6 +529,8 @@ async function handleLogout() {
   showCompletedByView.value = { all: false, week: false, month: false }
   tasks.value = []
   categories.value = []
+  holidayRefreshRequestId += 1
+  holidayByDate.value = {}
   lastTaskCategoryId.value = null
   lastTaskPriority.value = 'not_urgent_not_important'
   authForm.password = ''
@@ -536,6 +569,7 @@ async function resetCurrentDate() {
   monthAnchor.value = currentDate
   try {
     await refreshData()
+    void refreshVisibleHolidayCalendar(true)
   } catch (error) {
     showNotice(messageOf(error), 'error')
   }
@@ -1062,5 +1096,6 @@ function parseDate(value: string) { return new Date(`${value}T12:00:00`) }
 function addDays(value: string, amount: number) { const date = parseDate(value); date.setDate(date.getDate() + amount); return dateString(date) }
 function weekDates(value: string) { const anchor = parseDate(value); const offset = (anchor.getDay() + 6) % 7; anchor.setDate(anchor.getDate() - offset); return Array.from({ length: 7 }, (_, index) => { const day = new Date(anchor); day.setDate(anchor.getDate() + index); return dateString(day) }) }
 function calendarDays(value: string) { const anchor = parseDate(value); const year = anchor.getFullYear(); const month = anchor.getMonth(); const first = new Date(year, month, 1); const offset = (first.getDay() + 6) % 7; const daysInMonth = new Date(year, month + 1, 0).getDate(); const weekCount = Math.ceil((offset + daysInMonth) / 7); const start = new Date(year, month, 1 - offset); return Array.from({ length: weekCount * 7 }, (_, index) => { const day = new Date(start); day.setDate(start.getDate() + index); return { date: dateString(day), day: day.getDate(), inMonth: day.getMonth() === month } }) }
+function holidayDescription(holiday: HolidayDay) { return `${holiday.name}：${holiday.isOffDay ? '休息日' : '调休工作日'}` }
 function formatMonth(value: string) { const date = parseDate(value); return `${date.getFullYear()} 年 ${date.getMonth() + 1} 月` }
 </script>

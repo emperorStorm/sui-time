@@ -3,7 +3,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
-import type { BootState, Category, CategoryInput, Priority, ShowCompletedByView, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, TaskView, UserSession } from '../types'
+import type { BootState, Category, CategoryInput, HolidayDay, Priority, ShowCompletedByView, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, TaskView, UserSession } from '../types'
 
 export type ReminderPermission = 'not_determined' | 'granted' | 'denied' | 'unsupported' | 'error'
 
@@ -21,6 +21,9 @@ export interface NativeReminderRequest {
 
 const GITHUB_REPOSITORY = 'emperorStorm/sui-time'
 const GITHUB_REQUEST_TIMEOUT = 8000
+const HOLIDAY_DATA_URL = 'https://cdn.jsdelivr.net/gh/NateScarlet/holiday-cn@master'
+const HOLIDAY_REQUEST_TIMEOUT = 8000
+const HOLIDAY_CACHE_KEY = 'sui-time:holiday-calendar:v1'
 const DEMO_SHOW_COMPLETED_KEY = 'sui-time:demo-user:show-completed'
 const DEMO_LAST_TASK_CATEGORY_KEY = 'sui-time:last-task-category'
 const DEMO_LAST_TASK_PRIORITY_KEY = 'sui-time:last-task-priority'
@@ -38,6 +41,10 @@ let demoTasks: Task[] = [
   task('预订周末晚餐', 'life', addDays(today(), 3), '18:30', ''),
   task('写一封感谢信', null, null, null, '')
 ]
+
+type HolidayCache = Record<string, HolidayDay[]>
+type HolidayPayload = { year?: unknown; days?: unknown }
+const holidayRequests = new Map<number, Promise<HolidayDay[] | null>>()
 
 function task(title: string, categoryId: string | null, plannedDate: string | null, plannedTime: string | null, notes: string): Task {
   const category = demoCategories.find(item => item.id === categoryId)
@@ -189,6 +196,100 @@ function saveDemoShowCompleted(view: TaskView, showCompleted: boolean) {
   } catch {
     throw new Error('无法保存显示偏好')
   }
+}
+
+export function getCachedHolidayCalendar(years: number[]): Record<string, HolidayDay> {
+  const cache = readHolidayCache()
+  return holidayDateMap(years.flatMap(year => cache[String(year)] || []))
+}
+
+export async function refreshHolidayCalendar(years: number[], force = true): Promise<Record<string, HolidayDay>> {
+  const uniqueYears = [...new Set(years.filter(year => Number.isInteger(year) && year >= 2000 && year <= 2100))]
+  const results = await Promise.all(uniqueYears.map(year => loadHolidayYear(year, force)))
+  return holidayDateMap(results.flatMap(days => days || []))
+}
+
+function readHolidayCache(): HolidayCache {
+  try {
+    const raw = window.localStorage.getItem(HOLIDAY_CACHE_KEY)
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.entries(parsed).reduce<HolidayCache>((result, [year, days]) => {
+      const normalized = normalizeHolidayDays(Number(year), days)
+      if (normalized) result[year] = normalized
+      return result
+    }, {})
+  } catch {
+    return {}
+  }
+}
+
+function saveHolidayYear(year: number, days: HolidayDay[]) {
+  try {
+    const cache = readHolidayCache()
+    cache[String(year)] = days
+    window.localStorage.setItem(HOLIDAY_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // 缓存不可用时不阻断月历展示。
+  }
+}
+
+function loadHolidayYear(year: number, force: boolean): Promise<HolidayDay[] | null> {
+  const cached = readHolidayCache()[String(year)] || null
+  if (!force && cached) return Promise.resolve(cached)
+  const existingRequest = holidayRequests.get(year)
+  if (existingRequest) return existingRequest
+  const request = fetchHolidayYear(year, cached)
+  holidayRequests.set(year, request)
+  void request.finally(() => holidayRequests.delete(year))
+  return request
+}
+
+async function fetchHolidayYear(year: number, fallback: HolidayDay[] | null): Promise<HolidayDay[] | null> {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+  const timeout = window.setTimeout(() => controller?.abort(), HOLIDAY_REQUEST_TIMEOUT)
+  try {
+    const response = await fetch(`${HOLIDAY_DATA_URL}/${year}.json`, { signal: controller?.signal })
+    if (!response.ok) throw new Error(`节假日数据请求失败（${response.status}）`)
+    const payload = await response.json() as HolidayPayload
+    if (payload?.year !== year) throw new Error('节假日数据年份无效')
+    const days = normalizeHolidayDays(year, payload?.days, payload?.year)
+    if (!days) throw new Error('节假日数据格式无效')
+    saveHolidayYear(year, days)
+    return days
+  } catch {
+    return fallback
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+function normalizeHolidayDays(year: number, value: unknown, payloadYear?: unknown): HolidayDay[] | null {
+  if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Array.isArray(value)) return null
+  if (payloadYear !== undefined && payloadYear !== year) return null
+  const days = value.map(item => {
+    if (!item || typeof item !== 'object') return null
+    const candidate = item as { date?: unknown; name?: unknown; isOffDay?: unknown }
+    if (typeof candidate.date !== 'string' || typeof candidate.name !== 'string' || typeof candidate.isOffDay !== 'boolean') return null
+    if (!isHolidayDate(candidate.date, year) || !candidate.name.trim()) return null
+    return { date: candidate.date, name: candidate.name.trim(), isOffDay: candidate.isOffDay }
+  })
+  if (days.some(item => !item)) return null
+  const validDays = days as HolidayDay[]
+  return [...new Map(validDays.map(item => [item.date, item])).values()]
+}
+
+function isHolidayDate(value: string, year: number) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number(value.slice(0, 4)) !== year) return false
+  const date = new Date(`${value}T12:00:00`)
+  return date.getFullYear() === year && date.getMonth() + 1 === Number(value.slice(5, 7)) && date.getDate() === Number(value.slice(8, 10))
+}
+
+function holidayDateMap(days: HolidayDay[]): Record<string, HolidayDay> {
+  return days.reduce<Record<string, HolidayDay>>((result, day) => {
+    result[day.date] = day
+    return result
+  }, {})
 }
 
 export async function listCategories(): Promise<Category[]> {

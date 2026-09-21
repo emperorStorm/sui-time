@@ -5,6 +5,12 @@ export interface UserSession {
   showCompletedByView: ShowCompletedByView
 }
 
+export interface HolidayDay {
+  date: string
+  name: string
+  isOffDay: boolean
+}
+
 export type TaskView = 'all' | 'week' | 'month'
 
 export type ShowCompletedByView = Record<TaskView, boolean>

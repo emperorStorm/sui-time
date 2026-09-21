@@ -20,7 +20,10 @@
 
       <view class="month-grid">
         <view v-for="date in days" :key="date" :class="['month-day', { 'is-today': date === today, 'is-muted': !inMonth(date) }]" @click="openCreate(date)">
-          <text class="day-num">{{ dayNum(date) }}</text>
+          <view class="day-head">
+            <text class="day-num">{{ dayNum(date) }}</text>
+            <text v-if="holidayOf(date)" class="holiday-badge" :class="holidayOf(date).isOffDay ? 'is-off' : 'is-work'" :title="holidayDescription(holidayOf(date))" :aria-label="holidayDescription(holidayOf(date))">{{ holidayOf(date).isOffDay ? '休' : '班' }}</text>
+          </view>
           <view class="day-items">
             <view v-for="task in tasksOf(date).slice(0, 2)" :key="task.id" class="day-item" :style="{ background: colorOf(task) }">
               <text>{{ task.title }}</text>
@@ -39,6 +42,7 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
+import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../../api/holiday'
 import { tasksForDate, categoryById } from '../../api/store'
 import { monthDates, monthTitle, shiftMonth, todayString } from '../../utils/date'
 
@@ -47,8 +51,11 @@ const today = todayString()
 const sheetVisible = ref(false)
 const presetDate = ref('')
 const monthCache = ref({})
+const holidayByDate = ref({})
+let holidayRefreshRequestId = 0
 
 const days = computed(() => monthDates(anchor.value))
+const visibleHolidayYears = computed(() => [...new Set(days.value.map((date) => Number(date.slice(0, 4))))])
 
 const monthMap = computed(() => {
   const map = {}
@@ -59,16 +66,29 @@ const monthMap = computed(() => {
 onShow(() => {
   anchor.value = todayString()
   monthCache.value = {}
+  void refreshVisibleHolidayCalendar(true)
 })
 
 function shift(amount) {
   anchor.value = shiftMonth(anchor.value, amount)
   monthCache.value = {}
+  void refreshVisibleHolidayCalendar(false)
 }
 
 function resetMonth() {
   anchor.value = todayString()
   monthCache.value = {}
+  void refreshVisibleHolidayCalendar(true)
+}
+
+async function refreshVisibleHolidayCalendar(force) {
+  const years = visibleHolidayYears.value
+  if (!years.length) return
+  const requestId = ++holidayRefreshRequestId
+  holidayByDate.value = { ...holidayByDate.value, ...getCachedHolidayCalendar(years) }
+  const refreshed = await refreshHolidayCalendar(years, force)
+  if (requestId !== holidayRefreshRequestId) return
+  holidayByDate.value = { ...holidayByDate.value, ...refreshed }
 }
 
 function inMonth(date) {
@@ -77,6 +97,14 @@ function inMonth(date) {
 
 function dayNum(date) {
   return Number(date.slice(8, 10))
+}
+
+function holidayOf(date) {
+  return holidayByDate.value[date] || null
+}
+
+function holidayDescription(holiday) {
+  return `${holiday.name}：${holiday.isOffDay ? '休息日' : '调休工作日'}`
 }
 
 function tasksOf(date) {
@@ -175,6 +203,14 @@ function reload() {
   border-bottom: 2rpx solid #f2f4f6;
 }
 
+.day-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48rpx;
+}
+
 .month-day:nth-child(7n) {
   border-right: 0;
 }
@@ -199,6 +235,31 @@ function reload() {
 .month-day.is-muted .day-num {
   color: #c3c8ce;
   font-weight: 400;
+}
+
+.holiday-badge {
+  position: absolute;
+  top: 0;
+  right: 4rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 6rpx;
+  font-size: 18rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.holiday-badge.is-off {
+  background: #e8f3ff;
+  color: #2f80ed;
+}
+
+.holiday-badge.is-work {
+  background: #fff2df;
+  color: #d78616;
 }
 
 .day-items {
