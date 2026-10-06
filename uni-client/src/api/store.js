@@ -1,6 +1,63 @@
-import { load, persist, reset } from './storage'
+import { load, persist, reset, save as saveStorage } from './storage'
+import { normalizeAnniversary, prepareAnniversaryRecord } from '../../../shared/anniversary.mjs'
 import { occursOn } from '../utils/occurrence'
 import { addDays, todayString } from '../utils/date'
+
+export function listAnniversaries() {
+  return load().anniversaries.map(({ photos, coverIndex, ...summary }) => summary)
+}
+
+export function listAnniversaryRecords({ anniversaryId, startDate, endDate } = {}) {
+  if (anniversaryId) getAnniversary(anniversaryId)
+  return load().anniversaryRecords.filter(record => (!anniversaryId || record.anniversaryId === anniversaryId)
+    && (!startDate || record.date >= startDate) && (!endDate || record.date <= endDate))
+    .sort((a, b) => b.date.localeCompare(a.date)).map(record => ({ ...record }))
+}
+
+export function saveAnniversaryRecord(input) {
+  const data = load()
+  const item = getAnniversary(input.anniversaryId)
+  const records = [...data.anniversaryRecords]
+  const index = records.findIndex(record => record.anniversaryId === input.anniversaryId && record.date === input.date)
+  const result = prepareAnniversaryRecord(item, input, index >= 0 ? records[index] : null)
+  if (index >= 0) records[index] = result
+  else records.push(result)
+  saveStorage({ ...data, anniversaryRecords: records }, { strict: true })
+  return result
+}
+
+export function getAnniversary(id) {
+  const item = load().anniversaries.find(item => item.id === id)
+  if (!item) throw new Error('纪念日不存在')
+  return { ...item, photos: [...item.photos] }
+}
+
+export function saveAnniversary(input) {
+  const normalized = normalizeAnniversary(input)
+  const data = load()
+  const items = [...data.anniversaries]
+  const index = normalized.id ? items.findIndex(item => item.id === normalized.id) : -1
+  if (normalized.id && index < 0) throw new Error('纪念日不存在')
+  const now = Date.now()
+  const item = { ...normalized, photos: [...normalized.photos], id: normalized.id || `a${now}-${Math.random().toString(36).slice(2, 10)}`, createdAt: index >= 0 ? items[index].createdAt : now, updatedAt: now }
+  if (index >= 0) items[index] = item
+  else items.push(item)
+  saveStorage({ ...data, anniversaries: items }, { strict: true })
+  return item
+}
+
+export function removeAnniversary(id) {
+  const data = load()
+  if (!data.anniversaries.some(item => item.id === id)) throw new Error('纪念日不存在')
+  saveStorage({ ...data, anniversaries: data.anniversaries.filter(item => item.id !== id), anniversaryRecords: data.anniversaryRecords.filter(record => record.anniversaryId !== id) }, { strict: true })
+}
+
+export function pinAnniversary(id, pinned) {
+  const data = load()
+  if (!data.anniversaries.some(item => item.id === id)) throw new Error('纪念日不存在')
+  const items = data.anniversaries.map(item => item.id === id ? { ...item, pinned, updatedAt: Date.now() } : item)
+  saveStorage({ ...data, anniversaries: items }, { strict: true })
+}
 
 export function getCategories() {
   return load().categories

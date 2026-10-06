@@ -1,4 +1,4 @@
-import { todayString } from '../utils/date'
+import { todayString } from '../utils/date.js'
 
 const STORAGE_KEY = 'sui-time-mobile:v1'
 
@@ -8,6 +8,8 @@ function seedData() {
   return {
     profile: { name: '暴走的小陌', phone: '182****9035', signature: '暴走方知深浅' },
     settings: { hideCompleted: true, collapsedGroups: [] },
+    anniversaries: [],
+    anniversaryRecords: [],
     categories: [
       { id: 'work', name: '工作', color: '#7299d5', icon: 'monitor', sortOrder: 0 },
       { id: 'growth', name: '自增', color: '#12bd75', icon: 'bookmark', sortOrder: 1 },
@@ -33,6 +35,8 @@ export function load() {
     // H5 下 uni.getStorageSync 可能返回 {type, data} 包装结构，需解包
     if (raw && raw.data && typeof raw.data === 'object' && (raw.data.categories || raw.data.tasks)) raw = raw.data
     if (raw && raw.categories && raw.tasks) {
+      if (!Array.isArray(raw.anniversaries)) raw.anniversaries = []
+      if (!Array.isArray(raw.anniversaryRecords)) raw.anniversaryRecords = []
       cache = raw
       return cache
     }
@@ -44,11 +48,13 @@ export function load() {
   return cache
 }
 
-export function save(data) {
-  cache = data
+export function save(data, { strict = false } = {}) {
+  if (!strict) cache = data
   try {
     uni.setStorageSync(STORAGE_KEY, data)
+    cache = data
   } catch (e) {
+    if (strict) throw new Error('无法保存纪念日，存储空间可能不足，请减少照片后重试')
     // 存储失败不阻断界面
   }
 }

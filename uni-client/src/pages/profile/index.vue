@@ -15,6 +15,10 @@
           </view>
         </view>
 
+        <text class="mine-group-title">基础管理</text>
+        <view class="mine-section panel">
+          <view class="mine-row" @click="openAnniversaries"><view><text class="row-title">纪念日</text><text class="row-hint">记住生日、周年与值得期待的日子</text></view><text class="row-chevron">›</text></view>
+        </view>
         <view class="mine-section panel">
           <view class="mine-row" @click="openUpdate">
             <view>
@@ -62,6 +66,8 @@ import UpdateSheet from '../../components/UpdateSheet.vue'
 import { getProfile, getSettings, setSetting, restoreDemoData } from '../../api/store'
 import { checkUpdate, downloadUpdate, APP_VERSION } from '../../api/update'
 import { toast } from '../../utils/platform'
+
+function openAnniversaries() { uni.navigateTo({ url: '/pages/anniversaries/index' }) }
 
 const profile = ref(getProfile())
 const settings = ref(getSettings())
@@ -117,6 +123,7 @@ function restore() {
 </script>
 
 <style scoped>
+.mine-group-title { display: block; color: #929daa; font-size: 24rpx; margin: 24rpx 10rpx 16rpx; }
 .profile-page {
   display: flex;
   flex-direction: column;

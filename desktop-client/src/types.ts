@@ -20,6 +20,57 @@ export interface BootState {
   session: UserSession | null
 }
 
+export interface AnniversarySummary {
+  id: string
+  kind: 'countdown' | 'anniversary' | 'birthday' | 'holiday'
+  title: string
+  date: string
+  notes: string
+  pinned: boolean
+  theme: 'sky' | 'warm' | 'night'
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Anniversary extends AnniversarySummary {
+  photos: string[]
+  coverIndex: number
+}
+
+export type AnniversaryInput = Omit<Anniversary, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+
+export interface AnniversaryRecord {
+  anniversaryId: string
+  date: string
+  notes: string
+  confirmedAt: number | null
+  title: string
+  kind: AnniversarySummary['kind']
+  originalDate: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AnniversaryRecordInput {
+  anniversaryId: string
+  date: string
+  notes: string
+  confirmed: boolean
+}
+
+export interface AnniversaryOccurrence {
+  anniversaryId: string
+  date: string
+  title: string
+  kind: AnniversarySummary['kind']
+  originalDate: string
+  notes: string
+  label: string
+  years: number
+  adjusted: boolean
+  record: AnniversaryRecord | null
+}
+
 export interface Category {
   id: string
   name: string

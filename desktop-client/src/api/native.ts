@@ -1,4 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import type { Anniversary, AnniversaryInput, AnniversarySummary, AnniversaryRecord, AnniversaryRecordInput } from '../types'
+import { normalizeAnniversary, prepareAnniversaryRecord } from '../../../shared/anniversary.mjs'
 import { getVersion } from '@tauri-apps/api/app'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -70,6 +72,93 @@ function formatDate(value: Date) {
 
 export function isTauriRuntime() {
   return typeof window !== 'undefined' && Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
+}
+
+const DEMO_ANNIVERSARIES_KEY = 'sui-time:anniversaries:demo-user:v1'
+
+function demoAnniversaries(): Anniversary[] {
+  const raw = window.localStorage.getItem(DEMO_ANNIVERSARIES_KEY)
+  if (!raw) return []
+  const parsed = JSON.parse(raw)
+  if (Array.isArray(parsed)) return parsed
+  if (!Array.isArray(parsed.anniversaries)) throw new Error('纪念日数据格式无效')
+  return parsed.anniversaries
+}
+
+function demoAnniversaryRecords(): AnniversaryRecord[] {
+  const raw = window.localStorage.getItem(DEMO_ANNIVERSARIES_KEY)
+  if (!raw) return []
+  const parsed = JSON.parse(raw)
+  return Array.isArray(parsed) ? [] : parsed.anniversaryRecords || []
+}
+
+function writeDemoAnniversaries(items: Anniversary[], records = demoAnniversaryRecords()) {
+  try { window.localStorage.setItem(DEMO_ANNIVERSARIES_KEY, JSON.stringify({ anniversaries: items, anniversaryRecords: records })) }
+  catch { throw new Error('无法保存纪念日，存储空间可能不足，请减少照片后重试') }
+}
+
+export async function listAnniversaryRecords(query: { anniversaryId?: string; startDate?: string; endDate?: string } = {}): Promise<AnniversaryRecord[]> {
+  if (isTauriRuntime()) return invoke('list_user_anniversary_records', { anniversaryId: query.anniversaryId ?? null, startDate: query.startDate ?? null, endDate: query.endDate ?? null })
+  if (query.anniversaryId) await getAnniversary(query.anniversaryId)
+  return demoAnniversaryRecords().filter(record => (!query.anniversaryId || record.anniversaryId === query.anniversaryId)
+    && (!query.startDate || record.date >= query.startDate) && (!query.endDate || record.date <= query.endDate)).sort((a, b) => b.date.localeCompare(a.date))
+}
+
+export async function saveAnniversaryRecord(input: AnniversaryRecordInput): Promise<AnniversaryRecord> {
+  if (isTauriRuntime()) return invoke('save_user_anniversary_record', { input })
+  const items = demoAnniversaries()
+  const item = items.find(item => item.id === input.anniversaryId)
+  if (!item) throw new Error('纪念日不存在')
+  const records = demoAnniversaryRecords()
+  const index = records.findIndex(record => record.anniversaryId === input.anniversaryId && record.date === input.date)
+  const result = prepareAnniversaryRecord(item, input, index >= 0 ? records[index] : null)
+  if (index >= 0) records[index] = result
+  else records.push(result)
+  writeDemoAnniversaries(items, records)
+  return result
+}
+
+export async function listAnniversaries(): Promise<AnniversarySummary[]> {
+  if (isTauriRuntime()) return invoke('list_user_anniversaries')
+  return demoAnniversaries().map(({ photos: _photos, coverIndex: _coverIndex, ...summary }) => summary)
+}
+
+export async function getAnniversary(anniversaryId: string): Promise<Anniversary> {
+  if (isTauriRuntime()) return invoke('get_user_anniversary', { anniversaryId })
+  const item = demoAnniversaries().find(item => item.id === anniversaryId)
+  if (!item) throw new Error('纪念日不存在')
+  return item
+}
+
+export async function saveAnniversary(input: AnniversaryInput): Promise<Anniversary> {
+  const normalized = normalizeAnniversary(input)
+  if (isTauriRuntime()) return invoke('save_user_anniversary', { input: normalized })
+  const items = demoAnniversaries()
+  const index = normalized.id ? items.findIndex(item => item.id === normalized.id) : -1
+  if (normalized.id && index < 0) throw new Error('纪念日不存在')
+  const now = Date.now()
+  const result = { ...normalized, id: normalized.id || crypto.randomUUID(), createdAt: index >= 0 ? items[index].createdAt : now, updatedAt: now }
+  if (index >= 0) items[index] = result
+  else items.push(result)
+  writeDemoAnniversaries(items)
+  return result
+}
+
+export async function removeAnniversary(anniversaryId: string) {
+  if (isTauriRuntime()) return invoke<void>('remove_user_anniversary', { anniversaryId })
+  const items = demoAnniversaries()
+  if (!items.some(item => item.id === anniversaryId)) throw new Error('纪念日不存在')
+  writeDemoAnniversaries(items.filter(item => item.id !== anniversaryId), demoAnniversaryRecords().filter(record => record.anniversaryId !== anniversaryId))
+}
+
+export async function pinAnniversary(anniversaryId: string, pinned: boolean) {
+  if (isTauriRuntime()) return invoke<void>('pin_user_anniversary', { anniversaryId, pinned })
+  const items = demoAnniversaries()
+  const item = items.find(item => item.id === anniversaryId)
+  if (!item) throw new Error('纪念日不存在')
+  item.pinned = pinned
+  item.updatedAt = Date.now()
+  writeDemoAnniversaries(items)
 }
 
 function invoke<T>(command: string, args?: Record<string, unknown>) {
@@ -479,7 +568,7 @@ export async function rescheduleTask(taskId: string, plannedDate: string | null)
 }
 
 export async function currentVersion() {
-  return isTauriRuntime() ? getVersion() : '0.5.0'
+  return isTauriRuntime() ? getVersion() : '0.6.0'
 }
 
 export interface UpdateCheckResult {

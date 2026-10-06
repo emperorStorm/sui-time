@@ -2,6 +2,66 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AnniversaryRecord {
+    pub anniversary_id: String,
+    pub date: String,
+    pub notes: String,
+    pub confirmed_at: Option<i64>,
+    pub title: String,
+    pub kind: String,
+    pub original_date: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnniversaryRecordInput {
+    pub anniversary_id: String,
+    pub date: String,
+    pub notes: String,
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnniversarySummary {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub date: String,
+    pub notes: String,
+    pub pinned: bool,
+    pub theme: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Anniversary {
+    #[serde(flatten)]
+    pub summary: AnniversarySummary,
+    pub photos: Vec<String>,
+    pub cover_index: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnniversaryInput {
+    pub id: Option<String>,
+    pub kind: String,
+    pub title: String,
+    pub date: String,
+    pub notes: String,
+    pub pinned: bool,
+    pub theme: String,
+    pub photos: Vec<String>,
+    pub cover_index: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UserSession {
     pub id: String,
     pub username: String,

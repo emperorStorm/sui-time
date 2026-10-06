@@ -84,6 +84,10 @@ page {
 }
 
 /* H5 下 uni-modal 需高于底部弹层（sheet-layer z-index 1000）与原生 tabBar */
+.uni-picker-container {
+  z-index: 2100 !important;
+}
+
 uni-modal,
 .uni-modal,
 uni-modal .uni-modal__mask,

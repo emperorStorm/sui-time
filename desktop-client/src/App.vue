@@ -1,5 +1,5 @@
 <template>
-  <main class="app-shell" data-sidebar-skin="mountain-night">
+  <main :class="['app-shell', { 'sidebar-collapsed': sidebarCompact }]" data-sidebar-skin="mountain-night">
     <section v-if="booting" class="loading-screen"><span class="loading-mark"></span><p>正在打开岁岁时光</p></section>
 
     <section v-else-if="!session" class="auth-screen">
@@ -15,37 +15,42 @@
     </section>
 
     <template v-else>
-      <aside class="sidebar">
-        <div ref="brandMenu" class="sidebar-top">
-          <button class="brand-menu-trigger" type="button" :aria-expanded="brandMenuOpen" title="账户与应用设置" @click="brandMenuOpen = !brandMenuOpen"><img src="./assets/brand/sui-time-icon.svg" alt="" /></button>
+      <aside id="app-sidebar" class="sidebar" @pointerover="showSidebarTooltip" @pointerout="leaveSidebarTooltip" @focusin="showSidebarTooltip" @focusout="leaveSidebarTooltip" @click.capture="closeSidebarTooltip">
+        <div class="sidebar-top">
+          <button ref="brandMenuTrigger" class="brand-menu-trigger" type="button" :aria-expanded="brandMenuOpen" aria-label="账户与应用设置" data-sidebar-label="账户与应用设置" :title="sidebarCompact ? undefined : '账户与应用设置'" @click="toggleBrandMenu"><img src="./assets/brand/sui-time-icon.svg" alt="" /></button>
           <span class="sidebar-brand-title">岁岁时光</span>
-          <AppNotificationCenter ref="notificationCenter" />
-          <button class="icon-button sidebar-refresh" type="button" title="回到今天并刷新数据" @click="resetCurrentDate()"><RefreshCw :size="16" /></button>
-          <Transition name="popover">
-            <section v-if="brandMenuOpen" class="brand-menu" aria-label="账户与应用设置">
-              <div class="brand-menu-profile"><span class="avatar">{{ session.displayName.slice(0, 1) }}</span><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div></div>
-              <div class="brand-menu-list"><button type="button" @click="openBrandMenuView('categories')"><CategoryIcon :size="16" />分类管理</button><button type="button" @click="openBrandMenuView('about')"><Info :size="16" />关于岁岁时光</button></div>
-              <button class="brand-menu-logout" type="button" @click="handleLogout"><LogOut :size="16" />退出登录</button>
-            </section>
-          </Transition>
+          <div class="sidebar-notifications" data-sidebar-label="通知"><AppNotificationCenter ref="notificationCenter" :compact="sidebarCompact" /></div>
+          <button class="icon-button sidebar-refresh" type="button" aria-label="回到今天并刷新数据" data-sidebar-label="回到今天并刷新数据" :title="sidebarCompact ? undefined : '回到今天并刷新数据'" @click="resetCurrentDate()"><RefreshCw :size="16" /></button>
         </div>
         <nav aria-label="主导航">
           <p class="nav-group-title">事项</p>
-          <button :class="['nav-item', { active: currentView === 'all' }]" @click="currentView = 'all'"><LayoutGrid :size="18" />全部事项</button>
+          <button :class="['nav-item', { active: currentView === 'all' }]" aria-label="全部事项" :aria-current="currentView === 'all' ? 'page' : undefined" data-sidebar-label="全部事项" @click="currentView = 'all'"><LayoutGrid :size="18" /><span class="nav-item-label">全部事项</span></button>
           <p class="nav-group-title planning-title">规划</p>
-          <button :class="['nav-item', { active: currentView === 'week' }]" @click="currentView = 'week'"><CalendarDays :size="18" />我的一周</button>
-          <button :class="['nav-item', { active: currentView === 'month' }]" @click="currentView = 'month'"><CalendarRange :size="18" />我的一月</button>
-          <p class="nav-group-title planning-title">基础设置</p>
-          <button :class="['nav-item', { active: currentView === 'categories' }]" @click="currentView = 'categories'"><CategoryIcon :size="18" />分类管理</button>
+          <button :class="['nav-item', { active: currentView === 'week' }]" aria-label="我的一周" :aria-current="currentView === 'week' ? 'page' : undefined" data-sidebar-label="我的一周" @click="currentView = 'week'"><CalendarDays :size="18" /><span class="nav-item-label">我的一周</span></button>
+          <button :class="['nav-item', { active: currentView === 'month' }]" aria-label="我的一月" :aria-current="currentView === 'month' ? 'page' : undefined" data-sidebar-label="我的一月" @click="currentView = 'month'"><CalendarRange :size="18" /><span class="nav-item-label">我的一月</span></button>
+          <p class="nav-group-title planning-title">基础管理</p>
+          <button :class="['nav-item', { active: currentView === 'categories' }]" aria-label="分类管理" :aria-current="currentView === 'categories' ? 'page' : undefined" data-sidebar-label="分类管理" @click="currentView = 'categories'"><CategoryIcon :size="18" /><span class="nav-item-label">分类管理</span></button>
+          <button :class="['nav-item', { active: currentView === 'anniversaries' }]" aria-label="纪念日" :aria-current="currentView === 'anniversaries' ? 'page' : undefined" data-sidebar-label="纪念日" @click="currentView = 'anniversaries'"><CalendarDays :size="18" /><span class="nav-item-label">纪念日</span></button>
         </nav>
-        <div class="sidebar-foot"><span></span><small>Local-first · v{{ version }}</small></div>
       </aside>
+      <button class="sidebar-toggle" type="button" :aria-label="sidebarCompact ? '展开菜单' : '收起菜单'" :title="sidebarCompact ? '展开菜单' : '收起菜单'" :aria-expanded="!sidebarCompact" aria-controls="app-sidebar" @click="toggleSidebar"><span class="sidebar-toggle-handle"><ChevronRight v-if="sidebarCompact" :size="14" /><ChevronLeft v-else :size="14" /></span></button>
+
+      <Teleport to="body">
+        <Transition name="popover">
+          <section v-if="brandMenuOpen" ref="brandMenu" class="brand-menu sidebar-account-menu" :style="brandMenuStyle" aria-label="账户与应用设置" @keydown.esc.stop="brandMenuOpen = false; brandMenuTrigger?.focus()">
+            <div class="brand-menu-profile"><span class="avatar">{{ session.displayName.slice(0, 1) }}</span><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div></div>
+            <div class="brand-menu-list"><button type="button" @click="openBrandMenuView('categories')"><CategoryIcon :size="16" />分类管理</button><button type="button" @click="openBrandMenuView('about')"><Info :size="16" />关于岁岁时光</button></div>
+            <button class="brand-menu-logout" type="button" @click="handleLogout"><LogOut :size="16" />退出登录</button>
+          </section>
+        </Transition>
+        <div v-if="sidebarTooltip" id="sidebar-tooltip" class="sidebar-tooltip" role="tooltip" :style="sidebarTooltipStyle">{{ sidebarTooltip }}</div>
+      </Teleport>
 
       <section class="workspace">
         <header class="topbar">
           <div class="topbar-title"><p v-if="viewMeta.subtitle">{{ viewMeta.subtitle }}</p><h1>{{ viewMeta.title }}</h1></div>
           <div class="topbar-actions">
-            <template v-if="currentView !== 'categories' && currentView !== 'about'">
+            <template v-if="['all', 'week', 'month'].includes(currentView)">
               <button class="text-icon-button" :disabled="savingShowCompleted" @click="handleShowCompleted"><component :is="showCompleted ? EyeOff : Eye" :size="17" />{{ showCompleted ? '隐藏已完成/已失败' : '显示已完成/已失败' }}</button>
             </template>
           </div>
@@ -94,6 +99,7 @@
 
         <section v-else-if="currentView === 'month'" class="page plan-page month-page">
           <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate()"><CalendarRange :size="15" />回到本月</button></div>
+          <p v-if="anniversaryCalendarError" class="form-error">纪念日读取失败：{{ anniversaryCalendarError }} <button class="quiet-button" @click="refreshCalendarAnniversaries">重试</button></p>
           <div class="month-calendar" :style="{ '--month-rows': monthWeekCount }">
             <div class="month-weekdays"><span v-for="label in weekdayLabels" :key="label">{{ label }}</span></div>
             <div class="month-grid">
@@ -101,10 +107,11 @@
                 <header>
                   <div class="month-date-meta"><time :datetime="day.date">{{ day.day }}</time><span class="month-lunar">{{ day.lunarLabel }}</span></div>
                   <span v-if="day.marker" class="month-calendar-marker" :title="day.marker">{{ day.marker }}</span>
-                  <div class="month-date-actions"><button v-if="day.tasks.length > 4" class="more-items" type="button" :aria-label="`${day.date} 还有 ${day.tasks.length - 4} 项，查看当天全部事项`" aria-haspopup="dialog" :aria-expanded="monthOverflowDate === day.date" @mouseenter="openMonthOverflow(day.date, $event)" @mouseleave="scheduleMonthOverflowClose" @focus="openMonthOverflow(day.date, $event)" @blur="scheduleMonthOverflowClose" @click="openMonthOverflow(day.date, $event)">{{ day.tasks.length - 4 }}+</button><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button><span v-if="day.holiday" class="month-holiday-badge" :class="day.holiday.isOffDay ? 'off' : 'work'" role="img" :title="holidayDescription(day.holiday)" :aria-label="holidayDescription(day.holiday)">{{ day.holiday.isOffDay ? '休' : '班' }}</span></div>
+                  <div class="month-date-actions"><button v-if="day.count > 4" class="more-items" type="button" :aria-label="`${day.date} 还有 ${day.count - 4} 项，查看当天全部事项`" aria-haspopup="dialog" :aria-expanded="monthOverflowDate === day.date" @mouseenter="openMonthOverflow(day.date, $event)" @mouseleave="scheduleMonthOverflowClose" @focus="openMonthOverflow(day.date, $event)" @blur="scheduleMonthOverflowClose" @click="openMonthOverflow(day.date, $event)">{{ day.count - 4 }}+</button><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button><span v-if="day.holiday" class="month-holiday-badge" :class="day.holiday.isOffDay ? 'off' : 'work'" role="img" :title="holidayDescription(day.holiday)" :aria-label="holidayDescription(day.holiday)">{{ day.holiday.isOffDay ? '休' : '班' }}</span></div>
                 </header>
                 <div class="month-items">
-                  <button v-for="item in day.tasks.slice(0, 4)" :key="item.id" :class="['month-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" :title="scheduleTaskDescription(item)" :aria-label="scheduleTaskDescription(item)" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)">
+                  <button v-for="item in day.anniversaries.slice(0, 4)" :key="`anniversary-${item.anniversaryId}`" :class="['month-item', 'calendar-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]" :title="`${item.label}，${item.record?.confirmedAt ? '已纪念' : '查看本次纪念'}`" @click="openCalendarAnniversary(item)"><span>{{ anniversaryMarks.get(item.kind) }}</span><span class="schedule-task-title">{{ item.label }}</span><Check v-if="item.record?.confirmedAt" :size="12" /></button>
+                  <button v-for="item in day.tasks.slice(0, Math.max(0, 4 - day.anniversaries.length))" :key="item.id" :class="['month-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" :title="scheduleTaskDescription(item)" :aria-label="scheduleTaskDescription(item)" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)">
                     <span class="schedule-task-mark" aria-hidden="true"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><template v-else>{{ taskPriorityOptions.get(item.priority)?.mark || '—' }}</template></span>
                     <span class="schedule-task-title">{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time>
                   </button>
@@ -114,21 +121,25 @@
           </div>
         </section>
 
+        <AnniversaryPage v-else-if="currentView === 'anniversaries'" :key="session.id" :initial-id="anniversaryDetailId" />
         <section v-else-if="currentView === 'categories'" class="page settings-page">
           <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">生活分类</p><h2>分类管理</h2><span>用颜色和图标区分不同生活主题，删除分类不会删除关联事项。</span></div><button class="primary-button" @click="openCategoryModal()"><Plus :size="18" />新增分类</button></div><div v-if="categories.length" class="category-table"><div v-for="category in categories" :key="category.id" class="category-row"><span class="category-icon" :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="17" /></span><strong>{{ category.name }}</strong><small>{{ categoryTaskCount(category.id) }} 项事项</small><div><button class="icon-button ghost" title="编辑分类" @click="openCategoryModal(category)"><Pencil :size="16" /></button><button class="icon-button ghost danger" title="删除分类" @click="deleteCategory(category)"><Trash2 :size="16" /></button></div></div></div><p v-else class="empty-state">还没有分类。先为工作、生活或兴趣添加一个分类。</p></section>
         </section>
 
         <section v-else class="page settings-page">
           <section class="settings-block update-block"><div class="settings-heading"><div><p class="eyebrow">桌面客户端</p><h2>关于岁岁时光</h2><span>岁岁时光是一个本地优先的个人待办与时间规划应用。安装包发布后，可在此检查新版本。</span></div><button class="primary-button" :disabled="checkingUpdate" @click="handleUpdate"><RefreshCw :class="{ spinning: checkingUpdate }" :size="18" />{{ updateButtonLabel }}</button></div><div class="version-detail"><span>当前版本</span><strong>v{{ version }}</strong><span>{{ updateStatus }}</span></div></section>
-          <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">本地数据</p><h2>加密备份</h2><span>导出的备份包含本机账号、分类和事项。恢复前会自动保存一份加密回滚备份，恢复完成后应用将重新载入。</span></div><div class="data-actions"><button class="quiet-button" @click="openBackupModal('export')"><Download :size="17" />导出备份</button><button class="primary-button" @click="openBackupModal('restore')"><Upload :size="17" />恢复备份</button></div></div></section>
+          <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">本地数据</p><h2>加密备份</h2><span>导出的备份包含本机账号、分类、事项、纪念日、照片和纪念记录。恢复前会自动保存一份加密回滚备份，恢复完成后应用将重新载入。</span></div><div class="data-actions"><button class="quiet-button" @click="openBackupModal('export')"><Download :size="17" />导出备份</button><button class="primary-button" @click="openBackupModal('restore')"><Upload :size="17" />恢复备份</button></div></div></section>
         </section>
       </section>
-      <button class="floating-add" type="button" title="新建事项" aria-label="新建事项" @click="openTaskModal()"><Plus :size="28" /></button>
+      <button v-if="currentView !== 'anniversaries'" class="floating-add" type="button" title="新建事项" aria-label="新建事项" @click="openTaskModal()"><Plus :size="28" /></button>
     </template>
 
     <Teleport to="body">
       <Transition name="month-overflow">
-        <section v-if="monthOverflowDate && monthOverflowTasks.length > 4" ref="monthOverflowPanel" class="month-overflow-popover" :style="monthOverflowStyle" role="dialog" :aria-label="`${monthOverflowDate} 全部事项`" @mouseenter="keepMonthOverflowOpen" @mouseleave="scheduleMonthOverflowClose" @focusin="keepMonthOverflowOpen" @focusout="scheduleMonthOverflowClose">
+        <section v-if="monthOverflowDate && monthOverflowTasks.length + monthOverflowAnniversaries.length > 4" ref="monthOverflowPanel" class="month-overflow-popover" :style="monthOverflowStyle" role="dialog" :aria-label="`${monthOverflowDate} 全部事项`" @mouseenter="keepMonthOverflowOpen" @mouseleave="scheduleMonthOverflowClose" @focusin="keepMonthOverflowOpen" @focusout="scheduleMonthOverflowClose">
+          <p v-if="monthOverflowAnniversaries.length" class="calendar-group-label">纪念日</p>
+          <button v-for="item in monthOverflowAnniversaries" :key="item.anniversaryId" :class="['month-overflow-item', 'calendar-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]" :title="item.label" @click="openCalendarAnniversary(item)"><span>{{ anniversaryMarks.get(item.kind) }}</span><span class="schedule-task-title">{{ item.label }}</span><Check v-if="item.record?.confirmedAt" :size="12" /></button>
+          <p v-if="monthOverflowAnniversaries.length && monthOverflowTasks.length" class="calendar-group-label">待办</p>
           <button v-for="item in monthOverflowTasks" :key="item.id" type="button" :class="['month-overflow-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" :title="scheduleTaskDescription(item)" :aria-label="scheduleTaskDescription(item)" @click="openTaskFromMonthOverflow(item)">
             <span class="schedule-task-mark" aria-hidden="true"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><template v-else>{{ taskPriorityOptions.get(item.priority)?.mark || '—' }}</template></span>
             <span class="schedule-task-title">{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time>
@@ -136,6 +147,8 @@
         </section>
       </Transition>
     </Teleport>
+
+    <AnniversaryRecordModal v-if="activeAnniversary && session" :key="`${session.id}:${activeAnniversary.anniversaryId}:${activeAnniversary.date}`" :occurrence="activeAnniversary" @close="activeAnniversary = null" @saved="saveCalendarAnniversary" @details="showAnniversaryDetails" />
 
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
       <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
@@ -190,6 +203,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import AnniversaryPage from './components/AnniversaryPage.vue'
+import AnniversaryRecordModal from './components/AnniversaryRecordModal.vue'
+import { anniversaryOccurrences, anniversaryTypes } from '../../shared/anniversary.mjs'
+import { listAnniversaries, listAnniversaryRecords } from './api/native'
+import type { AnniversarySummary, AnniversaryRecord, AnniversaryOccurrence } from './types'
 import { AlarmClock, ArrowRight, BellRing, BookOpen, BriefcaseBusiness, CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CircleDot, CircleMinus, Dumbbell, Download, Eye, EyeOff, GripVertical, HeartPulse, House, Info, Lightbulb, LayoutGrid, LogOut, Pencil, Plane, Plus, RefreshCw, RotateCcw, Search, ShoppingBag, Tags as CategoryIcon, Target, Trash2, Upload, UsersRound, Utensils, WalletCards, X } from 'lucide-vue-next'
 import { completeTaskWithChildren, createAccount, currentVersion, exportEncryptedBackup, formatUpdateError, getBootState, getCachedHolidayCalendar, getLastTaskCategory, getLastTaskPriority, listCategories, listTaskChildren, listTasks, loginUser, logoutUser, refreshHolidayCalendar, removeCategory, removeTask, rescheduleTask, restoreEncryptedBackup, saveCategory, saveLastTaskCategory, saveLastTaskPriority, saveShowCompleted, saveTask, setTaskStatus, syncTaskChildren } from './api/native'
 import type { UpdateCheckResult } from './api/native'
@@ -200,7 +218,7 @@ import type { BootState, Category, HolidayDay, Priority, RepeatRule, ScheduleKin
 import { resolveCalendarMeta } from './utils/calendar-meta'
 import { isRepeatingTask, parseOccurrenceId, parseOverrides, parseRepeatRule, tasksForDate as resolveTasksForDate } from './utils/task-occurrence'
 
-type View = TaskView | 'categories' | 'about'
+type View = TaskView | 'categories' | 'anniversaries' | 'about'
 type Notice = { text: string; type: 'success' | 'error' }
 
 const colors = ['#4D82D5', '#13A66A', '#E96E4D', '#C65376', '#DE9A22', '#7457D9', '#3489C5', '#D95B8D', '#2DAD96', '#D66A3A', '#70964A', '#8A6B54', '#557DCC', '#D3505A', '#599F82', '#7A7FBE']
@@ -209,8 +227,23 @@ const booting = ref(true)
 const bootState = ref<BootState | null>(null)
 const session = ref<UserSession | null>(null)
 const currentView = ref<View>('all')
+const sidebarCollapsed = ref(false)
+const sidebarDesktop = ref(window.innerWidth > 700)
+const sidebarCompact = computed(() => sidebarCollapsed.value && sidebarDesktop.value)
+const sidebarTooltip = ref('')
+const sidebarTooltipStyle = ref<Record<string, string>>({})
+const SIDEBAR_STORAGE_KEY = 'sui-time:sidebar-collapsed'
+let sidebarTooltipTimer: number | undefined
+let sidebarTooltipTrigger: HTMLButtonElement | null = null
 const categories = ref<Category[]>([])
 const tasks = ref<Task[]>([])
+const calendarAnniversaries = ref<AnniversarySummary[]>([])
+const calendarAnniversaryRecords = ref<AnniversaryRecord[]>([])
+const activeAnniversary = ref<AnniversaryOccurrence | null>(null)
+const anniversaryDetailId = ref('')
+const anniversaryCalendarError = ref('')
+const anniversaryMarks = new Map(anniversaryTypes.map(type => [type.value, type.mark]))
+let anniversaryRequestId = 0
 const search = ref('')
 const rangeStart = ref('')
 const rangeEnd = ref('')
@@ -223,15 +256,17 @@ const draggedTaskId = ref<string | null>(null)
 const monthOverflowDate = ref<string | null>(null)
 const monthOverflowPanel = ref<HTMLElement | null>(null)
 const monthOverflowStyle = ref<Record<string, string>>({})
-const version = ref('0.5.0')
+const version = ref('0.6.0')
 const notice = ref<Notice | null>(null)
 const submitting = ref(false)
 const savingShowCompleted = ref(false)
 const authError = ref('')
 const checkingUpdate = ref(false)
 const updateStatus = ref('尚未检查更新')
-const notificationCenter = ref<{ checkForUpdate: (openWhenFound?: boolean) => Promise<UpdateCheckResult | null> } | null>(null)
+const notificationCenter = ref<{ checkForUpdate: (openWhenFound?: boolean) => Promise<UpdateCheckResult | null>; closePopover: () => void } | null>(null)
 const brandMenu = ref<HTMLElement | null>(null)
+const brandMenuTrigger = ref<HTMLButtonElement | null>(null)
+const brandMenuStyle = ref<Record<string, string>>({})
 const brandMenuOpen = ref(false)
 const taskModalOpen = ref(false)
 const lastTaskCategoryId = ref<string | null>(null)
@@ -312,6 +347,7 @@ const viewMeta = computed(() => ({
   week: { title: '我的一周', subtitle: '' },
   month: { title: '我的一月', subtitle: '' },
   categories: { title: '分类管理', subtitle: '' },
+  anniversaries: { title: '纪念日', subtitle: '' },
   about: { title: '关于岁岁时光', subtitle: '' }
 }[currentView.value]))
 
@@ -322,9 +358,24 @@ const orderedCategories = computed(() => [...categories.value].sort((left, right
 const weekDays = computed(() => weekDates(weekAnchor.value).map((date, index) => ({ date, day: Number(date.slice(-2)), weekday: weekdayLabels[index] })))
 const monthCalendarDays = computed(() => calendarDays(monthAnchor.value))
 const visibleHolidayYears = computed(() => [...new Set(monthCalendarDays.value.map(day => Number(day.date.slice(0, 4))))])
-const monthDays = computed(() => monthCalendarDays.value.map(day => ({ ...day, ...resolveCalendarMeta(day.date), holiday: holidayByDate.value[day.date] || null, tasks: tasksForDate(day.date) })))
+const monthAnniversaries = computed(() => {
+  const days = monthCalendarDays.value
+  const map = new Map<string, AnniversaryOccurrence[]>()
+  for (const item of anniversaryOccurrences(calendarAnniversaries.value, days[0].date, days[days.length - 1].date, calendarAnniversaryRecords.value)) {
+    const list = map.get(item.date) || []
+    list.push(item)
+    map.set(item.date, list)
+  }
+  return map
+})
+const monthDays = computed(() => monthCalendarDays.value.map(day => {
+  const dayTasks = tasksForDate(day.date)
+  const anniversaries = monthAnniversaries.value.get(day.date) || []
+  return { ...day, ...resolveCalendarMeta(day.date), holiday: holidayByDate.value[day.date] || null, tasks: dayTasks, anniversaries, count: dayTasks.length + anniversaries.length }
+}))
 const monthWeekCount = computed(() => monthDays.value.length / 7)
 const monthOverflowTasks = computed(() => monthDays.value.find(day => day.date === monthOverflowDate.value)?.tasks || [])
+const monthOverflowAnniversaries = computed(() => monthDays.value.find(day => day.date === monthOverflowDate.value)?.anniversaries || [])
 const weekLabel = computed(() => formatMonth(weekAnchor.value))
 const monthLabel = computed(() => formatMonth(monthAnchor.value))
 const updateButtonLabel = computed(() => checkingUpdate.value ? '正在检查' : '检查更新')
@@ -359,19 +410,29 @@ let holidayRefreshRequestId = 0
 
 function handleWindowFocus() {
   if (session.value) void refreshVisibleHolidayCalendar(true)
+  todayDate.value = todayString()
+  if (session.value && currentView.value === 'month') void refreshCalendarAnniversaries()
 }
 
 function handleVisibilityChange() {
-  if (document.visibilityState === 'visible' && session.value) void refreshVisibleHolidayCalendar(true)
+  if (document.visibilityState === 'visible') handleWindowFocus()
 }
 
 onMounted(async () => {
+  try {
+    sidebarCollapsed.value = localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true'
+  } catch {
+    sidebarCollapsed.value = false
+  }
   document.addEventListener('mousedown', closeBrandMenuOnOutsideClick)
+  document.addEventListener('keydown', closeSidebarOnEscape)
+  document.addEventListener('scroll', closeSidebarTooltip, true)
   document.addEventListener('mousedown', closeMonthOverflowOnOutsideClick)
   document.addEventListener('keydown', closeMonthOverflowOnEscape)
   document.addEventListener('keydown', closeTaskModalOnEscape)
   document.addEventListener('scroll', closeMonthOverflowOnScroll, true)
   window.addEventListener('resize', closeMonthOverflow)
+  window.addEventListener('resize', handleSidebarResize)
   window.addEventListener('blur', flushTaskDraftOnWindowBlur)
   window.addEventListener('focus', handleWindowFocus)
   document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -396,18 +457,23 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  anniversaryRequestId++
   document.removeEventListener('mousedown', closeBrandMenuOnOutsideClick)
+  document.removeEventListener('keydown', closeSidebarOnEscape)
+  document.removeEventListener('scroll', closeSidebarTooltip, true)
   document.removeEventListener('mousedown', closeMonthOverflowOnOutsideClick)
   document.removeEventListener('keydown', closeMonthOverflowOnEscape)
   document.removeEventListener('keydown', closeTaskModalOnEscape)
   document.removeEventListener('scroll', closeMonthOverflowOnScroll, true)
   window.removeEventListener('resize', closeMonthOverflow)
+  window.removeEventListener('resize', handleSidebarResize)
   window.removeEventListener('blur', flushTaskDraftOnWindowBlur)
   window.removeEventListener('focus', handleWindowFocus)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.clearTimeout(filterTimer)
   window.clearTimeout(midnightRefreshTimer)
   window.clearTimeout(monthOverflowCloseTimer)
+  closeSidebarTooltip()
   reminderScheduler?.stop()
 })
 
@@ -421,9 +487,13 @@ watch([search, rangeStart, rangeEnd], () => {
 })
 watch(monthAnchor, () => {
   if (session.value) void refreshVisibleHolidayCalendar(false)
+  if (session.value && currentView.value === 'month') void refreshCalendarAnniversaries()
 })
+watch(() => session.value?.id, () => { anniversaryRequestId++; calendarAnniversaries.value = []; calendarAnniversaryRecords.value = []; activeAnniversary.value = null; anniversaryDetailId.value = ''; anniversaryCalendarError.value = ''; if (session.value && currentView.value === 'month') void refreshCalendarAnniversaries() }, { flush: 'sync' })
+watch(currentView, view => { activeAnniversary.value = null; if (view === 'month' && session.value) void refreshCalendarAnniversaries() })
 watch([currentView, monthAnchor, showCompleted], closeMonthOverflow)
 watch(currentView, view => {
+  closeSidebarTooltip()
   if (!session.value || !['all', 'week', 'month'].includes(view)) return
   void refreshData().catch(error => showNotice(messageOf(error), 'error'))
 })
@@ -462,6 +532,27 @@ async function refreshData() {
   tasks.value = nextTasks
   if (lastTaskCategoryId.value && !nextCategories.some(category => category.id === lastTaskCategoryId.value)) lastTaskCategoryId.value = nextCategories[0]?.id ?? null
 }
+
+async function refreshCalendarAnniversaries() {
+  if (!session.value) return
+  const ownerId = session.value.id
+  const requestId = ++anniversaryRequestId
+  const days = monthCalendarDays.value
+  try {
+    const [items, records] = await Promise.all([listAnniversaries(), listAnniversaryRecords({ startDate: days[0].date, endDate: days[days.length - 1].date })])
+    if (requestId !== anniversaryRequestId || session.value?.id !== ownerId) return
+    calendarAnniversaries.value = items
+    calendarAnniversaryRecords.value = records
+    anniversaryCalendarError.value = ''
+  } catch (cause) {
+    if (requestId === anniversaryRequestId && session.value?.id === ownerId) anniversaryCalendarError.value = messageOf(cause)
+  }
+}
+function openCalendarAnniversary(item: AnniversaryOccurrence) { closeMonthOverflow(); activeAnniversary.value = item }
+function saveCalendarAnniversary(record: AnniversaryRecord) {
+  calendarAnniversaryRecords.value = [...calendarAnniversaryRecords.value.filter(item => item.anniversaryId !== record.anniversaryId || item.date !== record.date), record]
+}
+function showAnniversaryDetails(id: string) { activeAnniversary.value = null; anniversaryDetailId.value = id; currentView.value = 'anniversaries' }
 
 async function refreshVisibleHolidayCalendar(force: boolean) {
   const years = visibleHolidayYears.value
@@ -520,6 +611,7 @@ function scheduleMidnightRefresh() {
   nextDay.setHours(24, 0, 1, 0)
   midnightRefreshTimer = window.setTimeout(() => {
     todayDate.value = todayString()
+    if (currentView.value === 'month') void refreshCalendarAnniversaries()
     void refreshData().then(() => reminderScheduler?.sync()).catch(error => showNotice(messageOf(error), 'error'))
     scheduleMidnightRefresh()
   }, Math.max(1000, nextDay.getTime() - now.getTime()))
@@ -534,6 +626,8 @@ function startReminderScheduler() {
 
 async function handleLogout() {
   brandMenuOpen.value = false
+  closeSidebarTooltip()
+  notificationCenter.value?.closePopover()
   window.clearTimeout(midnightRefreshTimer)
   reminderScheduler?.stop()
   reminderScheduler = null
@@ -573,7 +667,92 @@ function openBrandMenuView(view: 'categories' | 'about') {
 }
 
 function closeBrandMenuOnOutsideClick(event: MouseEvent) {
-  if (brandMenu.value && !brandMenu.value.contains(event.target as Node)) brandMenuOpen.value = false
+  if (!(event.target instanceof Node)) return
+  if (!brandMenu.value?.contains(event.target) && !brandMenuTrigger.value?.contains(event.target)) brandMenuOpen.value = false
+}
+
+function toggleSidebar() {
+  if (!sidebarDesktop.value) return
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  closeSidebarTooltip()
+  brandMenuOpen.value = false
+  notificationCenter.value?.closePopover()
+  closeMonthOverflow()
+  try {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed.value))
+  } catch {
+    // 本地偏好写入失败不影响本次切换。
+  }
+}
+
+function handleSidebarResize() {
+  sidebarDesktop.value = window.innerWidth > 700
+  closeSidebarTooltip()
+  brandMenuOpen.value = false
+}
+
+function closeSidebarOnEscape(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  closeSidebarTooltip()
+  if (brandMenuOpen.value) {
+    brandMenuOpen.value = false
+    brandMenuTrigger.value?.focus()
+    closeSidebarTooltip()
+  }
+  notificationCenter.value?.closePopover()
+}
+
+function closeSidebarTooltip() {
+  window.clearTimeout(sidebarTooltipTimer)
+  sidebarTooltipTrigger?.removeAttribute('aria-describedby')
+  sidebarTooltipTrigger = null
+  sidebarTooltip.value = ''
+}
+
+function showSidebarTooltip(event: PointerEvent | FocusEvent) {
+  if (!sidebarCompact.value || !(event.target instanceof Element)) return
+  const labelElement = event.target.closest<HTMLElement>('[data-sidebar-label]')
+  if (!labelElement) return
+  const trigger = labelElement instanceof HTMLButtonElement ? labelElement : labelElement.querySelector('button')
+  if (!trigger || (sidebarTooltipTrigger === trigger && event.type !== 'focusin')) return
+  closeSidebarTooltip()
+  sidebarTooltipTrigger = trigger
+  const reveal = () => {
+    if (!sidebarCompact.value || sidebarTooltipTrigger !== trigger || !trigger.isConnected) return
+    const rect = trigger.getBoundingClientRect()
+    const sidebarRight = trigger.closest('.sidebar')?.getBoundingClientRect().right ?? rect.right
+    sidebarTooltip.value = labelElement.dataset.sidebarLabel || ''
+    sidebarTooltipStyle.value = {
+      left: `${Math.min(sidebarRight + 8, window.innerWidth - 188)}px`,
+      top: `${Math.max(24, Math.min(rect.top + rect.height / 2, window.innerHeight - 24))}px`
+    }
+    trigger.setAttribute('aria-describedby', 'sidebar-tooltip')
+  }
+  if (event.type === 'focusin') reveal()
+  else sidebarTooltipTimer = window.setTimeout(reveal, 150)
+}
+
+function leaveSidebarTooltip(event: PointerEvent | FocusEvent) {
+  if (!(event.target instanceof Element)) return
+  const labelElement = event.target.closest('[data-sidebar-label]')
+  if (event.relatedTarget instanceof Node && labelElement?.contains(event.relatedTarget)) return
+  closeSidebarTooltip()
+}
+
+async function toggleBrandMenu() {
+  closeSidebarTooltip()
+  brandMenuOpen.value = !brandMenuOpen.value
+  if (!brandMenuOpen.value || !brandMenuTrigger.value) return
+  notificationCenter.value?.closePopover()
+  const rect = brandMenuTrigger.value.getBoundingClientRect()
+  const width = Math.min(244, window.innerWidth - 24)
+  const left = sidebarCompact.value ? rect.right + 12 : rect.left
+  brandMenuStyle.value = { width: `${width}px`, left: `${Math.max(12, Math.min(left, window.innerWidth - width - 12))}px`, top: '12px', visibility: 'hidden' }
+  await nextTick()
+  if (!brandMenuOpen.value || !brandMenu.value) return
+  const height = brandMenu.value.getBoundingClientRect().height
+  const top = sidebarCompact.value ? rect.top : rect.bottom + 9
+  brandMenuStyle.value = { ...brandMenuStyle.value, top: `${Math.max(12, Math.min(top, window.innerHeight - height - 12))}px`, visibility: 'visible' }
 }
 
 async function resetCurrentDate() {

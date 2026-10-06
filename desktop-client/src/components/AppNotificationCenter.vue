@@ -1,6 +1,6 @@
 <template>
   <div ref="root" class="notification-center">
-    <button ref="trigger" class="notification-trigger" type="button" aria-label="通知" title="通知" @click="togglePopover">
+    <button ref="trigger" class="notification-trigger" type="button" aria-label="通知" :title="compact ? undefined : '通知'" @click="togglePopover">
       <Bell :size="19" />
       <span v-if="unreadCount" class="notification-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
     </button>
@@ -49,6 +49,8 @@ import { Bell, Download, RefreshCw, X } from 'lucide-vue-next'
 import { marked } from 'marked'
 import { checkAppUpdate, currentVersion, formatUpdateError, getUpdateCommits, installAppUpdate, isTauriRuntime } from '../api/native'
 import type { UpdateCheckResult, UpdateCommit } from '../api/native'
+
+defineProps<{ compact?: boolean }>()
 
 const STORAGE_KEY = 'sui-time:notifications'
 const UPDATE_NOTIFICATION_PREFIX = 'app-update:'
@@ -351,5 +353,5 @@ function getNotificationSummary(updateInfo: UpdateNotificationPayload) {
   return updateInfo.installed ? `当前客户端已更新到 ${updateInfo.latestVersion}。` : `当前版本 ${updateInfo.currentVersion}，点击查看更新内容。`
 }
 
-defineExpose({ checkForUpdate })
+defineExpose({ checkForUpdate, closePopover: () => { popoverOpen.value = false } })
 </script>

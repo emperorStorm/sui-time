@@ -29,7 +29,7 @@ use crate::models::{
 const ACTIVE_USER_KEY: &str = "active_user_id";
 const LAST_TASK_CATEGORY_KEY_PREFIX: &str = "last_task_category:";
 const LAST_TASK_PRIORITY_KEY_PREFIX: &str = "last_task_priority:";
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 11;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -85,6 +85,55 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
     }
     if version < 9 {
         migrate_to_v9(conn)?;
+    }
+    if version < 10 {
+        let transaction = conn
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        transaction.execute_batch(
+            "CREATE TABLE anniversaries (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL CHECK(kind IN ('countdown', 'anniversary', 'birthday', 'holiday')),
+                title TEXT NOT NULL,
+                date TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                pinned INTEGER NOT NULL DEFAULT 0,
+                theme TEXT NOT NULL DEFAULT 'sky',
+                photos_json TEXT NOT NULL DEFAULT '[]',
+                cover_index INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+             );
+             CREATE INDEX anniversaries_owner ON anniversaries(owner_id);
+             PRAGMA user_version = 10;"
+        ).map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+    }
+    if version < 11 {
+        let transaction = conn
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        transaction
+            .execute_batch(
+                "CREATE TABLE anniversary_records (
+                anniversary_id TEXT NOT NULL REFERENCES anniversaries(id) ON DELETE CASCADE,
+                owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                date TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                confirmed_at INTEGER,
+                title TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('countdown','anniversary','birthday','holiday')),
+                original_date TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY(anniversary_id, date)
+             );
+             CREATE INDEX anniversary_records_owner_date ON anniversary_records(owner_id, date);
+             PRAGMA user_version = 11;",
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -1563,6 +1612,14 @@ fn validate_database_file(path: &Path) -> Result<(), String> {
         return Err("备份来自更高版本的客户端，请升级应用后再恢复".to_string());
     }
     let category_table = if version < 3 { "tags" } else { "categories" };
+    if version >= 11
+        && !table_exists(&conn, "anniversary_records").map_err(|error| error.to_string())?
+    {
+        return Err("备份中的纪念记录不完整".to_string());
+    }
+    if version >= 10 && !table_exists(&conn, "anniversaries").map_err(|error| error.to_string())? {
+        return Err("备份中的纪念日数据不完整".to_string());
+    }
     for table in ["users", "app_settings", category_table, "tasks"] {
         if !table_exists(&conn, table).map_err(|_| "备份中的数据库无法校验".to_string())?
         {
@@ -3157,7 +3214,9 @@ mod tests {
         initialize(&conn).unwrap();
         create_initial_account(&conn, &account("备份用户")).unwrap();
         conn.execute_batch(
-            "ALTER TABLE users DROP COLUMN show_completed;
+            "DROP TABLE anniversary_records;
+             DROP TABLE anniversaries;
+             ALTER TABLE users DROP COLUMN show_completed;
              PRAGMA user_version = 5;",
         )
         .unwrap();
@@ -3192,6 +3251,84 @@ mod tests {
                 .unwrap(),
             SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    fn anniversary_photos_survive_encrypted_backup_restore() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.sqlite3");
+        let conn = Connection::open(&source).unwrap();
+        initialize(&conn).unwrap();
+        let user = create_initial_account(&conn, &account("纪念日用户")).unwrap();
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode(&[120, 160, 200], 1, 1, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let photo = format!("data:image/jpeg;base64,{}", STANDARD.encode(jpeg));
+        let result = crate::anniversaries::save_anniversary(
+            &conn,
+            &user.id,
+            crate::models::AnniversaryInput {
+                id: None,
+                kind: "birthday".into(),
+                title: "生日".into(),
+                date: "2023-12-13".into(),
+                notes: "回忆".into(),
+                pinned: true,
+                theme: "warm".into(),
+                photos: vec![photo.clone()],
+                cover_index: 0,
+            },
+        )
+        .unwrap();
+        crate::anniversaries::save_anniversary_record(
+            &conn,
+            &user.id,
+            crate::models::AnniversaryRecordInput {
+                anniversary_id: result.summary.id.clone(),
+                date: "2024-12-13".into(),
+                notes: "一起吃蛋糕".into(),
+                confirmed: true,
+            },
+        )
+        .unwrap();
+        drop(conn);
+        let encrypted =
+            encrypt_backup(&snapshot_database(&source).unwrap(), "backup-password").unwrap();
+        let restored_path = directory.path().join("restored.sqlite3");
+        write_new_file(
+            &restored_path,
+            &decrypt_backup(&encrypted, "backup-password").unwrap(),
+        )
+        .unwrap();
+        validate_database_file(&restored_path).unwrap();
+        let restored = Connection::open(&restored_path).unwrap();
+        initialize(&restored).unwrap();
+        let record =
+            crate::anniversaries::get_anniversary(&restored, &user.id, &result.summary.id).unwrap();
+        assert_eq!(record.photos, vec![photo]);
+        assert_eq!(record.cover_index, 0);
+        assert!(record.summary.pinned);
+        assert_eq!(record.summary.notes, "回忆");
+        let records = crate::anniversaries::list_anniversary_records(
+            &restored,
+            &user.id,
+            Some(&result.summary.id),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].notes, "一起吃蛋糕");
+        assert!(records[0].confirmed_at.is_some());
+        restored
+            .execute_batch("DROP TABLE anniversary_records;")
+            .unwrap();
+        assert!(validate_database_file(&restored_path).is_err());
+        restored.execute_batch("DROP TABLE anniversaries;").unwrap();
+        drop(restored);
+        assert!(validate_database_file(&restored_path).is_err());
     }
 
     #[test]

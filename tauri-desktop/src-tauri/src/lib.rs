@@ -1,8 +1,13 @@
+mod anniversaries;
 mod db;
 #[cfg(target_os = "macos")]
 mod macos_notifications;
 mod models;
 
+use anniversaries::{
+    delete_anniversary, get_anniversary, list_anniversaries, list_anniversary_records,
+    pin_anniversary, save_anniversary, save_anniversary_record,
+};
 use db::{
     active_user, backup_app_data, complete_task_with_children, count_unfinished_task_children,
     create_initial_account, delete_category, delete_task, get_last_task_category,
@@ -15,6 +20,75 @@ use models::{
     AccountInput, BootState, Category, CategoryInput, ReminderNotificationRequest,
     ReminderPermissionResult, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskView, UserSession,
 };
+use models::{
+    Anniversary, AnniversaryInput, AnniversaryRecord, AnniversaryRecordInput, AnniversarySummary,
+};
+
+#[tauri::command]
+fn list_user_anniversary_records(
+    app: tauri::AppHandle,
+    anniversary_id: Option<String>,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<Vec<AnniversaryRecord>, String> {
+    let conn = open_app_db(&app)?;
+    list_anniversary_records(
+        &conn,
+        &require_user_id(&conn)?,
+        anniversary_id.as_deref(),
+        start_date.as_deref(),
+        end_date.as_deref(),
+    )
+}
+
+#[tauri::command]
+fn save_user_anniversary_record(
+    app: tauri::AppHandle,
+    input: AnniversaryRecordInput,
+) -> Result<AnniversaryRecord, String> {
+    let conn = open_app_db(&app)?;
+    save_anniversary_record(&conn, &require_user_id(&conn)?, input)
+}
+
+#[tauri::command]
+fn list_user_anniversaries(app: tauri::AppHandle) -> Result<Vec<AnniversarySummary>, String> {
+    let conn = open_app_db(&app)?;
+    list_anniversaries(&conn, &require_user_id(&conn)?)
+}
+
+#[tauri::command]
+fn get_user_anniversary(
+    app: tauri::AppHandle,
+    anniversary_id: String,
+) -> Result<Anniversary, String> {
+    let conn = open_app_db(&app)?;
+    get_anniversary(&conn, &require_user_id(&conn)?, &anniversary_id)
+}
+
+#[tauri::command]
+fn save_user_anniversary(
+    app: tauri::AppHandle,
+    input: AnniversaryInput,
+) -> Result<Anniversary, String> {
+    let conn = open_app_db(&app)?;
+    save_anniversary(&conn, &require_user_id(&conn)?, input)
+}
+
+#[tauri::command]
+fn remove_user_anniversary(app: tauri::AppHandle, anniversary_id: String) -> Result<(), String> {
+    let conn = open_app_db(&app)?;
+    delete_anniversary(&conn, &require_user_id(&conn)?, &anniversary_id)
+}
+
+#[tauri::command]
+fn pin_user_anniversary(
+    app: tauri::AppHandle,
+    anniversary_id: String,
+    pinned: bool,
+) -> Result<(), String> {
+    let conn = open_app_db(&app)?;
+    pin_anniversary(&conn, &require_user_id(&conn)?, &anniversary_id, pinned)
+}
 
 #[tauri::command]
 fn get_boot_state(app: tauri::AppHandle) -> Result<BootState, String> {
@@ -317,6 +391,13 @@ pub fn run() {
             get_user_last_task_priority,
             save_user_last_task_priority,
             list_user_categories,
+            list_user_anniversaries,
+            list_user_anniversary_records,
+            save_user_anniversary_record,
+            get_user_anniversary,
+            save_user_anniversary,
+            remove_user_anniversary,
+            pin_user_anniversary,
             save_user_category,
             remove_user_category,
             list_user_tasks,
