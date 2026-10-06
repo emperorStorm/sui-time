@@ -129,10 +129,11 @@ input, textarea, select { outline: none; }
 .week-day header .icon-button { justify-self: end; }
 .week-day.today .week-day-number { color: #2a80e4; }
 .day-task-list { padding: 7px; }
-.schedule-card { display: flex; width: 100%; min-height: 33px; align-items: center; margin-bottom: 5px; padding: 5px 6px; border-radius: 4px; background: var(--task-color); color: #fff; gap: 6px; text-align: left; }
+.schedule-card { display: flex; width: 100%; min-height: 33px; align-items: center; margin-bottom: 5px; padding: 5px 6px; border-radius: 4px; background: var(--task-color); color: #fff; gap: 4px; text-align: left; }
 .schedule-card:hover { filter: brightness(.94); }
-.schedule-card > span { min-width: 0; flex: 1; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.schedule-card time { color: rgba(255, 255, 255, .82); font-size: 10px; }
+.schedule-card > .schedule-task-title { min-width: 0; flex: 1; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-card time { flex: 0 0 auto; color: rgba(255, 255, 255, .82); font-size: 10px; white-space: nowrap; }
+.schedule-task-mark { display: inline-flex; width: 18px; flex: 0 0 18px; align-items: center; justify-content: center; color: #fff; font-family: Georgia, 'Times New Roman', serif; font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap; }
 .month-calendar { display: flex; flex: 0 0 auto; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid #cfd9e5; border-radius: 8px; background: #fff; box-shadow: 0 2px 7px rgba(38, 59, 82, .07), 0 14px 32px rgba(38, 59, 82, .06); }
 .month-weekdays { display: grid; height: 33px; flex: 0 0 33px; align-items: center; grid-template-columns: repeat(7, 1fr); padding: 0 10px; border-bottom: 1px solid #dce4ec; background: #f8fafc; color: #78828e; font-size: 11px; font-weight: 700; text-align: center; }
 .month-grid { display: grid; flex: 0 0 auto; min-height: 0; grid-template-columns: repeat(7, minmax(112px, 1fr)); grid-template-rows: repeat(var(--month-rows), minmax(98px, auto)); background: #fff; }
@@ -141,23 +142,24 @@ input, textarea, select { outline: none; }
 .month-day:nth-last-child(-n+7) { border-bottom: 0; }
 .month-day.muted { background: #fafbfc; color: #b2b8c0; }
 .month-day.today { background: #f7fbff; }
-.month-day header { display: flex; height: 20px; align-items: center; justify-content: space-between; gap: 4px; }
+.month-day header { display: grid; height: 20px; align-items: center; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .month-date-meta, .month-date-actions { display: flex; min-width: 0; align-items: center; }
-.month-date-meta { flex: 0 0 auto; gap: 5px; }
-.month-date-actions { flex: 1; justify-content: flex-end; gap: 2px; }
+.month-date-meta { grid-column: 1; gap: 5px; overflow: hidden; }
+.month-date-actions { grid-column: 3; justify-content: flex-end; gap: 2px; }
 .month-day header time { font-size: 13px; font-weight: 700; }
 .month-lunar { color: #929ba6; font-size: 10px; white-space: nowrap; }
+.month-calendar-marker { grid-column: 2; min-width: 0; overflow: hidden; color: #2f80ed; font-size: 10px; font-weight: 600; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .month-holiday-badge { display: inline-flex; width: 16px; height: 16px; flex: 0 0 16px; align-items: center; justify-content: center; border-radius: 4px; font-size: 9px; font-weight: 700; line-height: 1; }
 .month-holiday-badge.off { background: #e8f3ff; color: #2f80ed; }
 .month-holiday-badge.work { background: #fff2df; color: #d78616; }
-.month-calendar-marker { min-width: 0; flex: 1 1 auto; overflow: hidden; color: #2f80ed; font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .month-day.today header time { color: #2780e5; }
 .month-day .icon-button { width: 22px; height: 22px; flex: 0 0 22px; opacity: 0; }
 .month-day:hover .icon-button { opacity: 1; }
 .month-items { display: grid; margin-top: 5px; gap: 3px; }
-.month-item { display: flex; min-width: 0; height: 22px; align-items: center; padding: 0 5px; border-radius: 3px; color: #fff; gap: 3px; overflow: hidden; font-size: 10px; text-align: left; }
-.month-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.month-item time { margin-left: auto; font-size: 9px; }
+.month-item { display: flex; min-width: 0; height: 22px; align-items: center; padding: 0 5px; border-radius: 3px; color: #fff; gap: 4px; overflow: hidden; font-size: 10px; text-align: left; }
+.month-item > .schedule-task-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.month-item .schedule-task-mark { font-size: 10px; }
+.month-item time { flex: 0 0 auto; margin-left: auto; font-size: 9px; white-space: nowrap; }
 .month-item:not(:has(time)) { text-overflow: ellipsis; white-space: nowrap; }
 .more-items { display: flex; width: 100%; height: 22px; align-items: center; padding: 0 6px; border-left: 3px solid #6fa8eb; border-radius: 3px; background: #edf5ff; color: #2f7ed8; font-size: 10px; font-weight: 700; text-align: left; transition: background .16s ease, color .16s ease; }
 .month-day:has(.more-items) .month-items { margin-top: 3px; gap: 2px; }
@@ -167,8 +169,8 @@ input, textarea, select { outline: none; }
 .month-overflow-popover { position: fixed; z-index: 19; display: grid; max-height: min(320px, calc(100vh - 24px)); padding: 6px; overflow-y: auto; border: 1px solid #dce5ef; border-radius: 6px; background: #fff; box-shadow: 0 16px 34px rgba(30, 50, 75, .2); gap: 3px; scrollbar-gutter: stable; }
 .month-overflow-item { display: flex; width: 100%; min-width: 0; height: 25px; flex: 0 0 auto; align-items: center; padding: 0 7px; overflow: hidden; border-radius: 3px; color: #fff; gap: 4px; font-size: 11px; text-align: left; transition: filter .14s ease, transform .14s ease; }
 .month-overflow-item:hover, .month-overflow-item:focus-visible { filter: brightness(.94); outline: 2px solid rgba(47, 128, 237, .24); outline-offset: -2px; transform: translateX(1px); }
-.month-overflow-item > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.month-overflow-item time { flex: 0 0 auto; margin-left: auto; font-size: 9px; }
+.month-overflow-item > .schedule-task-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.month-overflow-item time { flex: 0 0 auto; margin-left: auto; font-size: 9px; white-space: nowrap; }
 .month-overflow-enter-active, .month-overflow-leave-active { transition: opacity .14s ease, transform .14s ease; transform-origin: top left; }
 .month-overflow-enter-from, .month-overflow-leave-to { opacity: 0; transform: translateY(-3px) scale(.98); }
 
@@ -418,7 +420,6 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
 .subtask-drag-handle:active { cursor: grabbing; }
 .task-save-state { min-width: 0; overflow: hidden; color: #8a96a3; font-size: 11px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .task-save-state.error { color: #d2555d; }
-.task-close { margin-left: 2px; }
 .subtask-row input, .notes-editor textarea { color: #3d4a58; }
 .subtask-remove { opacity: .72; }
 .subtask-remove:hover { opacity: 1; }
@@ -574,7 +575,7 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
 .task-card .task-check.done { border-color: var(--task-color); background: var(--task-color); }
 .schedule-card, .month-item, .month-overflow-item { background: var(--task-color); }
 .schedule-card.status-done, .schedule-card.status-failed, .month-item.status-done, .month-item.status-failed, .month-overflow-item.status-done, .month-overflow-item.status-failed { background: color-mix(in srgb, var(--task-color) 62%, white); }
-.schedule-card > svg, .month-item > svg, .month-overflow-item > svg { flex: 0 0 auto; color: #fff; stroke-width: 3; }
+.schedule-task-mark > svg { flex: 0 0 auto; color: #fff; stroke-width: 3; }
 .task-footer-start { display: flex; align-items: center; gap: 8px; }
 .task-modal > footer .quiet-button,
 .task-modal > footer .primary-button,

@@ -117,12 +117,12 @@ jobs:
           const fs = require('fs');
           const version = process.env.VERSION;
           const tag = process.env.TAG;
-          // 阿里云 OSS 默认域名禁止分发 .apk（ApkDownloadForbidden），下载地址指向 GitHub Release
-          const repo = process.env.GITHUB_REPOSITORY;
+          const baseUrl = process.env.OSS_BASE_URL.replace(/\/+$/, '');
+          const apk = `sui-time-${version}-android.apk`;
           const manifest = {
             version,
             notes: '',
-            url: `https://github.com/${repo}/releases/download/${tag}/sui-time-${version}-android.apk`,
+            url: `${baseUrl}/sui-time/releases/${tag}/${apk}`,
             pubDate: new Date().toISOString()
           };
           fs.writeFileSync('latest-android.json', JSON.stringify(manifest, null, 2) + '\n');

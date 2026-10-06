@@ -97,7 +97,7 @@ Vue 页面
 
 GitHub Actions 构建 macOS 与 Windows 安装包、签名更新资产并创建 Release，随后把不可变安装包和当前 `latest.json` 同步到 OSS。密钥只能配置在 GitHub Secrets/Variables，禁止写入仓库。
 
-安卓移动端不使用 Tauri updater。App 内”检查更新”读取 OSS 的 `sui-time/latest-android.json`，发现新版本后用系统浏览器打开 APK 直链下载，用户手动安装。APK 由 CI 离线打包自动构建（`uni-client/android-templates/` + `scripts/prepare-android.mjs`，依赖 DCloud 离线打包 Key 与 OSS 上常驻的离线 SDK），打 `v*` tag 后自动上传 GitHub Release 并生成 `latest-android.json`。注意阿里云 OSS 默认域名禁止分发 `.apk` 文件，故 `latest-android.json` 的 `url` 指向 GitHub Release 下载地址。
+安卓移动端不使用 Tauri updater。App 内“检查更新”读取 OSS 的 `sui-time/latest-android.json`，发现新版本后用系统浏览器打开 OSS 中的 APK 直链下载，用户手动安装。APK 由 CI 离线打包自动构建（`uni-client/android-templates/` + `scripts/prepare-android.mjs`，依赖 DCloud 离线打包 Key 与 OSS 上常驻的离线 SDK），打 `v*` tag 后自动上传 GitHub Release 和 OSS，并生成 `latest-android.json`；清单中的 APK 地址由 `ALIYUN_OSS_BASE_URL` 与 OSS 对象路径拼接。
 
 浏览器模式只能验证”当前已是最新版本”的降级分支和通知界面；真实签名、下载、安装和重启必须使用 Tauri 安装包或 CI/Release 环境验证。
 

@@ -82,7 +82,12 @@
           <div class="week-grid">
             <section v-for="day in weekDays" :key="day.date" :class="['week-day', { today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
               <header><span class="week-day-number">{{ day.day }}</span><strong>{{ day.weekday }}</strong><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="17" /></button></header>
-              <div class="day-task-list"><button v-for="item in tasksForDate(day.date)" :key="item.id" :class="['schedule-card', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button></div>
+              <div class="day-task-list">
+                <button v-for="item in tasksForDate(day.date)" :key="item.id" :class="['schedule-card', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" :title="scheduleTaskDescription(item)" :aria-label="scheduleTaskDescription(item)" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)">
+                  <span class="schedule-task-mark" aria-hidden="true"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><template v-else>{{ taskPriorityOptions.get(item.priority)?.mark || '—' }}</template></span>
+                  <span class="schedule-task-title">{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time>
+                </button>
+              </div>
             </section>
           </div>
         </section>
@@ -95,10 +100,14 @@
               <section v-for="day in monthDays" :key="day.date" :class="['month-day', { muted: !day.inMonth, today: day.date === todayDate }]" @dragover.prevent @drop="dropOnDate(day.date)">
                 <header>
                   <div class="month-date-meta"><time :datetime="day.date">{{ day.day }}</time><span class="month-lunar">{{ day.lunarLabel }}</span></div>
-                  <div class="month-date-actions"><span v-if="day.holiday" class="month-holiday-badge" :class="day.holiday.isOffDay ? 'off' : 'work'" role="img" :title="holidayDescription(day.holiday)" :aria-label="holidayDescription(day.holiday)">{{ day.holiday.isOffDay ? '休' : '班' }}</span><span v-if="day.marker" class="month-calendar-marker" :title="day.marker">{{ day.marker }}</span><button v-if="day.tasks.length > 4" class="more-items" type="button" :aria-label="`${day.date} 还有 ${day.tasks.length - 4} 项，查看当天全部事项`" aria-haspopup="dialog" :aria-expanded="monthOverflowDate === day.date" @mouseenter="openMonthOverflow(day.date, $event)" @mouseleave="scheduleMonthOverflowClose" @focus="openMonthOverflow(day.date, $event)" @blur="scheduleMonthOverflowClose" @click="openMonthOverflow(day.date, $event)">{{ day.tasks.length - 4 }}+</button><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button></div>
+                  <span v-if="day.marker" class="month-calendar-marker" :title="day.marker">{{ day.marker }}</span>
+                  <div class="month-date-actions"><button v-if="day.tasks.length > 4" class="more-items" type="button" :aria-label="`${day.date} 还有 ${day.tasks.length - 4} 项，查看当天全部事项`" aria-haspopup="dialog" :aria-expanded="monthOverflowDate === day.date" @mouseenter="openMonthOverflow(day.date, $event)" @mouseleave="scheduleMonthOverflowClose" @focus="openMonthOverflow(day.date, $event)" @blur="scheduleMonthOverflowClose" @click="openMonthOverflow(day.date, $event)">{{ day.tasks.length - 4 }}+</button><button class="icon-button ghost" title="新建当天事项" @click="openTaskModal(undefined, undefined, day.date)"><Plus :size="15" /></button><span v-if="day.holiday" class="month-holiday-badge" :class="day.holiday.isOffDay ? 'off' : 'work'" role="img" :title="holidayDescription(day.holiday)" :aria-label="holidayDescription(day.holiday)">{{ day.holiday.isOffDay ? '休' : '班' }}</span></div>
                 </header>
                 <div class="month-items">
-                  <button v-for="item in day.tasks.slice(0, 4)" :key="item.id" :class="['month-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button>
+                  <button v-for="item in day.tasks.slice(0, 4)" :key="item.id" :class="['month-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" :title="scheduleTaskDescription(item)" :aria-label="scheduleTaskDescription(item)" draggable="true" @dragstart="draggedTaskId = item.id" @click="openTaskModal(undefined, item)">
+                    <span class="schedule-task-mark" aria-hidden="true"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><template v-else>{{ taskPriorityOptions.get(item.priority)?.mark || '—' }}</template></span>
+                    <span class="schedule-task-title">{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time>
+                  </button>
                 </div>
               </section>
             </div>
@@ -120,7 +129,10 @@
     <Teleport to="body">
       <Transition name="month-overflow">
         <section v-if="monthOverflowDate && monthOverflowTasks.length > 4" ref="monthOverflowPanel" class="month-overflow-popover" :style="monthOverflowStyle" role="dialog" :aria-label="`${monthOverflowDate} 全部事项`" @mouseenter="keepMonthOverflowOpen" @mouseleave="scheduleMonthOverflowClose" @focusin="keepMonthOverflowOpen" @focusout="scheduleMonthOverflowClose">
-          <button v-for="item in monthOverflowTasks" :key="item.id" type="button" :class="['month-overflow-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" @click="openTaskFromMonthOverflow(item)"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><span>{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time></button>
+          <button v-for="item in monthOverflowTasks" :key="item.id" type="button" :class="['month-overflow-item', `status-${item.status}`]" :style="{ '--task-color': item.categoryColor || '#8b98a8' }" :title="scheduleTaskDescription(item)" :aria-label="scheduleTaskDescription(item)" @click="openTaskFromMonthOverflow(item)">
+            <span class="schedule-task-mark" aria-hidden="true"><Check v-if="item.status === 'done'" :size="12" /><X v-else-if="item.status === 'failed'" :size="12" /><template v-else>{{ taskPriorityOptions.get(item.priority)?.mark || '—' }}</template></span>
+            <span class="schedule-task-title">{{ item.title }}</span><time v-if="item.plannedTime">{{ item.plannedTime }}</time>
+          </button>
         </section>
       </Transition>
     </Teleport>
@@ -128,7 +140,7 @@
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
       <div v-if="taskModalOpen" class="modal-backdrop task-backdrop" @mousedown.self="closeTaskModal">
       <form class="modal-panel task-modal" @mousedown="closeTaskMenusOnOutsideClick($event); handleTaskModalBlankClick($event)" @submit.prevent="persistTaskDraft()">
-        <header class="task-modal-head"><span v-if="editingRepeatRule" class="task-check modal-check task-repeat" title="重复事项请在周或月视图中更新单次状态"><CircleDot :size="18" /></span><button v-else type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="savingTask || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" @blur="flushTaskDraftSave" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button><button class="icon-button ghost task-close" type="button" title="关闭任务弹窗" aria-label="关闭任务弹窗" @click="closeTaskModal"><X :size="19" /></button></div></header>
+        <header class="task-modal-head"><span v-if="editingRepeatRule" class="task-check modal-check task-repeat" title="重复事项请在周或月视图中更新单次状态"><CircleDot :size="18" /></span><button v-else type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="savingTask || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" @blur="flushTaskDraftSave" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button></div></header>
         <Transition name="popover"><div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="selectTaskPriority(option.value)"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div></Transition>
         <Transition name="popover"><div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div></Transition>
         <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
@@ -265,6 +277,8 @@ const priorityOptions: Array<{ value: Priority; label: string; mark: string }> =
   { value: 'urgent_important', label: '重要且紧急', mark: 'I' }, { value: 'important_not_urgent', label: '重要不紧急', mark: 'II' },
   { value: 'urgent_not_important', label: '不重要但紧急', mark: 'III' }, { value: 'not_urgent_not_important', label: '不重要不紧急', mark: 'IV' }
 ]
+const taskPriorityOrder = new Map(priorityOptions.map((option, index) => [option.value, index]))
+const taskPriorityOptions = new Map(priorityOptions.map(option => [option.value, option]))
 const categoryIconOptions = [
   { value: 'tags', label: '通用分类', icon: CategoryIcon }, { value: 'briefcase-business', label: '工作', icon: BriefcaseBusiness },
   { value: 'house', label: '生活', icon: House },
@@ -882,9 +896,27 @@ async function submitBackup() {
 }
 
 function tasksForDate(date: string) {
-  return resolveTasksForDate(visibleTasks.value, date).filter(item => showCompleted.value || item.status === 'todo').sort(compareTaskStatus)
+  return resolveTasksForDate(visibleTasks.value, date).filter(item => showCompleted.value || item.status === 'todo').sort((left, right) => {
+    const statusOrder = compareTaskStatus(left, right)
+    if (statusOrder) return statusOrder
+
+    // 完成和失败仍置底，组内先排具体时间，再按四象限优先级排序。
+    const leftTime = left.plannedTime || ''
+    const rightTime = right.plannedTime || ''
+    if (Boolean(leftTime) !== Boolean(rightTime)) return leftTime ? -1 : 1
+    if (leftTime !== rightTime) return leftTime < rightTime ? -1 : 1
+    return (taskPriorityOrder.get(left.priority) ?? priorityOptions.length) - (taskPriorityOrder.get(right.priority) ?? priorityOptions.length)
+  })
 }
 function compareTaskStatus(left: Task, right: Task) { return Number(left.status !== 'todo') - Number(right.status !== 'todo') }
+function scheduleTaskDescription(item: Task) {
+  const priority = taskPriorityOptions.get(item.priority)?.label || '未设置优先级'
+  const status = item.status === 'done' ? '已完成' : item.status === 'failed' ? '已失败' : '待完成'
+  const time = item.plannedTime
+    ? item.scheduleKind === 'range' && item.plannedEndTime ? `${item.plannedTime} 至 ${item.plannedEndTime}` : item.plannedTime
+    : item.scheduleKind === 'all_day' ? '全天' : '未设置时间'
+  return `${item.title}，${priority}，${status}，${item.plannedDate || '未安排日期'}，${time}`
+}
 async function openMonthOverflow(date: string, event: MouseEvent | FocusEvent) {
   const trigger = event.currentTarget
   if (!(trigger instanceof HTMLElement)) return
