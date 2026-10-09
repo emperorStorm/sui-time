@@ -156,9 +156,11 @@
         <header class="task-modal-head"><span v-if="editingRepeatRule" class="task-check modal-check task-repeat" title="重复事项请在周或月视图中更新单次状态"><CircleDot :size="18" /></span><button v-else type="button" :class="['task-check', 'modal-check', taskDraftStatus]" :disabled="savingTask || updatingTaskStatus" :title="taskStatusActionLabel" :aria-label="taskStatusActionLabel" :aria-pressed="taskDraftStatus !== 'todo'" @click="toggleTaskStatusFromModal"><Check v-if="taskDraftStatus === 'done'" :size="14" /><X v-else-if="taskDraftStatus === 'failed'" :size="14" /></button><input v-model.trim="taskDraft.title" maxlength="120" autofocus placeholder="输入事项名称" @blur="flushTaskDraftSave" /><div class="task-head-actions"><button :class="['priority-trigger', `priority-${taskDraft.priority}`]" type="button" :title="`优先级：${selectedPriorityOption.label}`" :aria-label="`设置优先级，当前${selectedPriorityOption.label}`" :aria-expanded="priorityOpen" @click="priorityOpen = !priorityOpen"><span class="priority-trigger-mark" aria-hidden="true">{{ selectedPriorityOption.mark }}</span></button><button v-if="selectedTaskCategory" class="task-category-trigger" type="button" :style="{ color: selectedTaskCategory.color, backgroundColor: `${selectedTaskCategory.color}22` }" :title="`分类：${selectedTaskCategory.name}`" :aria-label="`选择分类，当前${selectedTaskCategory.name}`" :aria-expanded="categoryMenuOpen" @click="categoryMenuOpen = !categoryMenuOpen"><component :is="categoryIconComponent(selectedTaskCategory.icon)" :size="19" /></button></div></header>
         <Transition name="popover"><div v-if="priorityOpen" class="priority-menu"><button v-for="option in priorityOptions" :key="option.value" :class="[option.value, { selected: taskDraft.priority === option.value }]" type="button" @click="selectTaskPriority(option.value)"><span class="priority-option-mark">{{ option.mark }}</span><strong>{{ option.label }}</strong><Check v-if="taskDraft.priority === option.value" :size="16" /></button></div></Transition>
         <Transition name="popover"><div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div></Transition>
-        <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
-<section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id && !childDropAfter, 'is-drag-over-after': dragOverChildId === subtask.id && childDropAfter }]" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id, $event)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" draggable="true" @dragstart.stop="startChildDrag(subtask.id, $event)" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @blur="flushTaskDraftSave" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
-        <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。" @blur="flushTaskDraftSave"></textarea></label>
+        <div ref="taskModalBody" class="task-modal-body" @dragover="scrollChildDrag($event)" @dragleave="leaveChildDragBody($event)">
+          <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
+          <section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id && !childDropAfter, 'is-drag-over-after': dragOverChildId === subtask.id && childDropAfter }]" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id, $event)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" draggable="true" @dragstart.stop="startChildDrag(subtask.id, $event)" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @blur="flushTaskDraftSave" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
+          <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。" @blur="flushTaskDraftSave"></textarea></label>
+        </div>
         <footer><div class="task-footer-start"><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><button v-if="taskDraft.id && !editingRepeatRule && taskDraftStatus !== 'failed'" class="quiet-button failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button></div><span v-if="taskSaveError || savingTask" class="task-save-state" :class="{ error: taskSaveError }">{{ taskSaveError || '正在保存…' }}</span><button v-if="taskSaveError" class="quiet-button" type="button" @click="retryTaskAutoSave">重试</button></footer>
       </form>
       </div>
@@ -298,12 +300,15 @@ const reminderPermissionGuideOpen = ref(false)
 const requestingReminderPermission = ref(false)
 const sendingReminderTest = ref(false)
 const childDrafts = ref<Task[]>([])
+const taskModalBody = ref<HTMLElement | null>(null)
 const deletedChildIds = ref<string[]>([])
 const persistedChildIds = ref<Set<string>>(new Set())
 const taskDraftStatus = ref<Task['status']>('todo')
 const draggedChildId = ref<string | null>(null)
 const dragOverChildId = ref<string | null>(null)
 const childDropAfter = ref(false)
+let childDragScrollFrame: number | undefined
+let childDragScrollSpeed = 0
 const taskSaveError = ref('')
 const taskDraftDirty = ref(false)
 const taskAutoSaveQueued = ref(false)
@@ -457,6 +462,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  endChildDrag()
   anniversaryRequestId++
   document.removeEventListener('mousedown', closeBrandMenuOnOutsideClick)
   document.removeEventListener('keydown', closeSidebarOnEscape)
@@ -874,16 +880,21 @@ async function persistTaskDraft(rememberPriority = true, showValidation = true) 
     if (!editingOccurrence.value) taskDraft.id = saved.id
     const invalidChild = childDrafts.value.find(item => persistedChildIds.value.has(item.id) && !item.title.trim() && !deletedChildIds.value.includes(item.id))
     if (invalidChild) throw new Error('请填写子事项标题，或删除该子事项')
-    const unsavedBlankChildren = childDrafts.value.filter(item => !item.title.trim() && !persistedChildIds.value.has(item.id) && !deletedChildIds.value.includes(item.id))
-    const savedChildren = await syncTaskChildren({ parentTaskId: saved.id, children: effectiveChildDrafts.value.map((item, index) => ({ ...(persistedChildIds.value.has(item.id) ? { id: item.id } : {}), title: item.title, status: item.status === 'done' ? 'done' : 'todo', sortOrder: index })), deletedIds: deletedChildIds.value })
+    const syncingChildren = effectiveChildDrafts.value
+    const syncingChildOrder = new Map(syncingChildren.map((item, index) => [item.id, index]))
+    const savedChildren = await syncTaskChildren({ parentTaskId: saved.id, children: syncingChildren.map((item, index) => ({ ...(persistedChildIds.value.has(item.id) ? { id: item.id } : {}), title: item.title, status: item.status === 'done' ? 'done' : 'todo', sortOrder: index })), deletedIds: deletedChildIds.value })
     await rememberLastTaskCategory(taskInput.categoryId)
     if (rememberPriority) await rememberLastTaskPriority(taskInput.priority)
     childrenSynced = true
-    childDrafts.value = [...savedChildren, ...unsavedBlankChildren]
+    // 保存等待期间新增的草稿也要保留，包括已经输入标题的子事项。
+    const hasUnsavedChildren = childDrafts.value.some(item => !persistedChildIds.value.has(item.id) && !syncingChildOrder.has(item.id) && !deletedChildIds.value.includes(item.id))
+    const savedChildrenByOrder = new Map(savedChildren.map(item => [item.sortOrder, item]))
+    // 按当前草稿顺序回填，保留 Enter 在中间插入的空白行。
+    childDrafts.value = childDrafts.value.map(item => savedChildrenByOrder.get(syncingChildOrder.get(item.id) ?? -1) || item)
     persistedChildIds.value = new Set(savedChildren.map(child => child.id))
     deletedChildIds.value = []
     taskAutoSaveSuspended.value = false
-    taskDraftDirty.value = false
+    taskDraftDirty.value = hasUnsavedChildren
     await refreshData()
     void reminderScheduler?.sync()
     return true
@@ -1131,7 +1142,7 @@ function openTaskFromMonthOverflow(item: Task) { closeMonthOverflow(); openTaskM
 function categoryTaskCount(categoryId: string) { return tasks.value.filter(item => item.categoryId === categoryId).length }
 function taskSummary(item: Task) { return [item.plannedDate ? item.plannedDate.slice(5).replace('-', '月') + '日' : '未安排日期', item.plannedTime || '', item.notes ? '有备注' : ''].filter(Boolean).join(' · ') }
 function clearFilters() { search.value = ''; rangeStart.value = ''; rangeEnd.value = ''; refreshData() }
-function closeTaskModal() { void flushTaskDraftSave(); taskModalOpen.value = false; priorityOpen.value = false; categoryMenuOpen.value = false; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0; timeOpen.value = false; reminderOpen.value = false; reminderPermissionGuideOpen.value = false; repeatOpen.value = false; draggedChildId.value = null; dragOverChildId.value = null }
+function closeTaskModal() { void flushTaskDraftSave(); taskModalOpen.value = false; priorityOpen.value = false; categoryMenuOpen.value = false; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0; timeOpen.value = false; reminderOpen.value = false; reminderPermissionGuideOpen.value = false; repeatOpen.value = false; endChildDrag() }
 function closeTaskMenusOnOutsideClick(event: MouseEvent) { if (!(event.target instanceof Element)) return; if (!event.target.closest('.priority-trigger, .priority-menu')) priorityOpen.value = false; if (!event.target.closest('.task-category-trigger, .task-category-menu')) categoryMenuOpen.value = false }
 function handleTaskModalBlankClick(event: MouseEvent) { if (!(event.target instanceof Element)) return; if (!event.target.closest('input, textarea, select, button, a, [draggable="true"]')) void flushTaskDraftSave() }
 function cancelTaskCompletion() { if (updatingTaskStatus.value) return; completeChildrenConfirmOpen.value = false; childCountForCompletion.value = 0 }
@@ -1155,8 +1166,18 @@ function addChildDraft(afterId?: string) {
   const index = afterId ? childDrafts.value.findIndex(item => item.id === afterId) : -1
   const insertionIndex = index >= 0 ? index + 1 : childDrafts.value.length
   childDrafts.value.splice(insertionIndex, 0, child)
-  if (!afterId) return
-  void nextTick(() => document.querySelector<HTMLElement>('.task-modal')?.querySelector<HTMLInputElement>(`input[data-subtask-id="${child.id}"]`)?.focus())
+  void nextTick(() => {
+    const body = taskModalBody.value
+    const input = body?.querySelector<HTMLInputElement>(`input[data-subtask-id="${child.id}"]`)
+    if (!body || !input || !taskModalOpen.value) return
+    input.focus({ preventScroll: true })
+    const row = (input.closest('.subtask-row') || input).getBoundingClientRect()
+    const bounds = body.getBoundingClientRect()
+    // 末尾新增时一并露出添加按钮，方便继续录入。
+    const bottom = insertionIndex === childDrafts.value.length - 1 ? body.querySelector('.add-subtask')?.getBoundingClientRect().bottom ?? row.bottom : row.bottom
+    if (row.top < bounds.top) body.scrollTop += row.top - bounds.top
+    else if (bottom > bounds.bottom) body.scrollTop += bottom - bounds.bottom
+  })
 }
 function startChildDrag(id: string, event: DragEvent) {
   if (savingTask.value || updatingTaskStatus.value) return
@@ -1184,7 +1205,33 @@ function dropChild(targetId: string) {
   void flushTaskDraftSave()
   endChildDrag()
 }
-function endChildDrag() { draggedChildId.value = null; dragOverChildId.value = null; childDropAfter.value = false }
+function scrollChildDrag(event: DragEvent) {
+  const body = taskModalBody.value
+  if (!draggedChildId.value || !body || savingTask.value || updatingTaskStatus.value) return stopChildDragScroll()
+  event.preventDefault()
+  const bounds = body.getBoundingClientRect()
+  const edge = Math.min(40, bounds.height / 3)
+  childDragScrollSpeed = event.clientY < bounds.top + edge ? -Math.ceil(10 * Math.min(1, (bounds.top + edge - event.clientY) / edge)) : event.clientY > bounds.bottom - edge ? Math.ceil(10 * Math.min(1, (event.clientY - bounds.bottom + edge) / edge)) : 0
+  if (!childDragScrollSpeed) return stopChildDragScroll()
+  if (childDragScrollFrame === undefined) childDragScrollFrame = window.requestAnimationFrame(stepChildDragScroll)
+}
+function stepChildDragScroll() {
+  childDragScrollFrame = undefined
+  const body = taskModalBody.value
+  if (!body || !draggedChildId.value || !taskModalOpen.value || savingTask.value || updatingTaskStatus.value) return stopChildDragScroll()
+  const previous = body.scrollTop
+  body.scrollTop += childDragScrollSpeed
+  if (body.scrollTop !== previous && childDragScrollSpeed) childDragScrollFrame = window.requestAnimationFrame(stepChildDragScroll)
+}
+function stopChildDragScroll() {
+  if (childDragScrollFrame !== undefined) window.cancelAnimationFrame(childDragScrollFrame)
+  childDragScrollFrame = undefined
+  childDragScrollSpeed = 0
+}
+function leaveChildDragBody(event: DragEvent) {
+  if (!(event.relatedTarget instanceof Node) || !taskModalBody.value?.contains(event.relatedTarget)) stopChildDragScroll()
+}
+function endChildDrag() { stopChildDragScroll(); draggedChildId.value = null; dragOverChildId.value = null; childDropAfter.value = false }
 async function toggleChildDraftStatus(subtask: Task) {
   if (savingTask.value || updatingTaskStatus.value) return
   subtask.status = subtask.status === 'done' ? 'todo' : 'done'

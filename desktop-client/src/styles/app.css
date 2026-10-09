@@ -556,12 +556,15 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
 .notice { border-radius: 8px; box-shadow: 0 14px 30px rgba(39, 69, 50, .2); }
 .notice.success { background: var(--ui-primary); }
 
-/* 任务编辑在有限窗口高度内滚动，操作区保持可见。 */
-.task-modal { display: flex; max-height: min(720px, calc(100dvh - 32px)); flex-direction: column; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.task-modal > header, .task-modal > .task-meta-list, .task-modal > .subtask-section, .task-modal > .notes-editor, .task-modal > footer { flex: 0 0 auto; }
-.task-modal > footer { position: sticky; z-index: 3; bottom: -22px; margin-top: 14px; padding: 13px 0 4px; border-top: 1px solid #e6ebf0; background: var(--ui-surface); box-shadow: 0 -8px 14px rgba(255, 255, 255, .94); }
+/* 内容先自然增高，达到上限后仅中间区域滚动。 */
+.task-modal { display: flex; max-height: min(800px, calc(100dvh - 48px)); flex-direction: column; overflow: visible; }
+.task-modal > header, .task-modal > footer { flex: 0 0 auto; }
+.task-modal-body { min-height: 0; flex: 0 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.task-modal > .priority-menu, .task-modal > .task-category-menu { z-index: 5; max-height: min(360px, calc(100dvh - 160px)); overflow-y: auto; overscroll-behavior: contain; }
+/* 预留操作按钮高度，避免首次失焦保存时弹窗位移导致点击失效。 */
+.task-modal > footer { position: relative; z-index: 3; min-height: 56px; margin-top: 14px; padding: 13px 0 4px; border-top: 1px solid #e6ebf0; background: var(--ui-surface); box-shadow: 0 -8px 14px rgba(255, 255, 255, .94); }
 .subtask-section { padding: 14px 0 10px; }
-.subtask-list { max-height: min(196px, 27dvh); overflow-y: auto; padding-right: 3px; }
+.subtask-list { padding-right: 3px; }
 .subtask-row { min-height: 38px; }
 .subtask-row .task-check { display: grid; width: 21px; height: 21px; min-width: 21px; min-height: 21px; place-items: center; border: 1.5px solid var(--subtask-color, var(--ui-primary)); border-radius: 50%; background: transparent; box-shadow: none; color: transparent; }
 .subtask-row .task-check:hover, .subtask-row .task-check.done { border-color: var(--subtask-color, var(--ui-primary)); background: var(--subtask-color, var(--ui-primary)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--subtask-color, var(--ui-primary)) 14%, transparent); color: #fff; }
@@ -599,15 +602,14 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
   .topbar h1 { font-size: 22px; }
   .toolbar, .board-scroll, .plan-page, .settings-page { padding-left: 16px; padding-right: 16px; }
   .settings-block { padding: 19px; }
+  .task-backdrop { padding: 12px; }
   .task-modal { max-height: calc(100dvh - 24px); padding: 20px; }
   .task-category-menu { top: 69px; right: 57px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .task-modal > footer { bottom: -20px; }
   .task-modal > footer .quiet-button { width: 54px; min-width: 54px; padding: 0 6px; }
   .task-modal > footer .failure-action { width: 62px; min-width: 62px; padding: 0 6px; }
   .task-modal > footer .primary-button { width: 62px; min-width: 62px; padding: 0 6px; }
   .task-footer-start { gap: 5px; }
   .task-modal > footer { gap: 3px; }
-  .subtask-list { max-height: min(176px, 25dvh); }
 }
 
 /* 紧凑按钮系统：固定尺寸，避免状态变化推动布局。 */
