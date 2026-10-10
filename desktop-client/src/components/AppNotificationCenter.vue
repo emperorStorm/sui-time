@@ -10,8 +10,12 @@
     <section v-if="popoverOpen" ref="panel" class="notification-panel" :style="popoverStyle" aria-label="通知列表">
       <header class="notification-header">
         <div><strong>通知</strong><span>{{ unreadCount ? `${unreadCount} 条未读` : '全部已读' }}</span></div>
-        <button class="quiet-button notification-read-all" type="button" :disabled="!unreadCount" @click="markAllAsRead">全部已读</button>
+        <div class="notification-actions">
+          <button class="quiet-button notification-read-all" type="button" :disabled="!unreadCount" @click="markAllAsRead">全部已读</button>
+          <button class="quiet-button notification-read-all" type="button" :disabled="!readCount || installing" @click="clearReadNotifications">清空已读</button>
+        </div>
       </header>
+      <p v-if="clearError" class="notification-clear-error" role="alert">{{ clearError }}</p>
       <div v-if="notifications.length" class="notification-list">
         <button v-for="item in notifications" :key="item.id" type="button" class="notification-item" :class="{ unread: !item.read }" @click="openNotification(item)">
           <span v-if="!item.read" class="notification-unread-dot" />
@@ -88,9 +92,11 @@ const installing = ref(false)
 const installProgress = ref(0)
 const installStatus = ref('')
 const installError = ref('')
+const clearError = ref('')
 const updateCache = new Map<string, AvailableUpdate>()
 let updateCheckPromise: Promise<UpdateCheckResult> | null = null
 const unreadCount = computed(() => notifications.value.filter(item => !item.read).length)
+const readCount = computed(() => notifications.value.length - unreadCount.value)
 const activeInstalled = computed(() => Boolean(activeNotification.value && (activeNotification.value.updateInfo.installed || isVersionInstalled(currentAppVersion.value || activeNotification.value.updateInfo.currentVersion, activeNotification.value.updateInfo.latestVersion))))
 const activeUpdateNotes = computed(() => renderMarkdown(activeNotification.value?.updateInfo.body || '本次更新暂无详细说明。'))
 
@@ -254,6 +260,27 @@ function markAllAsRead() {
   updateNotifications(item => item.read ? item : { ...item, read: true })
 }
 
+function clearReadNotifications() {
+  if (!readCount.value || installing.value) return
+  clearError.value = ''
+  const remainingNotifications = notifications.value.filter(item => !item.read)
+  try {
+    // 先落盘再清理界面，避免保存失败后已读消息重新出现。
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(remainingNotifications))
+  } catch {
+    clearError.value = '清空已读失败，请重试。'
+    return
+  }
+  for (const item of notifications.value) {
+    if (item.read) updateCache.delete(item.id)
+  }
+  if (activeNotification.value?.read) {
+    updateModalOpen.value = false
+    activeNotification.value = null
+  }
+  notifications.value = remainingNotifications
+}
+
 function markInstalledNotifications(version: string) {
   if (!version) return
   updateNotifications(item => {
@@ -287,7 +314,10 @@ function closePopoverOnOutsideClick(event: MouseEvent) {
 
 function togglePopover() {
   popoverOpen.value = !popoverOpen.value
-  if (popoverOpen.value) updatePopoverPosition()
+  if (popoverOpen.value) {
+    clearError.value = ''
+    updatePopoverPosition()
+  }
 }
 
 function updatePopoverPosition() {
@@ -355,3 +385,8 @@ function getNotificationSummary(updateInfo: UpdateNotificationPayload) {
 
 defineExpose({ checkForUpdate, closePopover: () => { popoverOpen.value = false } })
 </script>
+
+<style scoped>
+.notification-actions { display: flex; align-items: center; gap: 6px; }
+.notification-clear-error { margin: 0; padding: 10px 14px; color: #c65376; font-size: 11px; line-height: 16px; }
+</style>
