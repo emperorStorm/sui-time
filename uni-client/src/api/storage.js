@@ -48,20 +48,19 @@ export function load() {
   return cache
 }
 
-export function save(data, { strict = false } = {}) {
+export function save(data, { strict = false, message = '无法保存纪念日，存储空间可能不足，请减少照片后重试' } = {}) {
   if (!strict) cache = data
   try {
     uni.setStorageSync(STORAGE_KEY, data)
     cache = data
   } catch (e) {
-    if (strict) throw new Error('无法保存纪念日，存储空间可能不足，请减少照片后重试')
+    if (strict) throw new Error(message)
     // 存储失败不阻断界面
   }
 }
 
 export function reset() {
-  cache = seedData()
-  save(cache)
+  save(seedData(), { strict: true, message: '无法恢复演示数据，请检查存储空间' })
 }
 
 export function persist() {

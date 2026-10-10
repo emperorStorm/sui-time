@@ -1,4 +1,4 @@
-import { parseDate } from './date'
+import { parseDate } from './date.js'
 
 export function parseRepeatRule(value) {
   try {
@@ -17,7 +17,8 @@ export function occursOn(task, date) {
 
   const start = parseDate(task.plannedDate)
   const target = parseDate(date)
-  const days = Math.floor((target.getTime() - start.getTime()) / 86400000)
+  const days = (Date.UTC(target.getFullYear(), target.getMonth(), target.getDate()) - Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) / 86400000
+  if (rule.endMode === 'date' && rule.endDate && date > rule.endDate) return false
   const interval = Math.max(1, rule.interval || 1)
 
   let matched = false
@@ -38,7 +39,36 @@ export function occursOn(task, date) {
   } else if (rule.kind === 'monthly_slots') {
     matched = (rule.monthDays || [start.getDate()]).includes(target.getDate())
   }
+  if (rule.endMode === 'count' && rule.count) matched = matched && days <= (rule.kind === 'memory' ? 29 : (rule.count - 1) * interval)
   return matched
+}
+
+export function parseOccurrenceId(id) {
+  const index = typeof id === 'string' ? id.indexOf('@') : -1
+  return index > 0 ? { sourceId: id.slice(0, index), date: id.slice(index + 1) } : null
+}
+
+export function parseOverrides(task) {
+  try { const value = JSON.parse(task.occurrenceOverrides || '{}'); return value && !Array.isArray(value) && typeof value === 'object' ? value : {} } catch { return {} }
+}
+
+export function resolveTasksForDate(tasks, date) {
+  return tasks.flatMap(task => {
+    if (task.parentTaskId) return []
+    const repeating = parseRepeatRule(task.repeatRule).kind !== 'none'
+    const overrides = parseOverrides(task)
+    const direct = overrides[date]
+    const terminal = value => value?.status === 'done' || value?.status === 'failed'
+    const items = []
+    if ((occursOn(task, date) || terminal(direct)) && !direct?.deleted && (direct?.plannedDate === undefined || direct.plannedDate === date)) {
+      items.push({ ...task, ...direct, id: repeating ? `${task.id}@${date}` : task.id, status: repeating ? direct?.status || 'todo' : direct?.status || task.status, plannedDate: date })
+    }
+    for (const [sourceDate, override] of Object.entries(overrides)) {
+      if (!override || typeof override !== 'object' || sourceDate === date || override.deleted || override.plannedDate !== date || (!terminal(override) && !occursOn(task, sourceDate))) continue
+      items.push({ ...task, ...override, id: `${task.id}@${sourceDate}`, status: override.status || 'todo', plannedDate: date })
+    }
+    return items
+  })
 }
 
 export function repeatLabel(kind) {

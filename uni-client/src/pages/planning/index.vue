@@ -27,7 +27,7 @@
           <view class="day-items">
             <view v-for="item in dayData[date].anniversaries.slice(0, 2)" :key="item.anniversaryId" :class="['day-item', 'day-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]"><text>{{ marks[item.kind] }} {{ item.label }}{{ item.record?.confirmedAt ? ' ✓' : '' }}</text></view>
             <view v-for="task in dayData[date].tasks.slice(0, Math.max(0, 2 - dayData[date].anniversaries.length))" :key="task.id" class="day-item" :style="{ background: colorOf(task) }">
-              <text>{{ task.title }}</text>
+              <text class="day-task-mark">{{ taskMark(task) }}</text><text class="day-task-title">{{ task.title }}</text>
             </view>
             <text v-if="dayData[date].count > 2" class="day-more">+{{ dayData[date].count - 2 }}</text>
           </view>
@@ -35,7 +35,7 @@
       </view>
     </view>
 
-    <view v-if="selectedDate" class="day-layer" @click="selectedDate = ''"><view class="day-sheet" @click.stop><view class="day-sheet-header"><text>{{ selectedDate }} · 当天事项</text><button aria-label="关闭当天事项" @click="selectedDate = ''">×</button></view><scroll-view class="day-sheet-list" scroll-y><text v-if="selectedDay.anniversaries.length" class="day-group">纪念日</text><view v-for="item in selectedDay.anniversaries" :key="item.anniversaryId" :class="['day-list-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]" @click="activeRecord = item"><text>{{ marks[item.kind] }}</text><text>{{ item.label }}</text><text>{{ item.record?.confirmedAt ? '✓ 已纪念' : '›' }}</text></view><text v-if="selectedDay.tasks.length" class="day-group">待办</text><view v-for="task in selectedDay.tasks" :key="task.id" class="day-list-task" @click="editTask(task)"><text class="day-task-dot" :style="{ background: colorOf(task) }" /><text>{{ task.title }}</text><text>{{ task.status === 'done' ? '✓' : task.plannedTime || '›' }}</text></view><text v-if="!selectedDay.count" class="day-empty">这一天还没有安排</text></scroll-view><button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button></view></view>
+    <view v-if="selectedDate" class="day-layer" @click="selectedDate = ''"><view class="day-sheet" @click.stop><view class="day-sheet-header"><text>{{ selectedDate }} · 当天事项</text><button aria-label="关闭当天事项" @click="selectedDate = ''">×</button></view><scroll-view class="day-sheet-list" scroll-y><text v-if="selectedDay.anniversaries.length" class="day-group">纪念日</text><view v-for="item in selectedDay.anniversaries" :key="item.anniversaryId" :class="['day-list-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]" @click="activeRecord = item"><text>{{ marks[item.kind] }}</text><text>{{ item.label }}</text><text>{{ item.record?.confirmedAt ? '✓ 已纪念' : '›' }}</text></view><text v-if="selectedDay.tasks.length" class="day-group">待办</text><view v-for="task in selectedDay.tasks" :key="task.id" class="day-list-task" @click="editTask(task)"><text class="day-list-mark" :style="{ color: colorOf(task) }">{{ taskMark(task) }}</text><text>{{ task.title }}</text><text>{{ task.scheduleKind === 'range' ? `${task.plannedTime}–${task.plannedEndTime}` : task.plannedTime || '全天' }}</text></view><text v-if="!selectedDay.count" class="day-empty">这一天还没有安排</text></scroll-view><button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button></view></view>
     <TaskEditSheet :visible="sheetVisible" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
     <AnniversaryRecordSheet ref="recordSheet" :occurrence="activeRecord" :today="today" @close="activeRecord = null" @saved="reload" />
   </view>
@@ -50,6 +50,7 @@ import { anniversaryOccurrences, anniversaryTypes } from '../../../../shared/ann
 import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../../api/holiday'
 import { tasksForDate, categoryById, listAnniversaries, listAnniversaryRecords } from '../../api/store'
 import { monthDates, monthTitle, shiftMonth, todayString } from '../../utils/date'
+import { taskMark } from '../../utils/task'
 
 const anchor = ref(todayString())
 const today = ref(todayString())
@@ -172,6 +173,10 @@ function reload() {
 </script>
 
 <style scoped>
+.day-list-mark { width: 36rpx; flex-shrink: 0; text-align: center; font-size: 24rpx; }
+.day-item { display: flex; gap: 4rpx; }
+.day-task-mark { flex: 0 0 26rpx; text-align: center; font-size: 17rpx; }
+.day-task-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .day-item.day-anniversary, .day-list-anniversary { background: #eaf2fc; color: #6686a8; border-left: 3rpx solid #acc4df; }.day-item.day-anniversary.kind-birthday, .day-list-anniversary.kind-birthday { background: #fff0e6; color: #a97959; border-left-color: #e9c2a6; }.day-item.day-anniversary.kind-anniversary, .day-list-anniversary.kind-anniversary { background: #faedf2; color: #a27286; border-left-color: #dcb9c9; }.commemorated { opacity: .7; }.day-layer { position: fixed; inset: 0; z-index: 1000; background: #17243166; display: flex; align-items: flex-end; }.day-sheet { width: 100%; max-height: 80vh; background: var(--panel); border-radius: 28rpx 28rpx 0 0; padding-bottom: env(safe-area-inset-bottom); }.day-sheet-header { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 32rpx; color: #657c96; font-size: 27rpx; }.day-sheet-header button { margin: 0; width: 64rpx; line-height: 64rpx; padding: 0; background: transparent; color: #8291a2; font-size: 40rpx; }.day-sheet button::after { border: 0; }.day-sheet-list { max-height: 56vh; }.day-group { display: block; padding: 12rpx 32rpx; color: #99a5b2; font-size: 24rpx; }.day-list-anniversary, .day-list-task { display: flex; align-items: center; gap: 18rpx; margin: 12rpx 32rpx; padding: 24rpx 20rpx; border-radius: 10rpx; font-size: 27rpx; }.day-list-anniversary > text:nth-child(2), .day-list-task > text:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }.day-list-anniversary > text:last-child, .day-list-task > text:last-child { flex-shrink: 0; font-size: 22rpx; }.day-list-task { background: #f6f8fb; color: #71859c; }.day-task-dot { width: 12rpx; height: 12rpx; border-radius: 50%; flex-shrink: 0; }.day-empty { display: block; text-align: center; color: #a0aab7; padding: 60rpx 0; font-size: 28rpx; }.day-add { margin: 24rpx 32rpx; background: #7299d5; color: #fff; font-size: 27rpx; line-height: 88rpx; }
 .planning-page {
   display: flex;

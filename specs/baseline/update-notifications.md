@@ -36,5 +36,6 @@ updated: 2026-08-14
 ## 安卓移动端（uni-client）
 
 - Tauri updater 不支持安卓。安卓端检查 `sui-time/latest-android.json`（OSS），见 `specs/baseline/mobile-client.md`。
-- 安卓更新说明同样优先 GitHub compare，失败回退 manifest `notes`。
-- 下载为浏览器直链降级方案：`plus.runtime.openURL` 打开 APK，用户手动安装；原生下载安装器留待后续版本。
+- 安卓更新说明只读取 manifest `notes`；原生运行时版本码优先，兼容旧清单版本比较。
+- 使用 `plus.downloader` 显示下载进度、取消与重试，下载完成后 `plus.runtime.install` 唤起系统安装确认；未知来源授权返回继续安装，取消后可重新安装。
+- 应用内和浏览器主动降级均使用 OSS URL。公开 APK 完整下载校验通过后才更新清单，拒绝下载时保留旧清单，不回退 GitHub。

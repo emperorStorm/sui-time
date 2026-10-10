@@ -35,9 +35,17 @@ jobs:
         shell: bash
         run: |
           tag="${TAG}"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "Tag must use vX.Y.Z"; exit 1; }
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tag must use vX.Y.Z"; exit 1; }
           echo "VERSION=${tag#v}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Validate Android signing configuration
+        shell: bash
+        run: |
+          for name in DCLOUD_APPKEY ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_PASSWORD ANDROID_KEY_ALIAS; do
+            [[ -n "${!name}" ]] || { echo "Missing $name"; exit 1; }
+          done
       - uses: actions/setup-node@v4
         with:
           node-version: lts/*
@@ -99,6 +107,7 @@ jobs:
         run: |
           apk=$(ls uni-client/android/app/build/outputs/apk/release/*.apk | head -1)
           [[ -n "$apk" ]] || { echo "未找到 APK"; exit 1; }
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify "$apk"
           cp "$apk" "sui-time-${VERSION}-android.apk"
           gh release upload "$TAG" "sui-time-${VERSION}-android.apk" --repo "$GITHUB_REPOSITORY" --clobber
           pip install oss2 -q
@@ -112,21 +121,13 @@ jobs:
           PY
       - name: Generate and upload latest-android.json
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const version = process.env.VERSION;
-          const tag = process.env.TAG;
-          const baseUrl = process.env.OSS_BASE_URL.replace(/\/+$/, '');
-          const apk = `sui-time-${version}-android.apk`;
-          const manifest = {
-            version,
-            notes: '',
-            url: `${baseUrl}/sui-time/releases/${tag}/${apk}`,
-            pubDate: new Date().toISOString()
-          };
-          fs.writeFileSync('latest-android.json', JSON.stringify(manifest, null, 2) + '\n');
-          NODE
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,publishedAt > android-release-info.json
+          export ANDROID_APK="sui-time-${VERSION}-android.apk"
+          export ANDROID_RELEASE_INFO=android-release-info.json
+          node uni-client/scripts/generate-android-update.mjs
           pip install oss2 -q
           python <<'PY'
           import os

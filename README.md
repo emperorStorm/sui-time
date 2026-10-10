@@ -1,6 +1,6 @@
 # 岁岁时光
 
-岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.4.0`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
+岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.6.3`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
 
 ![岁岁时光本地优先数据架构](docs/assets/sui-time-local-first-sync.png)
 
@@ -24,10 +24,11 @@
 
 移动端（安卓，UniApp）：
 
-- 事项：分类筛选、今天/7天内/稍后分组、完成切换、隐藏已完成。
-- 规划：月历视图、上下月切换、点日期新建事项。
-- 我的：资料、隐藏完成开关、恢复演示数据、检查更新（引导下载 APK）。
-- 数据本地存储独立实现，与桌面 SQLite 不互通；APK 由 CI 离线打包自动构建（打 `v*` tag 触发），发布在 GitHub Release，App 内检查更新后浏览器下载安装。
+- 事项：分类筛选、今天/7天内/稍后分组，按时间和四象限排序及轻量标记；支持全天、时间点、时间段与最多三项提醒。
+- 规划：月历与纪念日、上下月切换、当天事项列表、新建及编辑重复当次实例；日记和目标保留各自入口。
+- 我的：资料、纪念日、隐藏完成开关、恢复演示数据、检查更新（应用内下载后系统确认安装）。
+- 数据本地存储独立实现，与桌面 SQLite 不互通；APK 由 CI 离线打包自动构建（打 `v*` tag 触发），App 内仅使用 OSS 下载安装，浏览器下载为主动降级入口。
+- 安卓提醒使用原生 AlarmManager 与通知渠道，后台及重启后从快照恢复；仍受通知权限、精确闹钟、省电和免打扰设置影响。
 
 ## 项目结构
 
@@ -97,7 +98,7 @@ Vue 页面
 
 GitHub Actions 构建 macOS 与 Windows 安装包、签名更新资产并创建 Release，随后把不可变安装包和当前 `latest.json` 同步到 OSS。密钥只能配置在 GitHub Secrets/Variables，禁止写入仓库。
 
-安卓移动端不使用 Tauri updater。App 内“检查更新”读取 OSS 的 `sui-time/latest-android.json`，发现新版本后用系统浏览器打开 OSS 中的 APK 直链下载，用户手动安装。APK 由 CI 离线打包自动构建（`uni-client/android-templates/` + `scripts/prepare-android.mjs`，依赖 DCloud 离线打包 Key 与 OSS 上常驻的离线 SDK），打 `v*` tag 后自动上传 GitHub Release 和 OSS，并生成 `latest-android.json`；清单中的 APK 地址由 `ALIYUN_OSS_BASE_URL` 与 OSS 对象路径拼接。
+安卓移动端不使用 Tauri updater。“检查更新”读取 OSS 的 `sui-time/latest-android.json`，以运行时版本码优先比较，更新说明来自清单；发现更新后应用内下载 APK 并显示进度，完成后唤起系统确认安装，支持未知来源授权往返及重新安装。APK 由 CI 离线打包（`uni-client/android-templates/` + `scripts/prepare-android.mjs`）；上传后 `generate-android-update.mjs` 完整核对公开下载内容，成功才发布清单。地址沿用 `ALIYUN_OSS_BASE_URL`，默认 OSS endpoint 禁止 APK 分发时必须绑定可用 HTTPS CNAME；失败保留旧清单，不回退 GitHub。
 
 浏览器模式只能验证”当前已是最新版本”的降级分支和通知界面；真实签名、下载、安装和重启必须使用 Tauri 安装包或 CI/Release 环境验证。
 
@@ -188,8 +189,8 @@ npm run tauri:build
 - 移动端暂无云同步，与桌面数据不互通。
 - 当前没有云同步、跨设备同步或业务服务器。
 - 当前不使用 PostgreSQL 保存业务数据。
-- 提醒依赖应用保持运行并获得系统通知权限。
-- 备份恢复和真实更新安装只在 Tauri 桌面运行时可用。
-- 安卓 APK 由 HBuilderX 打包，真实安装与更新下载需真机验收。
+- 提醒需要系统授权，安卓强制停止、厂商省电、免打扰及通知渠道关闭可能阻断或延迟。
+- 加密备份恢复仅在桌面端实现；移动端数据与桌面独立。
+- 安卓 APK 由 CI 离线打包，系统通知送达、真实下载与升级数据保留需真机验收。
 
 本地优先架构图的可编辑源文件位于 [`docs/assets/sui-time-local-first-sync.drawio`](docs/assets/sui-time-local-first-sync.drawio)。

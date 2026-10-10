@@ -13,10 +13,11 @@
 
 ## 移动端（uni-client）边界
 
-- 页面与逻辑纯前端实现，数据走 `uni.setStorageSync`（key `sui-time-mobile:v1`），不依赖桌面 Rust/SQLite。
+- 页面与业务数据走 `uni.setStorageSync`（key `sui-time-mobile:v1`），不依赖桌面 Rust/SQLite；安卓系统能力由离线模板中的 Java 类通过 `plus.android` 调用。
 - 字段语义对齐 `desktop-client/src/types.ts`；`src/utils/occurrence.js` 复刻桌面重复实例展开。
-- APK 由 HBuilderX 云打包/本地打包产出（用户操作），CI 只做 H5 构建校验。
-- 安卓更新走 `sui-time/latest-android.json`（OSS），App 内引导浏览器下载 APK 手动安装，不使用 Tauri updater。
+- APK 由 `android-apk.yml` 可复用工作流离线打包，`release.yml` 在 tag 发布时调用；原生代码保存在 `android-templates/`，不修改忽略的生成工程。
+- 安卓更新走 `sui-time/latest-android.json`（OSS），App 内下载安装包后唤起系统确认安装；浏览器下载仅为主动降级入口，不使用 Tauri updater。
+- 事项提醒使用原生 AlarmManager、通知渠道和广播接收器，持久化排程快照以支持后台和重启恢复；页面卸载不得清除有效系统闹钟。
 
 ## 分层规则
 

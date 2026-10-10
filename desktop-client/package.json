@@ -1,11 +1,12 @@
 {
   "name": "sui-time-desktop-client",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
+    "test:reminders": "node --test tests/task-reminders.test.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

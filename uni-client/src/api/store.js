@@ -1,7 +1,9 @@
-import { load, persist, reset, save as saveStorage } from './storage'
+import { load, persist, reset, save as saveStorage } from './storage.js'
 import { normalizeAnniversary, prepareAnniversaryRecord } from '../../../shared/anniversary.mjs'
-import { occursOn } from '../utils/occurrence'
-import { addDays, todayString } from '../utils/date'
+import { occursOn, parseOccurrenceId, parseOverrides, resolveTasksForDate } from '../utils/occurrence.js'
+import { addDays, todayString } from '../utils/date.js'
+import { compareTasks, normalizeTask } from '../utils/task.js'
+import { syncTaskReminders } from './reminders.js'
 
 export function listAnniversaries() {
   return load().anniversaries.map(({ photos, coverIndex, ...summary }) => summary)
@@ -106,67 +108,80 @@ export function listTasks() {
 }
 
 export function findTask(id) {
+  const occurrence = parseOccurrenceId(id)
+  if (occurrence) return resolveTasksForDate(listTasks(), parseOverrides(findTask(occurrence.sourceId) || {})[occurrence.date]?.plannedDate || occurrence.date).find(task => task.id === id) || null
   return load().tasks.find((item) => item.id === id) || null
 }
 
-export function saveTask(task) {
+export function saveTask(input, children) {
   const data = load()
   const now = Date.now()
-  if (task.id) {
-    const index = data.tasks.findIndex((item) => item.id === task.id)
-    if (index >= 0) data.tasks[index] = { ...data.tasks[index], ...task, updatedAt: now }
-  } else {
-    task.id = `t${now}`
-    task.createdAt = now
-    task.updatedAt = now
-    data.tasks.unshift({ ...task })
+  const occurrence = input.id ? parseOccurrenceId(input.id) : null
+  const sourceId = occurrence?.sourceId || input.id
+  const existing = sourceId ? data.tasks.find(task => task.id === sourceId) : null
+  if (sourceId && !existing) throw new Error('事项不存在')
+  const effective = occurrence ? findTask(input.id) : existing
+  if (occurrence && !effective) throw new Error('当次事项不存在')
+  const normalized = normalizeTask({ ...effective, ...input })
+  if (occurrence && !normalized.plannedDate) throw new Error('重复事项的当次日期不能为空')
+  const id = sourceId || `t${now}-${Math.random().toString(36).slice(2, 8)}`
+  let saved = { status: 'todo', createdAt: now, ...existing, ...normalized, id, updatedAt: now }
+  if (occurrence) {
+    const overrides = parseOverrides(existing)
+    const { title, categoryId, plannedDate, plannedTime, plannedEndTime, scheduleKind, priority, reminderOffsets, notes } = normalized
+    overrides[occurrence.date] = { ...overrides[occurrence.date], title, categoryId, plannedDate, plannedTime, plannedEndTime, scheduleKind, priority, reminderOffsets, notes }
+    saved = { ...existing, occurrenceOverrides: JSON.stringify(overrides), updatedAt: now }
   }
-  persist()
-  return task
+  let tasks = existing ? data.tasks.map(task => task.id === id ? saved : task) : [saved, ...data.tasks]
+  if (children !== undefined) {
+    const next = children.filter(child => child.title.trim()).map((child, index) => ({ plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', reminderOffsets: [], priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', status: 'todo', createdAt: now, ...data.tasks.find(task => task.id === child.id && task.parentTaskId === id), id: child.id || `child-${now}-${index}`, title: child.title.trim(), parentTaskId: id, sortOrder: index, updatedAt: now }))
+    tasks = tasks.filter(task => task.parentTaskId !== id).concat(next)
+  }
+  saveTaskData({ ...data, tasks })
+  return occurrence ? findTask(input.id) : saved
 }
 
 export function removeTask(id) {
   const data = load()
-  data.tasks = data.tasks.filter((item) => item.id !== id && item.parentTaskId !== id)
-  persist()
+  const occurrence = parseOccurrenceId(id)
+  if (occurrence) {
+    const source = data.tasks.find(task => task.id === occurrence.sourceId)
+    if (!source) throw new Error('事项不存在')
+    const overrides = parseOverrides(source)
+    overrides[occurrence.date] = { ...overrides[occurrence.date], deleted: true }
+    saveTaskData({ ...data, tasks: data.tasks.map(task => task === source ? { ...task, occurrenceOverrides: JSON.stringify(overrides) } : task) })
+  } else saveTaskData({ ...data, tasks: data.tasks.filter(item => item.id !== id && item.parentTaskId !== id) })
 }
 
 export function setTaskStatus(id, status) {
   const data = load()
-  const task = data.tasks.find((item) => item.id === id)
-  if (task) {
-    task.status = status
-    task.completedAt = status === 'done' ? Date.now() : null
-    task.updatedAt = Date.now()
-    if (status === 'done') data.tasks.forEach((child) => { if (child.parentTaskId === id) child.status = 'done' })
-    persist()
+  if (!['todo', 'done', 'failed'].includes(status)) throw new Error('事项状态无效')
+  const occurrence = parseOccurrenceId(id)
+  const source = data.tasks.find(task => task.id === (occurrence?.sourceId || id))
+  if (!source) throw new Error('事项不存在')
+  let updated = { ...source, status, completedAt: status === 'done' ? Date.now() : null, updatedAt: Date.now() }
+  if (occurrence) {
+    const item = findTask(id)
+    if (!item) throw new Error('当次事项不存在')
+    const { title, categoryId, plannedDate, plannedTime, plannedEndTime, scheduleKind, priority, reminderOffsets, notes } = item
+    const overrides = parseOverrides(source)
+    overrides[occurrence.date] = { title, categoryId, plannedDate, plannedTime, plannedEndTime, scheduleKind, priority, reminderOffsets, notes, ...overrides[occurrence.date], status }
+    updated = { ...source, occurrenceOverrides: JSON.stringify(overrides), updatedAt: Date.now() }
   }
+  const tasks = data.tasks.map(task => task === source ? updated : !occurrence && status === 'done' && task.parentTaskId === id ? { ...task, status: 'done' } : task)
+  saveTaskData({ ...data, tasks })
 }
 
 export function listChildren(parentId) {
-  return load().tasks.filter((item) => item.parentTaskId === parentId)
-}
-
-export function saveChildren(parentId, titles) {
-  const data = load()
-  const now = Date.now()
-  const existing = data.tasks.filter((item) => item.parentTaskId === parentId)
-  const next = titles.map((title, index) => {
-    const match = existing[index]
-    return match
-      ? { ...match, title, sortOrder: index, updatedAt: now }
-      : { id: `t${now}${index}`, title, categoryId: null, plannedDate: null, plannedTime: null, scheduleKind: 'all_day', priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', parentTaskId, status: 'todo', notes: '', sortOrder: index, createdAt: now, updatedAt: now }
-  })
-  data.tasks = data.tasks.filter((item) => item.parentTaskId !== parentId).concat(next)
-  persist()
+  return load().tasks.filter((item) => item.parentTaskId === (parseOccurrenceId(parentId)?.sourceId || parentId)).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
 }
 
 function isVisible(task) {
-  return !load().settings.hideCompleted || task.status !== 'done'
+  return !load().settings.hideCompleted || task.status === 'todo'
 }
 
 export function tasksForDate(date) {
-  return listTasks().filter((task) => isVisible(task) && occursOn(task, date))
+  return resolveTasksForDate(listTasks(), date).filter(isVisible).sort(compareTasks)
 }
 
 export function tasksGrouped() {
@@ -215,4 +230,10 @@ export function getProfile() {
 
 export function restoreDemoData() {
   reset()
+  void syncTaskReminders(listTasks())
+}
+
+function saveTaskData(data) {
+  saveStorage(data, { strict: true, message: '无法保存事项，请检查本机存储空间后重试' })
+  void syncTaskReminders(data.tasks)
 }

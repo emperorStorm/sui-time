@@ -9,13 +9,15 @@ struct NativeNotificationRequest {
 }
 
 unsafe extern "C" {
+    fn sui_time_initialize_notifications();
     fn sui_time_notification_permission(error_message: *mut *mut std::ffi::c_char) -> i32;
     fn sui_time_request_notification_permission(error_message: *mut *mut std::ffi::c_char) -> i32;
     fn sui_time_replace_notifications(
         requests: *const NativeNotificationRequest,
         count: u64,
+        error_message: *mut *mut std::ffi::c_char,
     ) -> i32;
-    fn sui_time_clear_notifications() -> i32;
+    fn sui_time_clear_notifications(error_message: *mut *mut std::ffi::c_char) -> i32;
     fn sui_time_send_test_notification(error_message: *mut *mut std::ffi::c_char) -> i32;
     fn sui_time_open_notification_settings() -> i32;
     fn sui_time_free_error_message(error_message: *mut std::ffi::c_char);
@@ -25,6 +27,11 @@ const NOT_DETERMINED: i32 = 0;
 const DENIED: i32 = 1;
 const GRANTED: i32 = 2;
 const ERROR: i32 = -1;
+static REMINDER_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub fn initialize() {
+    unsafe { sui_time_initialize_notifications() };
+}
 
 pub fn permission() -> ReminderPermissionResult {
     let mut error_message = std::ptr::null_mut();
@@ -39,6 +46,9 @@ pub fn request_permission() -> ReminderPermissionResult {
 }
 
 pub fn replace_reminders(requests: Vec<ReminderNotificationRequest>) -> Result<(), String> {
+    let _guard = REMINDER_WRITE_LOCK
+        .lock()
+        .map_err(|_| "系统提醒排程锁不可用")?;
     if requests.len() > 64 {
         return Err("未来 48 小时的提醒过多，请减少提醒后重试".to_string());
     }
@@ -66,21 +76,31 @@ pub fn replace_reminders(requests: Vec<ReminderNotificationRequest>) -> Result<(
             trigger_at: request.trigger_at,
         })
         .collect::<Vec<_>>();
+    let mut error_message = std::ptr::null_mut();
     if unsafe {
-        sui_time_replace_notifications(native_requests.as_ptr(), native_requests.len() as u64)
+        sui_time_replace_notifications(
+            native_requests.as_ptr(),
+            native_requests.len() as u64,
+            &mut error_message,
+        )
     } == 1
     {
         Ok(())
     } else {
-        Err("无法同步 macOS 系统提醒，请检查通知权限后重试".to_string())
+        Err(take_error_message(error_message)
+            .unwrap_or_else(|| "无法同步 macOS 系统提醒，请检查通知权限后重试".to_string()))
     }
 }
 
 pub fn clear_reminders() -> Result<(), String> {
-    if unsafe { sui_time_clear_notifications() } == 1 {
+    let _guard = REMINDER_WRITE_LOCK
+        .lock()
+        .map_err(|_| "系统提醒排程锁不可用")?;
+    let mut error_message = std::ptr::null_mut();
+    if unsafe { sui_time_clear_notifications(&mut error_message) } == 1 {
         Ok(())
     } else {
-        Err("无法清除待发提醒".to_string())
+        Err(take_error_message(error_message).unwrap_or_else(|| "无法清除待发提醒".to_string()))
     }
 }
 
@@ -137,6 +157,42 @@ fn take_error_message(error_message: *mut std::ffi::c_char) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{permission_result, DENIED, ERROR, GRANTED, NOT_DETERMINED};
+
+    #[test]
+    fn native_bridge_preserves_pending_requests_and_presents_foreground_notifications() {
+        let directory = tempfile::tempdir().expect("创建原生通知测试目录");
+        let executable = directory.path().join("notification-bridge-test");
+        let compilation = std::process::Command::new("clang")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .args([
+                "-fobjc-arc",
+                "-fblocks",
+                "-framework",
+                "Foundation",
+                "-framework",
+                "AppKit",
+                "-framework",
+                "UserNotifications",
+                "tests/macos_notifications_test.m",
+                "-o",
+            ])
+            .arg(&executable)
+            .output()
+            .expect("编译原生通知桥接测试");
+        assert!(
+            compilation.status.success(),
+            "原生测试编译失败：{}",
+            String::from_utf8_lossy(&compilation.stderr)
+        );
+        let result = std::process::Command::new(&executable)
+            .output()
+            .expect("执行原生通知桥接测试");
+        assert!(
+            result.status.success(),
+            "原生通知桥接测试失败：{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
 
     #[test]
     fn maps_native_permission_statuses_without_treating_unknown_as_denied() {

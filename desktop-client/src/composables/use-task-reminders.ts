@@ -17,6 +17,14 @@ import { tasksForDate } from '../utils/task-occurrence'
 
 const SCHEDULE_HORIZON = 48 * 60 * 60_000
 const SYNC_INTERVAL = 15 * 60_000
+// 登录切换时，旧用户的清理必须排在新用户的排程之前。
+let reminderWork: Promise<unknown> = Promise.resolve()
+
+function queueReminderWork(operation: () => Promise<void>) {
+  const work = reminderWork.then(operation)
+  reminderWork = work.catch(() => {})
+  return work
+}
 
 export { type ReminderPermission, type ReminderPermissionResult }
 
@@ -48,40 +56,47 @@ export async function sendReminderTestNotification() {
   await sendNotification({ title: '岁岁时光通知测试', body: '系统提醒已经准备就绪。' })
 }
 
-export function createTaskReminderScheduler(userId: string, onError?: (message: string) => void) {
+export function createTaskReminderScheduler(userId: string, onError?: (message: string) => void, onPermission?: (result: ReminderPermissionResult) => void) {
   let syncing = false
-  let stopped = false
+  let stopped = true
   let revision = 0
   let intervalId: number | undefined
   let lastError = ''
 
   async function sync() {
-    if (syncing || stopped || !isTauriRuntime()) return
+    if (stopped || !isTauriRuntime()) return
+    revision += 1
+    if (syncing) return
     syncing = true
     const currentRevision = revision
     try {
-      const nativePermission = await getNativeReminderPermission()
-      if (nativePermission.status !== 'unsupported') {
-        if (nativePermission.status !== 'granted') {
-          await clearNativeReminders()
-          return
+      await queueReminderWork(async () => {
+        if (stopped || currentRevision !== revision) return
+        const nativePermission = await getNativeReminderPermission()
+        if (stopped || currentRevision !== revision) return
+        if (nativePermission.status !== 'unsupported') {
+          onPermission?.(nativePermission)
+          if (nativePermission.status !== 'granted') {
+            await clearNativeReminders()
+            if (nativePermission.status === 'error') throw new Error(nativePermission.detail || '无法读取系统通知权限')
+            return
+          }
+          const tasks = await listTasks({ includeCompleted: false })
+          if (stopped || currentRevision !== revision) return
+          await replaceNativeReminders(createNativeReminderRequests(userId, tasks, Date.now()))
+        } else {
+          await cancelAll()
+          if (stopped || currentRevision !== revision || (await getReminderPermission()).status !== 'granted') return
+          const now = Date.now()
+          const tasks = await listTasks({ includeCompleted: false })
+          if (stopped || currentRevision !== revision) return
+          for (const date of reminderDates(now)) for (const item of tasksForDate(tasks, date)) sendFallbackReminders(item, date, now)
         }
-        const now = Date.now()
-        const tasks = await listTasks({ includeCompleted: false })
-        if (stopped || currentRevision !== revision) return
-        await replaceNativeReminders(createNativeReminderRequests(userId, tasks, now))
-      } else {
-        await cancelAll()
-        if (stopped || currentRevision !== revision || (await getReminderPermission()).status !== 'granted') return
-        const now = Date.now()
-        const tasks = await listTasks({ includeCompleted: false })
-        if (stopped || currentRevision !== revision) return
-        for (const date of reminderDates(now)) for (const item of tasksForDate(tasks, date)) sendFallbackReminders(item, date, now)
-      }
+      })
       lastError = ''
     } catch (error) {
       const message = formatError(error)
-      if (message !== lastError) onError?.(message)
+      if (!stopped && message !== lastError) onError?.(message)
       lastError = message
     } finally {
       syncing = false
@@ -90,6 +105,7 @@ export function createTaskReminderScheduler(userId: string, onError?: (message: 
   }
 
   function start() {
+    if (!stopped) return
     stopped = false
     revision += 1
     void sync()
@@ -99,15 +115,19 @@ export function createTaskReminderScheduler(userId: string, onError?: (message: 
   }
 
   function stop() {
+    if (stopped) return
     stopped = true
     revision += 1
     window.clearInterval(intervalId)
     window.removeEventListener('focus', sync)
     document.removeEventListener('visibilitychange', syncOnVisible)
     if (!isTauriRuntime()) return
-    void getNativeReminderPermission()
-      .then(permission => permission.status === 'unsupported' ? cancelAll() : clearNativeReminders())
-      .catch(() => cancelAll())
+    // 立即入队，不能在异步权限查询结束后才入队清理。
+    void queueReminderWork(async () => {
+      const permission = await getNativeReminderPermission()
+      if (permission.status === 'unsupported') await cancelAll()
+      else await clearNativeReminders()
+    }).catch(error => onError?.(formatError(error)))
   }
 
   function syncOnVisible() {
@@ -121,7 +141,7 @@ function createNativeReminderRequests(userId: string, tasks: Task[], now: number
   const requests: NativeReminderRequest[] = []
   for (const date of reminderDates(now)) {
     for (const item of tasksForDate(tasks, date)) {
-      if (item.status !== 'todo' || !item.plannedTime || item.parentTaskId) continue
+      if (item.status !== 'todo' || !item.plannedTime || item.scheduleKind === 'all_day' || item.parentTaskId) continue
       const plannedAt = new Date(`${date}T${item.plannedTime}:00`).getTime()
       for (const offset of item.reminderOffsets) {
         const triggerAt = plannedAt - offset * 60_000

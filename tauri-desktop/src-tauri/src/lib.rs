@@ -376,6 +376,11 @@ fn require_user_id(conn: &rusqlite::Connection) -> Result<String, String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .setup(|_app| {
+            #[cfg(target_os = "macos")]
+            macos_notifications::initialize();
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())

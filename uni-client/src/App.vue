@@ -2,6 +2,15 @@
   <slot />
 </template>
 
+<script setup>
+import { onLaunch, onShow } from '@dcloudio/uni-app'
+import { listTasks } from './api/store'
+import { syncTaskReminders } from './api/reminders'
+import { resumeUpdateInstallation } from './api/update'
+onLaunch(() => { void syncTaskReminders(listTasks()) })
+onShow(() => { void syncTaskReminders(listTasks()).then(() => uni.$emit('reminder-permissions')); resumeUpdateInstallation() })
+</script>
+
 <style>
 page,
 body {

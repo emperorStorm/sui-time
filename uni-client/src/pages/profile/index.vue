@@ -23,7 +23,7 @@
           <view class="mine-row" @click="openUpdate">
             <view>
               <text class="row-title">检查更新</text>
-              <text class="row-hint">当前版本 v{{ APP_VERSION }}</text>
+              <text class="row-hint">当前版本 v{{ currentVersion }}</text>
             </view>
             <text class="row-chevron">›</text>
           </view>
@@ -49,22 +49,22 @@
               <text class="row-title">关于岁岁时光</text>
               <text class="row-hint">本地优先 · 数据仅存本机</text>
             </view>
-            <text class="row-value">v{{ APP_VERSION }}</text>
+            <text class="row-value">v{{ currentVersion }}</text>
           </view>
         </view>
       </view>
     </view>
 
-    <UpdateSheet :visible="updateVisible" :status="updateStatus" :latest-version="updateVersion" :notes="updateNotes" @close="closeUpdate" @download="download" />
+    <UpdateSheet :visible="updateVisible" :state="updateState" @close="closeUpdate" @download="downloadUpdate" @cancel="cancelDownload" @install="installDownloaded" @check="openUpdate" @browser="openUpdateInBrowser" />
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import UpdateSheet from '../../components/UpdateSheet.vue'
 import { getProfile, getSettings, setSetting, restoreDemoData } from '../../api/store'
-import { checkUpdate, downloadUpdate, APP_VERSION } from '../../api/update'
+import { checkUpdate, downloadUpdate, cancelDownload, installDownloaded, installedVersion, subscribeUpdate, openUpdateInBrowser } from '../../api/update'
 import { toast } from '../../utils/platform'
 
 function openAnniversaries() { uni.navigateTo({ url: '/pages/anniversaries/index' }) }
@@ -72,14 +72,15 @@ function openAnniversaries() { uni.navigateTo({ url: '/pages/anniversaries/index
 const profile = ref(getProfile())
 const settings = ref(getSettings())
 const updateVisible = ref(false)
-const updateStatus = ref('latest')
-const updateVersion = ref('')
-const updateNotes = ref('')
-const updateUrl = ref('')
+const currentVersion = ref(installedVersion().version)
+const updateState = ref({ status: 'idle', currentVersion: currentVersion.value })
+const unsubscribeUpdate = subscribeUpdate(state => { updateState.value = state; currentVersion.value = state.currentVersion })
+onBeforeUnmount(unsubscribeUpdate)
 
 onShow(() => {
   profile.value = getProfile()
   settings.value = getSettings()
+  currentVersion.value = installedVersion().version
 })
 
 function toggleHideCompleted(event) {
@@ -88,23 +89,12 @@ function toggleHideCompleted(event) {
 }
 
 async function openUpdate() {
-  const result = await checkUpdate()
-  updateStatus.value = result.status
-  updateVersion.value = result.latestVersion || ''
-  updateNotes.value = result.notes || ''
-  updateUrl.value = result.downloadUrl || ''
   updateVisible.value = true
+  await checkUpdate()
 }
 
 function closeUpdate() {
   updateVisible.value = false
-}
-
-function download() {
-  if (updateStatus.value === 'found' && updateUrl.value) {
-    downloadUpdate(updateUrl.value)
-  }
-  updateStatus.value = 'downloading'
 }
 
 function restore() {
@@ -113,7 +103,7 @@ function restore() {
     content: '确定清除本机数据并恢复演示数据吗？',
     success: (res) => {
       if (!res.confirm) return
-      restoreDemoData()
+      try { restoreDemoData() } catch (error) { toast(error.message || String(error)); return }
       profile.value = getProfile()
       settings.value = getSettings()
       toast('已恢复')

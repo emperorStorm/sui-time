@@ -33,7 +33,7 @@
                 <text v-if="task.status === 'done'">✓</text>
               </view>
               <view class="task-main">
-                <text :class="['task-title', task.status === 'done' ? 'is-done' : '']">{{ task.title }}</text>
+                <text :class="['task-title', task.status === 'done' ? 'is-done' : '']"><text class="task-priority">{{ taskMark(task) }}</text>{{ task.title }}</text>
                 <text class="task-meta">{{ metaOf(task) }}</text>
               </view>
               <text class="task-chevron">⌄</text>
@@ -60,6 +60,8 @@ import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
 import { getCategories, listTasks, setTaskStatus, getSettings, categoryById, toggleGroupCollapsed, listChildren } from '../../api/store'
 import { repeatLabel } from '../../utils/occurrence'
+import { occursOn } from '../../utils/occurrence'
+import { compareTasks, taskMark } from '../../utils/task'
 import { shortDate, weekday, todayString } from '../../utils/date'
 import { toast } from '../../utils/platform'
 
@@ -81,7 +83,7 @@ function onCategoriesChanged() {
 const groups = computed(() => {
   const hideCompleted = getSettings().hideCompleted
   const source = (filter.value === 'all' ? allTasks.value : allTasks.value.filter((task) => task.categoryId === filter.value))
-    .filter((task) => !hideCompleted || task.status !== 'done')
+    .filter(task => !hideCompleted || task.status === 'todo' || parseKind(task.repeatRule) !== 'none')
   const today = todayString()
   const bucket = { '今天': [], '7天内': [], '稍后': [] }
   source.forEach((task) => {
@@ -90,7 +92,7 @@ const groups = computed(() => {
     else if (isWithinWeek(task.plannedDate, today)) bucket['7天内'].push(task)
     else bucket['稍后'].push(task)
   })
-  return Object.keys(bucket).map((label) => ({ label, items: bucket[label] })).filter((group) => group.items.length)
+  return Object.keys(bucket).map((label) => ({ label, items: bucket[label].sort(compareTasks) })).filter((group) => group.items.length)
 })
 
 onShow(load)
@@ -110,14 +112,7 @@ function toggleGroup(label) {
 }
 
 function occursOnToday(task, today) {
-  if (!task.plannedDate) return false
-  if (task.plannedDate === today) return true
-  const rule = parseKind(task.repeatRule)
-  if (rule === 'none' || rule === 'daily') return rule === 'daily'
-  if (rule === 'weekly') return dayOf(task.plannedDate) === dayOf(today)
-  if (rule === 'monthly') return dayNum(task.plannedDate) === dayNum(today)
-  if (rule === 'yearly') return monthDay(task.plannedDate) === monthDay(today)
-  return false
+  return occursOn(task, today)
 }
 
 function isWithinWeek(plannedDate, today) {
@@ -132,12 +127,6 @@ function parseKind(repeatRule) {
   }
 }
 
-function dayOf(value) { return new Date(`${value}T12:00:00`).getDay() }
-function dayNum(value) { return new Date(`${value}T12:00:00`).getDate() }
-function monthDay(value) {
-  const date = new Date(`${value}T12:00:00`)
-  return `${date.getMonth() + 1}/${date.getDate()}`
-}
 function addDays(value, amount) {
   const date = new Date(`${value}T12:00:00`)
   date.setDate(date.getDate() + amount)
@@ -170,8 +159,9 @@ function metaOf(task) {
 }
 
 function toggle(task) {
-  setTaskStatus(task.id, task.status === 'done' ? 'todo' : 'done')
-  load()
+  if (parseKind(task.repeatRule) !== 'none') { toast('请在规划月历中更新当次事项状态'); return }
+  try { setTaskStatus(task.id, task.status === 'done' ? 'todo' : 'done'); load() }
+  catch (error) { toast(error.message || String(error)) }
 }
 
 function openEdit(task) {
@@ -198,6 +188,7 @@ function onMore() {
 </script>
 
 <style scoped>
+.task-priority { display: inline-block; min-width: 44rpx; margin-right: 8rpx; color: #97a6b9; font-size: 23rpx; }
 .tasks-page {
   display: flex;
   flex-direction: column;

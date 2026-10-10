@@ -180,7 +180,7 @@
     </Transition>
 
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
-      <div v-if="reminderOpen" class="modal-backdrop nested-backdrop" @mousedown.self="reminderOpen = false"><section class="reminder-sheet" role="dialog" aria-modal="true" aria-label="设置提醒"><header><div><small>事项提醒</small><h2>提醒时间</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="reminderOpen = false"><X :size="19" /></button></header><div class="reminder-switch-row"><div><strong>是否提醒</strong><small>通过系统通知提醒你</small></div><button :class="['reminder-switch', { active: reminderEnabled }]" type="button" aria-label="开启或关闭提醒" :aria-pressed="reminderEnabled" @click="toggleReminderEnabled"><span></span></button></div><template v-if="reminderEnabled"><p class="reminder-hint">最多设置 3 个提醒</p><div class="reminder-options"><button v-for="option in reminderOptions" :key="option.value" :class="{ selected: reminderDraftOffsets.includes(option.value) }" type="button" @click="toggleReminderOffset(option.value)">{{ option.label }}</button></div></template><p class="reminder-permission">{{ reminderPermissionMessage }}<button v-if="reminderPermission === 'granted'" type="button" :disabled="sendingReminderTest" @click="sendReminderTest">{{ sendingReminderTest ? '正在发送' : '发送测试通知' }}</button><button v-else-if="reminderPermission === 'denied'" type="button" @click="openReminderSettings">打开系统设置</button><button v-else-if="reminderPermission === 'error'" type="button" :disabled="requestingReminderPermission" @click="requestReminderAccess">{{ requestingReminderPermission ? '正在重试' : '重新尝试' }}</button></p><footer><span></span><button class="quiet-button" type="button" @click="reminderOpen = false">取消</button><button class="primary-button" type="button" :disabled="reminderEnabled && reminderPermission !== 'granted'" @click="saveReminderSettings">保存</button></footer></section></div>
+      <div v-if="reminderOpen" class="modal-backdrop nested-backdrop" @mousedown.self="reminderOpen = false"><section class="reminder-sheet" role="dialog" aria-modal="true" aria-label="设置提醒"><header><div><small>事项提醒</small><h2>提醒时间</h2></div><button class="icon-button ghost" type="button" title="关闭" @click="reminderOpen = false"><X :size="19" /></button></header><div class="reminder-switch-row"><div><strong>是否提醒</strong><small>通过系统通知提醒你</small></div><button :class="['reminder-switch', { active: reminderEnabled }]" type="button" aria-label="开启或关闭提醒" :aria-pressed="reminderEnabled" @click="toggleReminderEnabled"><span></span></button></div><template v-if="reminderEnabled"><p class="reminder-hint">最多设置 3 个提醒</p><div class="reminder-options"><button v-for="option in reminderOptions" :key="option.value" :class="{ selected: reminderDraftOffsets.includes(option.value) }" type="button" @click="toggleReminderOffset(option.value)">{{ option.label }}</button></div></template><p class="reminder-permission">{{ reminderPermissionMessage }}<button v-if="reminderPermission === 'granted'" type="button" :disabled="sendingReminderTest" @click="sendReminderTest">{{ sendingReminderTest ? '正在发送' : '发送测试通知' }}</button><button v-if="reminderPermission === 'not_determined'" type="button" :disabled="requestingReminderPermission" @click="requestReminderAccess">{{ requestingReminderPermission ? '正在请求' : '允许系统通知' }}</button><button v-if="reminderPermission === 'denied' || reminderPermission === 'granted'" type="button" @click="openReminderSettings">打开系统设置</button><button v-else-if="reminderPermission === 'error'" type="button" :disabled="requestingReminderPermission" @click="requestReminderAccess">{{ requestingReminderPermission ? '正在重试' : '重新尝试' }}</button></p><footer><span></span><button class="quiet-button" type="button" @click="reminderOpen = false">取消</button><button class="primary-button" type="button" @click="saveReminderSettings">保存</button></footer></section></div>
     </Transition>
 
     <Transition name="modal" :duration="{ enter: 260, leave: 180 }">
@@ -392,18 +392,19 @@ const reminderEnabled = computed(() => reminderDraftOffsets.value.length > 0)
 const reminderSummary = computed(() => {
   if (!canSetReminder.value) return '设置时间后可添加提醒'
   if (!taskDraft.reminderOffsets.length) return '不提醒'
-  return taskDraft.reminderOffsets.map(formatReminderOffset).join('、')
+  const summary = taskDraft.reminderOffsets.map(formatReminderOffset).join('、')
+  return ['not_determined', 'denied', 'error'].includes(reminderPermission.value) ? `${summary} · 需允许通知` : summary
 })
 const reminderPermissionMessage = computed(() => {
-  if (reminderPermission.value === 'granted') return '桌面通知已开启，提醒将在应用运行或最小化时准时送达。'
+  if (reminderPermission.value === 'granted') return reminderPermissionDetail.value || '系统通知已允许。提醒仅在应用运行期间排程，横幅和声音受系统通知设置及专注模式影响。'
   if (reminderPermission.value === 'unsupported') return '仅桌面客户端支持系统提醒。'
-  if (reminderPermission.value === 'not_determined') return '开启提醒前，需要允许岁岁时光发送系统通知。'
+  if (reminderPermission.value === 'not_determined') return '提醒配置可保存，需允许岁岁时光发送系统通知后才能送达。'
   if (reminderPermission.value === 'error') return reminderPermissionDetail.value || '无法确认 macOS 通知权限，请重新尝试。'
-  return '桌面通知未授权，请在系统通知设置中允许“岁岁时光”后重试。'
+  return '提醒配置可保存，但尚不能送达。请在系统通知设置中允许“岁岁时光”发送通知。'
 })
 const reminderPermissionGuideTitle = computed(() => reminderPermission.value === 'denied' ? '需要开启系统通知' : reminderPermission.value === 'error' ? '无法请求系统通知' : '允许系统通知')
 const reminderPermissionGuideDescription = computed(() => {
-  if (reminderPermission.value === 'denied') return '通知权限由 macOS 管理。请在系统设置中允许“岁岁时光”发送通知，然后返回此处重新开启提醒。'
+  if (reminderPermission.value === 'denied') return '提醒配置已保留。请在系统设置中允许“岁岁时光”发送通知，返回应用后自动恢复未来提醒的排程。'
   if (reminderPermission.value === 'error') return reminderPermissionDetail.value || 'macOS 未能完成通知授权，请确认应用仍在运行后重新尝试。'
   return '岁岁时光会在事项到达提醒时间时向你发送系统通知。'
 })
@@ -414,6 +415,7 @@ let monthOverflowCloseTimer: number | undefined
 let holidayRefreshRequestId = 0
 
 function handleWindowFocus() {
+  if (reminderOpen.value || reminderPermissionGuideOpen.value) void refreshReminderPermission()
   if (session.value) void refreshVisibleHolidayCalendar(true)
   todayDate.value = todayString()
   if (session.value && currentView.value === 'month') void refreshCalendarAnniversaries()
@@ -626,7 +628,7 @@ function scheduleMidnightRefresh() {
 function startReminderScheduler() {
   reminderScheduler?.stop()
   if (!session.value) return
-  reminderScheduler = createTaskReminderScheduler(session.value.id, message => showNotice(message, 'error'))
+  reminderScheduler = createTaskReminderScheduler(session.value.id, message => showNotice(message, 'error'), setReminderPermission)
   reminderScheduler.start()
 }
 
@@ -1251,20 +1253,37 @@ function removeChildDraft(id: string) {
 function selectTaskCategory(categoryId: string) { taskDraft.categoryId = categoryId; categoryMenuOpen.value = false; void flushTaskDraftSave() }
 function selectTaskPriority(priority: Priority) { taskDraft.priority = priority; priorityOpen.value = false; void flushTaskDraftSave() }
 function applyTimeSelection(value: TaskTimeSelection) {
+  const hadReminderTime = canSetReminder.value
   Object.assign(taskDraft, value)
-  if (value.scheduleKind === 'all_day') taskDraft.reminderOffsets = []
+  if (!canSetReminder.value) taskDraft.reminderOffsets = []
+  else if (!hadReminderTime) {
+    taskDraft.reminderOffsets = [0]
+    void refreshReminderPermission(true)
+  }
   timeOpen.value = false
   void flushTaskDraftSave()
 }
 async function openReminderSheet() {
   if (!canSetReminder.value) return
   try {
-    setReminderPermission(await getReminderPermission())
+    await refreshReminderPermission()
     reminderDraftOffsets.value = [...taskDraft.reminderOffsets]
     reminderOpen.value = true
   } catch (error) {
     showNotice(messageOf(error), 'error')
   }
+}
+async function refreshReminderPermission(showGuide = false) {
+  try {
+    setReminderPermission(await getReminderPermission())
+  } catch (error) {
+    setReminderPermission({ status: 'error', detail: messageOf(error) })
+  }
+  if (!taskModalOpen.value || !canSetReminder.value || !taskDraft.reminderOffsets.length) return
+  if (reminderPermission.value === 'granted') {
+    reminderPermissionGuideOpen.value = false
+    void reminderScheduler?.sync()
+  } else if (showGuide && reminderPermission.value !== 'unsupported') reminderPermissionGuideOpen.value = true
 }
 async function requestReminderAccess() {
   if (requestingReminderPermission.value) return
@@ -1272,9 +1291,9 @@ async function requestReminderAccess() {
   try {
     setReminderPermission(await requestReminderPermission())
     if (reminderPermission.value === 'granted') {
-      if (!reminderDraftOffsets.value.length) reminderDraftOffsets.value = [15]
       reminderPermissionGuideOpen.value = false
-      showNotice('桌面通知已开启，已发送激活通知')
+      void reminderScheduler?.sync()
+      showNotice('系统通知已允许，激活通知已提交；展示效果以系统设置为准')
       return
     }
     if (reminderPermission.value === 'unsupported') {
@@ -1298,15 +1317,7 @@ async function toggleReminderEnabled() {
     reminderDraftOffsets.value = []
     return
   }
-  if (reminderPermission.value === 'granted') {
-    reminderDraftOffsets.value = [15]
-    return
-  }
-  if (reminderPermission.value === 'unsupported') {
-    showNotice('仅桌面客户端支持系统提醒', 'error')
-    return
-  }
-  reminderPermissionGuideOpen.value = true
+  reminderDraftOffsets.value = [0]
 }
 async function openReminderSettings() {
   try {
@@ -1320,7 +1331,7 @@ async function sendReminderTest() {
   sendingReminderTest.value = true
   try {
     await sendReminderTestNotification()
-    showNotice('测试通知已发送，请留意系统横幅')
+    showNotice('测试通知已提交，请检查系统横幅或通知中心')
   } catch (error) {
     showNotice(messageOf(error), 'error')
   } finally {
@@ -1333,14 +1344,10 @@ function toggleReminderOffset(offset: number) {
   else reminderDraftOffsets.value = [...reminderDraftOffsets.value, offset].sort((left, right) => left - right)
 }
 function saveReminderSettings() {
-  if (reminderEnabled.value && reminderPermission.value !== 'granted') {
-    reminderPermissionGuideOpen.value = reminderPermission.value !== 'unsupported'
-    showNotice('请先授权桌面通知', 'error')
-    return
-  }
   taskDraft.reminderOffsets = [...reminderDraftOffsets.value]
   reminderOpen.value = false
   void flushTaskDraftSave()
+  if (taskDraft.reminderOffsets.length) void refreshReminderPermission(true)
 }
 function formatReminderOffset(offset: number) { return offset === 0 ? '准时提醒' : offset >= 60 ? `提前 ${offset / 60} 小时` : `提前 ${offset} 分钟` }
 function moveWeek(offset: number) { weekAnchor.value = addDays(weekAnchor.value, offset * 7) }
