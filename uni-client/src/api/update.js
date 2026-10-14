@@ -34,9 +34,12 @@ export function compareVersions(a, b) {
 export function validateUpdateManifest(manifest) {
   if (!manifest || typeof manifest !== 'object' || !/^\d+\.\d+\.\d+$/.test(manifest.version || '')) throw new Error('更新清单格式错误，请稍后重试')
   if (manifest.versionCode !== undefined && (!/^[1-9]\d*$/.test(String(manifest.versionCode)) || !Number.isSafeInteger(Number(manifest.versionCode)))) throw new Error('更新清单中的版本码无效')
-  // App 服务环境未必提供浏览器 URL 类，直接校验 HTTPS 域名和固定分发路径。
-  const url = /^https:\/\/([a-z0-9.-]+)(?::(\d{1,5}))?\/sui-time\/releases\/v\d+\.\d+\.\d+\/[^/?#]+\.apk(?:\?[^#]*)?$/i.exec(manifest.url || '')
-  if (!url || url[1].split('.').some(label => !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)) || (url[2] && (Number(url[2]) < 1 || Number(url[2]) > 65535)) || /(^|\.)github(?:usercontent)?\.com$/i.test(url[1])) throw new Error('更新清单必须提供有效的 OSS HTTPS 安装包地址')
+  // OSS 默认域名禁止公开 APK，因此同时允许官方 GitHub Release 资产作为兜底分发地址。
+  const url = String(manifest.url || '')
+  const ossUrl = /^https:\/\/([a-z0-9.-]+)(?::(\d{1,5}))?\/sui-time\/releases\/v\d+\.\d+\.\d+\/[^/?#]+\.apk(?:\?[^#]*)?$/i.exec(url)
+  const githubUrl = /^https:\/\/github\.com\/emperorStorm\/sui-time\/releases\/download\/v\d+\.\d+\.\d+\/sui-time-\d+\.\d+\.\d+-android\.apk(?:\?[^#]*)?$/i.test(url)
+  if (!ossUrl && !githubUrl) throw new Error('更新清单必须提供有效的 OSS 或官方 GitHub Release HTTPS 安装包地址')
+  if (ossUrl && (/((^|\.)github(?:usercontent)?\.com)$/i.test(ossUrl[1]) || ossUrl[1].split('.').some(label => !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)) || (ossUrl[2] && (Number(ossUrl[2]) < 1 || Number(ossUrl[2]) > 65535)))) throw new Error('更新清单中的 OSS 安装包地址无效')
   if (manifest.notes !== undefined && typeof manifest.notes !== 'string') throw new Error('更新清单中的更新说明无效')
   return manifest
 }

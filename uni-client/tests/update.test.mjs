@@ -27,8 +27,9 @@ test('版本码、运行时版本、无效清单及网络失败不误报最新',
   h.context.plus.runtime.version = '0.6.1'; h.context.plus.runtime.versionCode = 601
   assert.equal(h.api.installedVersion().code, 601)
   assert.equal(h.api.compareVersions('0.100.0', '1.0.0'), -1)
-  assert.throws(() => h.api.validateUpdateManifest({ version: '0.6.3', url: 'https://github.com/sui-time/releases/v0.6.3/a.apk' }), /OSS/)
-  assert.throws(() => h.api.validateUpdateManifest({ version: '0.6.3', url: 'https://oss@github.com/sui-time/releases/v0.6.3/a.apk' }), /OSS/)
+  assert.doesNotThrow(() => h.api.validateUpdateManifest({ version: '0.6.4', url: 'https://github.com/emperorStorm/sui-time/releases/download/v0.6.4/sui-time-0.6.4-android.apk' }))
+  assert.throws(() => h.api.validateUpdateManifest({ version: '0.6.3', url: 'https://github.com/sui-time/releases/v0.6.3/a.apk' }), /OSS|GitHub/)
+  assert.throws(() => h.api.validateUpdateManifest({ version: '0.6.3', url: 'https://oss@github.com/emperorStorm/sui-time/releases/download/v0.6.3/sui-time-0.6.3-android.apk' }), /OSS|GitHub/)
   const a = h.api.checkUpdate(), b = h.api.checkUpdate()
   assert.equal(a, b); assert.equal(h.requests.length, 1)
   h.requests[0].options.fail()
@@ -42,7 +43,7 @@ test('版本码、运行时版本、无效清单及网络失败不误报最新',
 
 async function found(h) {
   const check = h.api.checkUpdate()
-  h.requests.at(-1).options.success({ statusCode: 200, data: { version: '0.6.3', versionCode: 603, url: 'https://downloads.example.cn/sui-time/releases/v0.6.3/app.apk' } })
+  h.requests.at(-1).options.success({ statusCode: 200, data: { version: '0.6.4', versionCode: 604, url: 'https://github.com/emperorStorm/sui-time/releases/download/v0.6.4/sui-time-0.6.4-android.apk' } })
   await check
 }
 
@@ -69,7 +70,7 @@ test('OSS拒绝、取消下载、进度、安装授权往返与取消后重新�
   h.permit(); h.api.resumeUpdateInstallation()
   assert.equal(h.installs.length, 1); assert.equal(h.state().status, 'waiting')
   h.api.installDownloaded(); assert.equal(h.installs.length, 2)
-  h.context.plus.runtime.versionCode = 603
+  h.context.plus.runtime.versionCode = 604
   h.api.resumeUpdateInstallation()
   assert.equal(h.state().status, 'latest')
 })
@@ -86,5 +87,8 @@ test('清单生成仅在完整公开 APK 校验通过后写入，失败保留旧
     assert.equal(await readFile(output, 'utf8'), '旧清单')
     const result = await generateAndroidUpdate(args, async () => new Response(new Uint8Array([0x50, 0x4b, 3, 4])))
     assert.equal(result.versionCode, 602); assert.equal(result.notes, '中文更新说明')
+    const githubArgs = { ...args, downloadUrl: 'https://github.com/emperorStorm/sui-time/releases/download/v0.6.2/sui-time-0.6.2-android.apk' }
+    const githubResult = await generateAndroidUpdate(githubArgs, async () => new Response(new Uint8Array([0x50, 0x4b, 3, 4])))
+    assert.equal(githubResult.url, githubArgs.downloadUrl)
   } finally { await rm(dir, { recursive: true, force: true }) }
 })

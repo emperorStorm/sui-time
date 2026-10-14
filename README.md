@@ -1,6 +1,6 @@
 # 岁岁时光
 
-岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.6.3`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
+岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.6.4`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
 
 ![岁岁时光本地优先数据架构](docs/assets/sui-time-local-first-sync.png)
 
@@ -27,7 +27,7 @@
 - 事项：分类筛选、今天/7天内/稍后分组，按时间和四象限排序及轻量标记；支持全天、时间点、时间段与最多三项提醒。
 - 规划：月历与纪念日、上下月切换、当天事项列表、新建及编辑重复当次实例；日记和目标保留各自入口。
 - 我的：资料、纪念日、隐藏完成开关、恢复演示数据、检查更新（应用内下载后系统确认安装）。
-- 数据本地存储独立实现，与桌面 SQLite 不互通；APK 由 CI 离线打包自动构建（打 `v*` tag 触发），App 内仅使用 OSS 下载安装，浏览器下载为主动降级入口。
+- 数据本地存储独立实现，与桌面 SQLite 不互通；APK 由 CI 离线打包自动构建（打 `v*` tag 触发），App 内和浏览器下载均使用更新清单中的公开安装包地址。
 - 安卓提醒使用原生 AlarmManager 与通知渠道，后台及重启后从快照恢复；仍受通知权限、精确闹钟、省电和免打扰设置影响。
 
 ## 项目结构
@@ -98,7 +98,7 @@ Vue 页面
 
 GitHub Actions 构建 macOS 与 Windows 安装包、签名更新资产并创建 Release，随后把不可变安装包和当前 `latest.json` 同步到 OSS。密钥只能配置在 GitHub Secrets/Variables，禁止写入仓库。
 
-安卓移动端不使用 Tauri updater。“检查更新”读取 OSS 的 `sui-time/latest-android.json`，以运行时版本码优先比较，更新说明来自清单；发现更新后应用内下载 APK 并显示进度，完成后唤起系统确认安装，支持未知来源授权往返及重新安装。APK 由 CI 离线打包（`uni-client/android-templates/` + `scripts/prepare-android.mjs`）；上传后 `generate-android-update.mjs` 完整核对公开下载内容，成功才发布清单。地址沿用 `ALIYUN_OSS_BASE_URL`，默认 OSS endpoint 禁止 APK 分发时必须绑定可用 HTTPS CNAME；失败保留旧清单，不回退 GitHub。
+安卓移动端不使用 Tauri updater。“检查更新”读取 OSS 的 `sui-time/latest-android.json`，以运行时版本码优先比较，更新说明来自清单；发现更新后应用内下载 APK 并显示进度，完成后唤起系统确认安装，支持未知来源授权往返及重新安装。APK 由 CI 离线打包（`uni-client/android-templates/` + `scripts/prepare-android.mjs`）；上传后 `generate-android-update.mjs` 完整核对公开下载内容，成功才发布清单。由于当前 OSS 默认域名禁止公开 APK，本次清单使用对应 GitHub Release 资产地址；APK 仍同步归档到 OSS，后续配置 HTTPS CNAME 后可切回 OSS 下载。
 
 浏览器模式只能验证”当前已是最新版本”的降级分支和通知界面；真实签名、下载、安装和重启必须使用 Tauri 安装包或 CI/Release 环境验证。
 
