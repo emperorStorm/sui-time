@@ -159,7 +159,7 @@
         <div ref="taskModalBody" class="task-modal-body" @dragover="scrollChildDrag($event)" @dragleave="leaveChildDragBody($event)">
           <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
           <section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id && !childDropAfter, 'is-drag-over-after': dragOverChildId === subtask.id && childDropAfter }]" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id, $event)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" draggable="true" @dragstart.stop="startChildDrag(subtask.id, $event)" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @blur="flushTaskDraftSave" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
-          <label class="notes-editor"><span class="section-label">备注</span><textarea v-model.trim="taskDraft.notes" rows="5" maxlength="1000" placeholder="补充一点上下文，给未来的自己。" @blur="flushTaskDraftSave"></textarea></label>
+          <label class="notes-editor"><span class="section-label">备注</span><textarea ref="notesTextarea" v-model.trim="taskDraft.notes" rows="4" maxlength="1000" placeholder="补充一点上下文，给未来的自己。" @input="resizeNotesEditor({ keepCaretVisible: true })" @blur="flushTaskDraftSave"></textarea></label>
         </div>
         <footer><div class="task-footer-start"><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><button v-if="taskDraft.id && !editingRepeatRule && taskDraftStatus !== 'failed'" class="quiet-button failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button></div><span v-if="taskSaveError || savingTask" class="task-save-state" :class="{ error: taskSaveError }">{{ taskSaveError || '正在保存…' }}</span><button v-if="taskSaveError" class="quiet-button" type="button" @click="retryTaskAutoSave">重试</button></footer>
       </form>
@@ -301,6 +301,7 @@ const requestingReminderPermission = ref(false)
 const sendingReminderTest = ref(false)
 const childDrafts = ref<Task[]>([])
 const taskModalBody = ref<HTMLElement | null>(null)
+const notesTextarea = ref<HTMLTextAreaElement | null>(null)
 const deletedChildIds = ref<string[]>([])
 const persistedChildIds = ref<Set<string>>(new Set())
 const taskDraftStatus = ref<Task['status']>('todo')
@@ -440,6 +441,7 @@ onMounted(async () => {
   document.addEventListener('scroll', closeMonthOverflowOnScroll, true)
   window.addEventListener('resize', closeMonthOverflow)
   window.addEventListener('resize', handleSidebarResize)
+  window.addEventListener('resize', handleNotesEditorResize)
   window.addEventListener('blur', flushTaskDraftOnWindowBlur)
   window.addEventListener('focus', handleWindowFocus)
   document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -475,6 +477,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('scroll', closeMonthOverflowOnScroll, true)
   window.removeEventListener('resize', closeMonthOverflow)
   window.removeEventListener('resize', handleSidebarResize)
+  window.removeEventListener('resize', handleNotesEditorResize)
   window.removeEventListener('blur', flushTaskDraftOnWindowBlur)
   window.removeEventListener('focus', handleWindowFocus)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -776,6 +779,22 @@ async function resetCurrentDate() {
   }
 }
 
+function resizeNotesEditor(options?: { keepCaretVisible?: boolean }) {
+  const el = notesTextarea.value
+  if (!el) return
+  // border-box 下 scrollHeight 不含边框，补回上下边框高度
+  const border = el.offsetHeight - el.clientHeight
+  // 长文输入时全程不复位，避免高度反复回落到最小行高导致弹窗主体滚动位置抖动
+  if (el.scrollHeight <= el.clientHeight) el.style.height = 'auto'
+  el.style.height = `${Math.ceil(el.scrollHeight) + border}px`
+  const body = taskModalBody.value
+  if (!options?.keepCaretVisible || !body) return
+  const overflow = el.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom
+  if (overflow > 0) body.scrollTop += overflow
+}
+
+function handleNotesEditorResize() { resizeNotesEditor() }
+
 async function openTaskModal(categoryId?: string | null, item?: Task, date?: string) {
   taskAutoSaveSuspended.value = true
   taskDraftDirty.value = false
@@ -797,6 +816,8 @@ async function openTaskModal(categoryId?: string | null, item?: Task, date?: str
   reminderPermissionGuideOpen.value = false
   taskModalOpen.value = true
   taskSaveError.value = ''
+  await nextTick()
+  resizeNotesEditor()
   taskAutoSaveSuspended.value = false
 }
 

@@ -30,32 +30,48 @@ let cache = null
 
 export function load() {
   if (cache) return cache
+  let raw
   try {
-    let raw = uni.getStorageSync(STORAGE_KEY)
-    // H5 下 uni.getStorageSync 可能返回 {type, data} 包装结构，需解包
-    if (raw && raw.data && typeof raw.data === 'object' && (raw.data.categories || raw.data.tasks)) raw = raw.data
-    if (raw && raw.categories && raw.tasks) {
-      if (!Array.isArray(raw.anniversaries)) raw.anniversaries = []
-      if (!Array.isArray(raw.anniversaryRecords)) raw.anniversaryRecords = []
-      cache = raw
-      return cache
-    }
-  } catch (e) {
-    // 存储异常时回退种子数据
+    // #ifdef H5
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null
+    // #endif
+    raw = uni.getStorageSync(STORAGE_KEY)
+    // #ifdef H5
+    if (stored !== null && (raw === undefined || raw === null || raw === '')) throw new Error('读取失败')
+    // #endif
+  } catch {
+    throw new Error('无法读取本机数据，请稍后重试')
   }
-  cache = seedData()
-  save(cache)
+  if (raw === undefined || raw === null || raw === '') {
+    save(seedData(), { strict: true, message: '无法初始化本机数据，请检查存储空间后重试' })
+    return cache
+  }
+  // 兼容 H5 存储包装；非空坏数据不能被演示数据覆盖。
+  if (raw && typeof raw === 'object' && raw.data && !raw.categories && !raw.tasks) raw = raw.data
+  const isObject = value => value && typeof value === 'object' && !Array.isArray(value)
+  if (!isObject(raw) || !Array.isArray(raw.categories) || !Array.isArray(raw.tasks)
+    || raw.categories.some(item => !isObject(item)) || raw.tasks.some(item => !isObject(item))
+    || (raw.settings !== undefined && !isObject(raw.settings))
+    || (raw.anniversaries !== undefined && !Array.isArray(raw.anniversaries))
+    || (raw.anniversaryRecords !== undefined && !Array.isArray(raw.anniversaryRecords))) {
+    throw new Error('本机数据已损坏，请保留数据并重试')
+  }
+  cache = {
+    ...raw,
+    settings: { hideCompleted: true, collapsedGroups: [], ...raw.settings },
+    anniversaries: raw.anniversaries || [],
+    anniversaryRecords: raw.anniversaryRecords || []
+  }
   return cache
 }
 
 export function save(data, { strict = false, message = '无法保存纪念日，存储空间可能不足，请减少照片后重试' } = {}) {
-  if (!strict) cache = data
   try {
     uni.setStorageSync(STORAGE_KEY, data)
     cache = data
   } catch (e) {
     if (strict) throw new Error(message)
-    // 存储失败不阻断界面
+    // 兼容旧的非严格调用，写入失败时仍保留上一次缓存。
   }
 }
 

@@ -2,7 +2,7 @@
   <transition name="page">
     <view v-if="visible" class="manage-page">
       <view class="manage-topbar">
-        <view class="topbar-back" @click="emit('close')"><text>‹</text></view>
+        <view class="topbar-back" @click="requestClose"><text>‹</text></view>
         <view class="topbar-center">
           <text class="topbar-title">分类管理</text>
           <text class="topbar-sub">长按拖动排序</text>
@@ -10,6 +10,8 @@
         <view class="topbar-spacer" />
       </view>
 
+      <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="reload">重试读取</button></view>
+      <template v-else>
       <scroll-view class="manage-scroll" scroll-y>
         <view
           v-for="(cat, index) in list"
@@ -19,6 +21,7 @@
           @longpress="onDragStart(index)"
           @touchmove="onDragMove"
           @touchend="onDragEnd"
+          @touchcancel="cancelDrag"
         >
           <image class="cat-icon" :src="iconSrc(cat)" mode="aspectFit" />
           <text class="cat-name">{{ cat.name }}</text>
@@ -57,6 +60,7 @@
           </view>
         </view>
       </transition>
+      </template>
     </view>
   </transition>
 </template>
@@ -73,6 +77,9 @@ const props = defineProps({
 const emit = defineEmits(['close', 'changed'])
 
 const list = ref([])
+const loadError = ref('')
+const taskCounts = ref({})
+const submitting = ref(false)
 const editing = ref(false)
 const draft = reactive({ id: '', name: '', color: '#2996f6', icon: 'monitor' })
 const dragIndex = ref(-1)
@@ -83,11 +90,35 @@ const iconNames = ['monitor', 'bookmark', 'flower', 'star', 'heart', 'bolt', 'do
 watch(
   () => props.visible,
   (visible) => {
-    if (!visible) return
-    list.value = getCategories()
+    dragIndex.value = -1
     editing.value = false
-  }
+    if (visible) reload()
+  },
+  { immediate: true }
 )
+
+function reload() {
+  try {
+    const categories = getCategories().map(cat => ({ ...cat }))
+    const counts = {}
+    listTasks().forEach(task => { if (!task.parentTaskId) counts[task.categoryId] = (counts[task.categoryId] || 0) + 1 })
+    list.value = categories
+    taskCounts.value = counts
+    loadError.value = ''
+    return true
+  } catch (error) {
+    loadError.value = error.message || String(error)
+    return false
+  }
+}
+
+function requestClose() {
+  if (submitting.value) return
+  if (dragIndex.value >= 0) cancelDrag()
+  if (editing.value) { editing.value = false; return }
+  emit('close')
+}
+defineExpose({ requestClose })
 
 function iconSrc(cat) {
   return iconSrcFor(cat.icon, cat.color)
@@ -100,10 +131,11 @@ function iconSrcFor(icon, color) {
 }
 
 function taskCount(categoryId) {
-  return listTasks().filter((task) => task.categoryId === categoryId && !task.parentTaskId).length
+  return taskCounts.value[categoryId] || 0
 }
 
 function startEdit(cat) {
+  if (submitting.value || dragIndex.value >= 0 || loadError.value) return
   editing.value = true
   Object.assign(draft, cat
     ? { id: cat.id, name: cat.name, color: cat.color, icon: cat.icon }
@@ -111,43 +143,52 @@ function startEdit(cat) {
 }
 
 function save() {
+  if (submitting.value) return
   const name = draft.name.trim()
-  if (!name) {
-    toast('请填写分类名称')
-    return
-  }
-  saveCategory({ id: draft.id, name, color: draft.color, icon: draft.icon })
-  toast('已保存', 'success')
-  editing.value = false
-  list.value = getCategories()
-  emit('changed')
+  if (!name) { toast('请填写分类名称'); return }
+  submitting.value = true
+  try {
+    saveCategory({ id: draft.id, name, color: draft.color, icon: draft.icon })
+    if (!reload()) return
+    editing.value = false
+    toast('已保存', 'success')
+    emit('changed')
+  } catch (error) { toast(error.message || String(error)); reload() }
+  finally { submitting.value = false }
 }
 
 function confirmRemove() {
+  if (submitting.value) return
+  submitting.value = true
+  const id = draft.id
   uni.showModal({
     title: '删除分类',
     content: `删除「${draft.name}」后，该分类下的事项将变为未分类。`,
     success: (res) => {
       if (!res.confirm) return
-      removeCategory(draft.id)
-      toast('已删除')
-      editing.value = false
-      list.value = getCategories()
-      emit('changed')
-    }
+      try {
+        removeCategory(id)
+        if (!reload()) return
+        editing.value = false
+        toast('已删除')
+        emit('changed')
+      } catch (error) { toast(error.message || String(error)); reload() }
+    },
+    fail: () => toast('无法打开确认窗口，请重试'),
+    complete: () => { submitting.value = false }
   })
 }
 
 // 拖动排序
 function onDragStart(index) {
+  if (submitting.value || editing.value || loadError.value) return
   dragIndex.value = index
 }
 
 function onDragMove(event) {
   if (dragIndex.value < 0) return
-  const touch = event.touches[0]
-  const rowHeight = 112 // rpx 转 px 约 56px
-  const scrollTop = event.currentTarget?.scrollTop || 0
+  const touch = event.touches?.[0]
+  if (!touch) return
   const y = touch.clientY - 160 // 减去 topbar 高度
   const targetIndex = Math.max(0, Math.min(list.value.length - 1, Math.floor(y / 56)))
   if (targetIndex !== dragIndex.value) {
@@ -160,8 +201,15 @@ function onDragMove(event) {
 function onDragEnd() {
   if (dragIndex.value < 0) return
   dragIndex.value = -1
-  reorderCategories(list.value.map((cat) => cat.id))
-  emit('changed')
+  try {
+    reorderCategories(list.value.map((cat) => cat.id))
+    if (reload()) emit('changed')
+  } catch (error) { toast(error.message || String(error)); reload() }
+}
+
+function cancelDrag() {
+  dragIndex.value = -1
+  reload()
 }
 </script>
 

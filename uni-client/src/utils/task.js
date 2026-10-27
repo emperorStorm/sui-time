@@ -31,8 +31,13 @@ export function applyTaskTime(draft, patch) {
 
 export function normalizeTask(input) {
   const task = { plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: input.plannedTime ? 'point' : 'all_day', reminderOffsets: [], occurrenceOverrides: '{}', ...input }
-  if (!task.title?.trim()) throw new Error('请先填写事项名称')
+  if (typeof task.title !== 'string' || !task.title.trim()) throw new Error('请先填写事项名称')
   task.title = task.title.trim()
+  if (task.title.length > 120) throw new Error('事项名称最多 120 字')
+  if (task.notes != null && typeof task.notes !== 'string') throw new Error('备注格式无效')
+  if ((task.notes || '').length > 1000) throw new Error('备注最多 1000 字')
+  if (task.status !== undefined && !['todo', 'done', 'failed'].includes(task.status)) throw new Error('事项状态无效')
+  if (task.parentTaskId && task.status === 'failed') throw new Error('子事项状态无效')
   if (task.plannedDate) {
     const value = new Date(`${task.plannedDate}T12:00:00`)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(task.plannedDate) || !Number.isFinite(value.getTime()) || `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}` !== task.plannedDate) throw new Error('请选择有效日期')

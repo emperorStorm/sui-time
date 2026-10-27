@@ -5,6 +5,8 @@
       <view class="topbar-action spacer" />
     </view>
 
+    <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="load">重试读取</button></view>
+    <template v-else-if="ready">
     <view class="profile-scroll">
       <view class="shell">
         <view class="mine-card panel">
@@ -32,7 +34,7 @@
               <text class="row-title">隐藏已完成</text>
               <text class="row-hint">列表与日历中隐藏已结束事项</text>
             </view>
-            <switch :checked="settings.hideCompleted" color="#2996f6" @change="toggleHideCompleted" />
+            <switch :key="switchRevision" :checked="settings.hideCompleted" color="#2996f6" @change="toggleHideCompleted" />
           </view>
         </view>
 
@@ -56,12 +58,13 @@
     </view>
 
     <UpdateSheet :visible="updateVisible" :state="updateState" @close="closeUpdate" @download="downloadUpdate" @cancel="cancelDownload" @install="installDownloaded" @check="openUpdate" @browser="openUpdateInBrowser" />
+    </template>
   </view>
 </template>
 
 <script setup>
 import { onBeforeUnmount, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onUnload } from '@dcloudio/uni-app'
 import UpdateSheet from '../../components/UpdateSheet.vue'
 import { getProfile, getSettings, setSetting, restoreDemoData } from '../../api/store'
 import { checkUpdate, downloadUpdate, cancelDownload, installDownloaded, installedVersion, subscribeUpdate, openUpdateInBrowser } from '../../api/update'
@@ -69,23 +72,52 @@ import { toast } from '../../utils/platform'
 
 function openAnniversaries() { uni.navigateTo({ url: '/pages/anniversaries/index' }) }
 
-const profile = ref(getProfile())
-const settings = ref(getSettings())
+const profile = ref(null)
+const settings = ref(null)
+const ready = ref(false)
+const loadError = ref('')
+const switchRevision = ref(0)
 const updateVisible = ref(false)
 const currentVersion = ref(installedVersion().version)
 const updateState = ref({ status: 'idle', currentVersion: currentVersion.value })
 const unsubscribeUpdate = subscribeUpdate(state => { updateState.value = state; currentVersion.value = state.currentVersion })
 onBeforeUnmount(unsubscribeUpdate)
+onUnload(unsubscribeUpdate)
 
 onShow(() => {
-  profile.value = getProfile()
-  settings.value = getSettings()
+  load()
   currentVersion.value = installedVersion().version
 })
 
+function load() {
+  try {
+    const nextProfile = getProfile()
+    if (!nextProfile || typeof nextProfile !== 'object') throw new Error('本机个人资料无效，请保留数据并重试')
+    const nextSettings = { ...getSettings() }
+    profile.value = { ...nextProfile }
+    settings.value = nextSettings
+    loadError.value = ''
+    ready.value = true
+    return true
+  } catch (error) {
+    loadError.value = error.message || String(error)
+    ready.value = false
+    return false
+  }
+}
+
 function toggleHideCompleted(event) {
-  setSetting('hideCompleted', event.detail.value)
-  settings.value = getSettings()
+  if (!ready.value) return
+  try {
+    setSetting('hideCompleted', event.detail.value)
+    load()
+  } catch (error) {
+    toast(error.message || String(error))
+    load()
+  } finally {
+    // 原生 switch 已先改变外观，重新挂载才能可靠回显落盘值。
+    switchRevision.value++
+  }
 }
 
 async function openUpdate() {
@@ -104,9 +136,7 @@ function restore() {
     success: (res) => {
       if (!res.confirm) return
       try { restoreDemoData() } catch (error) { toast(error.message || String(error)); return }
-      profile.value = getProfile()
-      settings.value = getSettings()
-      toast('已恢复')
+      if (load()) toast('已恢复')
     }
   })
 }

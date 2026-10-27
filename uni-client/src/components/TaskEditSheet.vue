@@ -1,6 +1,6 @@
 <template>
   <transition name="sheet">
-    <view v-if="visible" class="sheet-layer" @click="emit('close')">
+    <view v-if="visible" class="sheet-layer" @click="requestClose">
       <view class="sheet" @click.stop>
       <view class="sheet-header">
         <view v-if="draft.id" class="sheet-delete" @click="remove">删除</view>
@@ -8,8 +8,8 @@
         <text class="sheet-title">{{ draft.id ? '编辑事项' : '新建事项' }}</text>
         <view class="sheet-save" @click="save">{{ saving ? '保存中' : '保存' }}</view>
       </view>
-      <scroll-view class="sheet-body" scroll-y :scroll-into-view="scrollTarget" :scroll-with-animation="false">
-        <input class="title-input" v-model="draft.title" placeholder="输入事项名称" maxlength="80" />
+      <scroll-view :class="['sheet-body', { 'is-busy': actionBusy }]" scroll-y :scroll-into-view="scrollTarget" :scroll-with-animation="false">
+        <input class="title-input" v-model="draft.title" placeholder="输入事项名称" :maxlength="Math.max(120, draft.title.length)" @blur="flushDraft()" />
         <view class="sheet-row">
           <text class="row-label">◷ 日期</text>
           <picker mode="date" :value="draft.plannedDate || ''" @change="onDateChange">
@@ -45,16 +45,22 @@
             <text>{{ cat.icon }} {{ cat.name }}</text>
           </view>
         </view>
-        <view class="subtask-add" @click="addSubtask()"><text>＋ 添加子任务</text></view>
-        <text v-if="occurrence" class="permission-hint">正在编辑 {{ occurrence.date }} 的当次事项，重复规则保持不变。</text>
-        <view v-for="(subtask, index) in draft.subtasks" :key="subtask.id" :id="`subtask-${subtask.id}`" class="subtask-row">
-          <view class="subtask-remove" @click="removeSubtask(index)"><text>×</text></view>
-          <input v-model="subtask.title" :focus="focusedChild === subtask.id" @focus="focusedChild = subtask.id" @confirm="addSubtask(index + 1)" placeholder="子任务" maxlength="60" confirm-type="next" />
-        </view>
-        <textarea class="note-area" v-model="draft.notes" placeholder="备注：记录一些细节，未来的自己会感谢你。" maxlength="500" />
-        <text v-if="error" class="save-error">{{ error }}</text>
-        <view v-if="occurrence" class="occurrence-status"><button @click="changeStatus('todo')">恢复待办</button><button @click="changeStatus('done')">完成本次</button><button @click="changeStatus('failed')">标记失败</button></view>
+        <template v-if="!occurrence">
+          <view class="subtask-add" @click="addSubtask()"><text>＋ 添加子事项</text></view>
+          <view v-for="(subtask, index) in draft.subtasks" :key="subtask.id" :id="`subtask-${subtask.id}`" class="subtask-row">
+            <button v-if="draft.repeatKind === 'none'" :class="['subtask-check', { done: subtask.status === 'done' }]" :aria-label="subtask.status === 'done' ? '恢复子事项' : '完成子事项'" @click="toggleSubtask(subtask)">{{ subtask.status === 'done' ? '✓' : '○' }}</button>
+            <input v-model="subtask.title" :focus="focusedChild === subtask.id" @focus="focusedChild = subtask.id" @blur="flushDraft()" @confirm="addSubtask(index + 1)" placeholder="子事项" :maxlength="Math.max(120, subtask.title.length)" confirm-type="next" />
+            <view class="subtask-order"><button :disabled="index === 0" aria-label="上移子事项" @click="moveSubtask(index, -1)">↑</button><button :disabled="index === draft.subtasks.length - 1" aria-label="下移子事项" @click="moveSubtask(index, 1)">↓</button></view>
+            <button class="subtask-remove" aria-label="删除子事项" @click="removeSubtask(index)">×</button>
+          </view>
+        </template>
+        <text v-if="occurrence" class="permission-hint">正在编辑 {{ occurrence.date }} 的当次事项，重复规则和源子事项保持不变。</text>
+        <textarea class="note-area" v-model="draft.notes" auto-height :maxlength="Math.max(1000, draft.notes.length)" @blur="flushDraft()" placeholder="备注：记录一些细节，未来的自己会感谢你。" />
       </scroll-view>
+      <view class="sheet-footer">
+        <view class="save-feedback" aria-live="polite"><text :class="{ 'save-error': error }">{{ error || reminderWarning || (saving ? '正在保存…' : dirty ? '有未保存的修改' : draft.id ? '已保存' : '填写后保存') }}</text><button v-if="error" @click="flushDraft(true)">重试</button></view>
+        <view v-if="draft.id && (occurrence || draft.repeatKind === 'none')" class="occurrence-status"><button :disabled="actionBusy" @click="changeStatus('todo')">恢复待办</button><button :disabled="actionBusy" @click="changeStatus('done')">{{ occurrence ? '完成本次' : '完成事项' }}</button><button :disabled="actionBusy" @click="changeStatus('failed')">标记失败</button></view>
+      </view>
       </view>
     </view>
   </transition>
@@ -62,12 +68,12 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
-import { getCategories, saveTask, removeTask, findTask, listChildren, listTasks, setTaskStatus } from '../api/store'
+import { onShow, onHide } from '@dcloudio/uni-app'
+import { getCategories, saveTask, removeTask, findTask, listChildren } from '../api/store'
 import { parseOccurrenceId, parseRepeatRule, repeatLabel } from '../utils/occurrence'
 import { applyTaskTime, hasReminderTime, priorities, reminderOptions } from '../utils/task'
 import { todayString } from '../utils/date'
-import { reminderState, sendReminderTest, syncTaskReminders } from '../api/reminders'
+import { reminderState, sendReminderTest } from '../api/reminders'
 import { androidSettings, requestNotificationPermission } from '../api/android'
 import { toast } from '../utils/platform'
 
@@ -84,6 +90,15 @@ const repeatKinds = ['none', 'daily', 'weekly', 'monthly', 'yearly']
 const permissions = ref(reminderState())
 const error = ref('')
 const saving = ref(false)
+const actionBusy = ref(false)
+const dirty = ref(false)
+const reminderWarning = ref('')
+let initializing = false
+let revision = 0
+let generation = 0
+let saveTimer
+let pendingSave = null
+let pendingGeneration = 0
 const focusedChild = ref('')
 const scrollTarget = ref('')
 const occurrence = computed(() => draft.id ? parseOccurrenceId(draft.id) : null)
@@ -110,7 +125,13 @@ const draft = reactive({
 watch(
   () => props.visible,
   (visible) => {
+    clearTimeout(saveTimer)
+    generation++
     if (!visible) return
+    initializing = true
+    dirty.value = false
+    revision = 0
+    reminderWarning.value = ''
     error.value = ''; focusedChild.value = ''; scrollTarget.value = ''; permissions.value = reminderState()
     categories.value = getCategories()
     const source = props.task
@@ -119,7 +140,7 @@ watch(
       Object.assign(draft, {
         id: source.id,
         title: loaded?.title || '',
-        categoryId: loaded?.categoryId || categories.value[0]?.id || '',
+        categoryId: loaded?.categoryId || '',
         plannedDate: loaded?.plannedDate || '',
         plannedTime: loaded?.plannedTime || null,
         plannedEndTime: loaded?.plannedEndTime || null,
@@ -150,8 +171,17 @@ watch(
         notes: ''
       })
     }
+    initializing = false
   }
 )
+
+watch(draft, () => {
+  if (initializing || !props.visible) return
+  revision++
+  dirty.value = true
+  clearTimeout(saveTimer)
+  if (draft.id && !error.value) saveTimer = setTimeout(() => { void flushDraft() }, 650)
+}, { deep: true, flush: 'sync' })
 
 function parseRepeatKind(repeatRule) {
   try {
@@ -167,7 +197,7 @@ function onDateChange(event) {
 }
 
 async function addSubtask(index = draft.subtasks.length) {
-  const child = { id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: '' }
+  const child = { id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: '', status: 'todo' }
   draft.subtasks.splice(index, 0, child)
   focusedChild.value = ''; scrollTarget.value = ''
   await nextTick()
@@ -179,17 +209,24 @@ function removeSubtask(index) {
   draft.subtasks.splice(index, 1)
 }
 
-async function save() {
-  if (saving.value) return
-  const title = draft.title.trim()
-  if (!title) {
-    toast('请先填写事项名称')
-    return
-  }
+function moveSubtask(index, offset) {
+  const target = index + offset
+  if (target < 0 || target >= draft.subtasks.length) return
+  const children = [...draft.subtasks]
+  ;[children[index], children[target]] = [children[target], children[index]]
+  draft.subtasks = children
+}
+
+function toggleSubtask(child) {
+  child.status = child.status === 'done' ? 'todo' : 'done'
+  void flushDraft()
+}
+
+function taskInput() {
   const rule = parseRepeatRule(draft.repeatRule)
-  const input = {
+  return {
     ...(draft.id ? { id: draft.id } : {}),
-    title,
+    title: draft.title.trim(),
     categoryId: draft.categoryId || null,
     plannedDate: draft.plannedDate || null,
     plannedTime: draft.plannedTime,
@@ -200,31 +237,97 @@ async function save() {
     occurrenceOverrides: draft.occurrenceOverrides,
     reminderOffsets: [...draft.reminderOffsets],
     parentTaskId: null,
-    failureReason: null,
     notes: draft.notes
   }
-  saving.value = true
-  try {
-    const saved = saveTask(input, draft.subtasks)
-    const result = await syncTaskReminders(listTasks())
-    const message = result.error ? `已保存，提醒排程失败：${result.error}` : canRemind.value && draft.reminderOffsets.length && result.supported && (!result.notifications || !result.exactAlarm) ? '已保存，需开启通知和准时提醒权限后才能送达' : '已保存'
-    toast(message)
-    emit('saved', saved); emit('close')
-  }
-  catch (cause) { error.value = cause.message || String(cause) }
-  finally { saving.value = false }
 }
 
-function remove() {
-  uni.showModal({
-    title: '删除事项',
-    content: '确定删除该事项及其子任务吗？',
-    success: (res) => {
-      if (!res.confirm) return
-      try { removeTask(draft.id); toast('已删除'); emit('saved', null); emit('close') }
-      catch (cause) { error.value = cause.message || String(cause) }
+async function updateReminders(session, promise) {
+  const result = await promise
+  if (session !== generation) return
+  reminderWarning.value = result.error ? `事项已保存，提醒排程失败：${result.error}` : result.supported && canRemind.value && draft.reminderOffsets.length && (!result.notifications || !result.exactAlarm) ? '事项已保存，需开启通知和准时提醒权限' : ''
+}
+
+async function drainDraft(session) {
+  saving.value = true
+  try {
+    while (props.visible && session === generation && dirty.value) {
+      const version = revision
+      const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })))
+      initializing = true
+      draft.id = occurrence.value ? draft.id : saved.id
+      initializing = false
+      if (revision === version) dirty.value = false
+      error.value = ''
+      emit('saved', saved)
+      await updateReminders(session, saved.reminderPromise)
     }
-  })
+    return session === generation
+  } catch (cause) {
+    if (session === generation) error.value = cause.message || String(cause)
+    return false
+  } finally {
+    saving.value = false
+  }
+}
+
+async function flushDraft(required = false) {
+  clearTimeout(saveTimer)
+  if (!props.visible || initializing) return false
+  if (pendingSave) {
+    const current = generation
+    const previous = pendingGeneration
+    const result = await pendingSave
+    if (current !== generation) return false
+    return previous !== current || (result && dirty.value) ? flushDraft(required) : result
+  }
+  if (!draft.title.trim()) {
+    if (required || draft.id) error.value = '请先填写事项名称'
+    return false
+  }
+  if (!dirty.value) return true
+  const session = generation
+  pendingGeneration = session
+  pendingSave = drainDraft(session)
+  try { return await pendingSave }
+  finally { pendingSave = null }
+}
+
+async function requestClose() {
+  if (actionBusy.value) return false
+  if (!draft.id && !dirty.value) { emit('close'); return true }
+  if (!await flushDraft(true)) return false
+  emit('close')
+  return true
+}
+
+async function save() {
+  if (actionBusy.value) return
+  if (!draft.id && !dirty.value) { error.value = '请先填写事项名称'; return }
+  await requestClose()
+}
+
+async function remove() {
+  if (actionBusy.value) return
+  actionBusy.value = true
+  clearTimeout(saveTimer)
+  const session = generation
+  try {
+    const result = await new Promise(resolve => uni.showModal({
+      title: '删除事项',
+      content: occurrence.value ? '确定删除本次事项吗？' : '确定删除该事项及其子事项吗？',
+      success: resolve,
+      fail: () => resolve({ confirm: false })
+    }))
+    if (!result.confirm || session !== generation) return
+    if (pendingSave) await pendingSave
+    if (session !== generation) return
+    removeTask(draft.id)
+    dirty.value = false
+    toast('已删除')
+    emit('saved', null)
+    emit('close')
+  } catch (cause) { error.value = cause.message || String(cause) }
+  finally { actionBusy.value = false }
 }
 
 function setTime(patch) {
@@ -246,18 +349,69 @@ function toggleOffset(value) {
 }
 async function allowNotifications() { await requestNotificationPermission(); permissions.value = reminderState(); if (!permissions.value.notifications) androidSettings('notifications') }
 function testReminder() { try { sendReminderTest(); toast('测试通知已提交，请查看通知栏') } catch (cause) { error.value = cause.message || String(cause) } }
-function changeStatus(status) { try { setTaskStatus(draft.id, status); emit('saved', null); emit('close') } catch (cause) { error.value = cause.message || String(cause) } }
+async function changeStatus(status) {
+  if (actionBusy.value) return
+  actionBusy.value = true
+  const session = generation
+  try {
+    if (!await flushDraft(true)) return
+    if (status === 'done' && !occurrence.value && draft.subtasks.filter(child => child.title.trim()).length >= 2) {
+      const result = await new Promise(resolve => uni.showModal({ title: '完成全部子事项？', content: '确认后将同时完成该事项及全部子事项。', success: resolve, fail: () => resolve({ confirm: false }) }))
+      if (!result.confirm || session !== generation) return
+    }
+    const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), { status })
+    dirty.value = false
+    error.value = ''
+    emit('saved', saved)
+    await updateReminders(session, saved.reminderPromise)
+    if (session === generation) emit('close')
+  } catch (cause) { error.value = cause.message || String(cause) }
+  finally { actionBusy.value = false }
+}
+
 function refreshPermissions() { if (props.visible) permissions.value = reminderState() }
+function saveOnHide() { if (props.visible) void flushDraft() }
+function saveOnVisibilityChange() {
+  // #ifdef H5
+  if (document.visibilityState === 'hidden') saveOnHide()
+  // #endif
+}
 onShow(refreshPermissions)
+onHide(saveOnHide)
 uni.$on('reminder-permissions', refreshPermissions)
-onBeforeUnmount(() => uni.$off('reminder-permissions', refreshPermissions))
+onBeforeUnmount(() => {
+  clearTimeout(saveTimer)
+  generation++
+  uni.$off('reminder-permissions', refreshPermissions)
+})
 // #ifdef H5
-if (typeof window !== 'undefined') window.addEventListener('focus', refreshPermissions)
-onBeforeUnmount(() => window.removeEventListener('focus', refreshPermissions))
+if (typeof window !== 'undefined') {
+  window.addEventListener('focus', refreshPermissions)
+  window.addEventListener('blur', saveOnHide)
+  document.addEventListener('visibilitychange', saveOnVisibilityChange)
+}
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', refreshPermissions)
+  window.removeEventListener('blur', saveOnHide)
+  document.removeEventListener('visibilitychange', saveOnVisibilityChange)
+})
 // #endif
+defineExpose({ requestClose, flushDraft })
 </script>
 
 <style scoped>
+.sheet-body.is-busy { pointer-events: none; }
+.sheet-footer { flex: 0 0 auto; padding: 12rpx 32rpx; border-top: 2rpx solid var(--line); }
+.save-feedback { display: flex; align-items: center; justify-content: space-between; min-height: 36rpx; color: var(--muted); font-size: 23rpx; overflow-wrap: anywhere; }
+.save-feedback .save-error { margin: 0; }
+.save-feedback button { flex-shrink: 0; margin: 0 0 0 16rpx; padding: 0 20rpx; font-size: 24rpx; color: var(--blue); }
+.subtask-check { flex: 0 0 52rpx; width: 52rpx; margin: 0; padding: 0; background: transparent; color: var(--green); line-height: 64rpx; font-size: 34rpx; }
+.subtask-check.done { color: var(--green); }
+.subtask-order { display: flex; gap: 4rpx; }
+.subtask-order button { margin: 0; padding: 0; width: 48rpx; line-height: 64rpx; font-size: 28rpx; color: var(--blue); background: #f1f7ff; }
+.subtask-order button[disabled] { opacity: .35; }
+.subtask-remove { flex-shrink: 0; margin: 0; padding: 0; line-height: 44rpx; }
+.subtask-row button::after, .save-feedback button::after { border: 0; }
 .time-types .option-chip, .permission-actions button { margin: 0; }
 .option-grid button { margin: 0; line-height: 1.5; }
 .option-chip::after, .clear-time::after, .permission-actions button::after { border: 0; }

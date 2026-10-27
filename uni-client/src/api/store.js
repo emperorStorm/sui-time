@@ -1,6 +1,6 @@
-import { load, persist, reset, save as saveStorage } from './storage.js'
+import { load, reset, save as saveStorage } from './storage.js'
 import { normalizeAnniversary, prepareAnniversaryRecord } from '../../../shared/anniversary.mjs'
-import { occursOn, parseOccurrenceId, parseOverrides, resolveTasksForDate } from '../utils/occurrence.js'
+import { occursOn, parseOccurrenceId, parseOverrides, parseRepeatRule, resolveTasksForDate } from '../utils/occurrence.js'
 import { addDays, todayString } from '../utils/date.js'
 import { compareTasks, normalizeTask } from '../utils/task.js'
 import { syncTaskReminders } from './reminders.js'
@@ -72,35 +72,32 @@ export function categoryById(id) {
 export function saveCategory(category) {
   const data = load()
   const now = Date.now()
-  if (category.id) {
-    const index = data.categories.findIndex((item) => item.id === category.id)
-    if (index >= 0) data.categories[index] = { ...data.categories[index], ...category, updatedAt: now }
-  } else {
-    category.id = `c${now}`
-    category.sortOrder = data.categories.length
-    category.createdAt = now
-    category.updatedAt = now
-    data.categories.push({ ...category })
-  }
-  persist()
+  const categories = [...data.categories]
+  const index = category.id ? categories.findIndex(item => item.id === category.id) : -1
+  if (category.id && index < 0) return category
+  const saved = index >= 0
+    ? { ...categories[index], ...category, updatedAt: now }
+    : { ...category, id: `c${now}`, sortOrder: categories.length, createdAt: now, updatedAt: now }
+  if (index >= 0) categories[index] = saved
+  else categories.push(saved)
+  saveStorage({ ...data, categories }, { strict: true, message: '无法保存分类，请检查本机存储空间后重试' })
+  Object.assign(category, saved)
   return category
 }
 
 export function reorderCategories(ids) {
   const data = load()
-  ids.forEach((id, index) => {
-    const cat = data.categories.find((item) => item.id === id)
-    if (cat) cat.sortOrder = index
-  })
-  data.categories.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-  persist()
+  const orders = new Map(ids.map((id, index) => [id, index]))
+  const categories = data.categories.map(item => orders.has(item.id) ? { ...item, sortOrder: orders.get(item.id) } : item)
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+  saveStorage({ ...data, categories }, { strict: true, message: '无法保存分类顺序，请重试' })
 }
 
 export function removeCategory(id) {
   const data = load()
-  data.categories = data.categories.filter((item) => item.id !== id)
-  data.tasks.forEach((task) => { if (task.categoryId === id) task.categoryId = null })
-  persist()
+  const categories = data.categories.filter(item => item.id !== id)
+  const tasks = data.tasks.map(task => task.categoryId === id ? { ...task, categoryId: null } : task)
+  saveStorage({ ...data, categories, tasks }, { strict: true, message: '无法删除分类，请重试' })
 }
 
 export function listTasks() {
@@ -113,9 +110,11 @@ export function findTask(id) {
   return load().tasks.find((item) => item.id === id) || null
 }
 
-export function saveTask(input, children) {
+// options.status 与编辑草稿在同一次严格写入中提交；返回对象的 reminderPromise 可供 UI 等待排程。
+export function saveTask(input, children, options = {}) {
   const data = load()
   const now = Date.now()
+  if (options.status !== undefined && !['todo', 'done', 'failed'].includes(options.status)) throw new Error('事项状态无效')
   const occurrence = input.id ? parseOccurrenceId(input.id) : null
   const sourceId = occurrence?.sourceId || input.id
   const existing = sourceId ? data.tasks.find(task => task.id === sourceId) : null
@@ -133,12 +132,62 @@ export function saveTask(input, children) {
     saved = { ...existing, occurrenceOverrides: JSON.stringify(overrides), updatedAt: now }
   }
   let tasks = existing ? data.tasks.map(task => task.id === id ? saved : task) : [saved, ...data.tasks]
-  if (children !== undefined) {
-    const next = children.filter(child => child.title.trim()).map((child, index) => ({ plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', reminderOffsets: [], priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', status: 'todo', createdAt: now, ...data.tasks.find(task => task.id === child.id && task.parentTaskId === id), id: child.id || `child-${now}-${index}`, title: child.title.trim(), parentTaskId: id, sortOrder: index, updatedAt: now }))
+  // 实例编辑不能借用源 id 覆盖重复源的子事项。
+  if (children !== undefined && !occurrence) {
+    if (!Array.isArray(children)) throw new Error('子事项数据无效')
+    const seen = new Set()
+    const next = children.filter(child => {
+      if (!child || typeof child.title !== 'string') throw new Error('请先填写事项名称')
+      if (child.status !== undefined && !['todo', 'done'].includes(child.status)) throw new Error('子事项状态无效')
+      return child.title.trim()
+    }).map((child, index) => {
+      const old = child.id ? data.tasks.find(task => task.id === child.id) : null
+      if ((old && old.parentTaskId !== id) || (child.id && seen.has(child.id))) throw new Error('子事项数据无效')
+      const childId = child.id || `child-${id}-${now}-${index}`
+      seen.add(childId)
+      const status = child.status ?? old?.status ?? 'todo'
+      return {
+        plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day', reminderOffsets: [],
+        priority: 'not_urgent_not_important', repeatRule: '{"kind":"none"}', createdAt: now, ...old,
+        id: childId, title: normalizeTask({ title: child.title }).title, parentTaskId: id,
+        status, completedAt: status === 'done' ? (old?.status === 'done' ? old.completedAt ?? now : now) : null,
+        sortOrder: index, updatedAt: now
+      }
+    })
     tasks = tasks.filter(task => task.parentTaskId !== id).concat(next)
+    if (next.length && !saved.parentTaskId && saved.status !== 'failed' && parseRepeatRule(saved.repeatRule).kind === 'none') {
+      const status = next.every(child => child.status === 'done') ? 'done' : saved.status === 'done' ? 'todo' : saved.status
+      saved = { ...saved, ...taskStatusPatch(saved, status, now, true) }
+      tasks = tasks.map(task => task.id === id ? saved : task)
+    }
   }
-  saveTaskData({ ...data, tasks })
-  return occurrence ? findTask(input.id) : saved
+  if (options.status !== undefined) tasks = applyTaskStatus(tasks, saved, occurrence, options.status, now)
+  const reminderPromise = saveTaskData({ ...data, tasks })
+  const result = { ...(occurrence ? findTask(input.id) : tasks.find(task => task.id === id)) }
+  Object.defineProperty(result, 'reminderPromise', { value: reminderPromise })
+  return result
+}
+
+function taskStatusPatch(task, status, now, preserveCompleted = false) {
+  return {
+    status, completedAt: status === 'done' ? (preserveCompleted && task.status === 'done' ? task.completedAt ?? now : now) : null,
+    failureReason: status === 'failed' ? task.failureReason || '' : '', updatedAt: now
+  }
+}
+
+function applyTaskStatus(tasks, source, occurrence, status, now) {
+  if (source.parentTaskId && status === 'failed') throw new Error('子事项状态无效')
+  let updated = { ...source, ...taskStatusPatch(source, status, now) }
+  if (occurrence) {
+    const overrides = parseOverrides(source)
+    const { title, categoryId, plannedDate, plannedTime, plannedEndTime, scheduleKind, priority, reminderOffsets, notes } = source
+    const current = { title, categoryId, plannedDate: occurrence.date, plannedTime, plannedEndTime, scheduleKind, priority, reminderOffsets, notes, ...overrides[occurrence.date] }
+    overrides[occurrence.date] = { ...current, ...taskStatusPatch(current, status, now) }
+    updated = { ...source, occurrenceOverrides: JSON.stringify(overrides), updatedAt: now }
+  }
+  const cascade = !occurrence && !source.parentTaskId && parseRepeatRule(source.repeatRule).kind === 'none' && status !== 'failed'
+  return tasks.map(task => task.id === source.id ? updated
+    : cascade && task.parentTaskId === source.id ? { ...task, ...taskStatusPatch(task, status, now) } : task)
 }
 
 export function removeTask(id) {
@@ -159,17 +208,9 @@ export function setTaskStatus(id, status) {
   const occurrence = parseOccurrenceId(id)
   const source = data.tasks.find(task => task.id === (occurrence?.sourceId || id))
   if (!source) throw new Error('事项不存在')
-  let updated = { ...source, status, completedAt: status === 'done' ? Date.now() : null, updatedAt: Date.now() }
-  if (occurrence) {
-    const item = findTask(id)
-    if (!item) throw new Error('当次事项不存在')
-    const { title, categoryId, plannedDate, plannedTime, plannedEndTime, scheduleKind, priority, reminderOffsets, notes } = item
-    const overrides = parseOverrides(source)
-    overrides[occurrence.date] = { title, categoryId, plannedDate, plannedTime, plannedEndTime, scheduleKind, priority, reminderOffsets, notes, ...overrides[occurrence.date], status }
-    updated = { ...source, occurrenceOverrides: JSON.stringify(overrides), updatedAt: Date.now() }
-  }
-  const tasks = data.tasks.map(task => task === source ? updated : !occurrence && status === 'done' && task.parentTaskId === id ? { ...task, status: 'done' } : task)
-  saveTaskData({ ...data, tasks })
+  if (occurrence && !findTask(id)) throw new Error('当次事项不存在')
+  const tasks = applyTaskStatus(data.tasks, source, occurrence, status, Date.now())
+  return saveTaskData({ ...data, tasks })
 }
 
 export function listChildren(parentId) {
@@ -209,8 +250,7 @@ export function getSettings() {
 
 export function setSetting(key, value) {
   const data = load()
-  data.settings[key] = value
-  persist()
+  saveStorage({ ...data, settings: { ...data.settings, [key]: value } }, { strict: true, message: '无法保存设置，请重试' })
 }
 
 export function toggleGroupCollapsed(label) {
@@ -219,8 +259,7 @@ export function toggleGroupCollapsed(label) {
   const index = collapsed.indexOf(label)
   if (index >= 0) collapsed.splice(index, 1)
   else collapsed.push(label)
-  data.settings.collapsedGroups = collapsed
-  persist()
+  saveStorage({ ...data, settings: { ...data.settings, collapsedGroups: collapsed } }, { strict: true, message: '无法保存设置，请重试' })
   return collapsed
 }
 
@@ -235,5 +274,5 @@ export function restoreDemoData() {
 
 function saveTaskData(data) {
   saveStorage(data, { strict: true, message: '无法保存事项，请检查本机存储空间后重试' })
-  void syncTaskReminders(data.tasks)
+  return syncTaskReminders(data.tasks)
 }

@@ -3,12 +3,14 @@
     <view class="topbar">
       <view class="topbar-menu" @click="onMenu">
         <text class="menu-icon">≡</text>
-        <view v-if="todoCount" class="menu-badge"><text>{{ todoCount > 99 ? '99+' : todoCount }}</text></view>
+        <view v-if="ready && todoCount" class="menu-badge"><text>{{ todoCount > 99 ? '99+' : todoCount }}</text></view>
       </view>
       <view class="topbar-title">本周事项 <text class="title-arrow">▾</text></view>
       <view class="topbar-action" @click="onMore"><text>···</text></view>
     </view>
 
+    <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="load">重试读取</button></view>
+    <template v-else-if="ready">
     <scroll-view class="filter-bar" scroll-x>
       <view :class="['filter-chip', 'chip-all', filter === 'all' ? 'active' : '']" @click="filter = 'all'"><text>全部</text></view>
       <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', 'chip-cat', filter === cat.id ? 'active' : '']" :style="{ background: cat.color, '--chip-color': cat.color }" @click="filter = cat.id">
@@ -48,40 +50,46 @@
 
     <view class="fab" @click="openEdit(null)"><text>＋</text></view>
 
-    <TaskEditSheet :visible="sheetVisible" :task="editingTask" @close="closeSheet" @saved="reload" />
-    <CategoryManageSheet :visible="manageVisible" @close="manageVisible = false" @changed="onCategoriesChanged" />
+    <TaskEditSheet ref="taskSheet" :visible="sheetVisible" :task="editingTask" @close="closeSheet" @saved="reload" />
+    <CategoryManageSheet ref="categorySheet" :visible="manageVisible" @close="manageVisible = false" @changed="onCategoriesChanged" />
+    </template>
   </view>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onBackPress } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
-import { getCategories, listTasks, setTaskStatus, getSettings, categoryById, toggleGroupCollapsed, listChildren } from '../../api/store'
+import { getCategories, listTasks, setTaskStatus, getSettings, toggleGroupCollapsed } from '../../api/store'
 import { repeatLabel } from '../../utils/occurrence'
 import { occursOn } from '../../utils/occurrence'
 import { compareTasks, taskMark } from '../../utils/task'
 import { shortDate, weekday, todayString } from '../../utils/date'
 import { toast } from '../../utils/platform'
 
-const categories = ref(getCategories())
+const categories = ref([])
+const ready = ref(false)
+const loadError = ref('')
+const settings = ref({})
+const taskSheet = ref(null)
+const categorySheet = ref(null)
+const toggling = ref(false)
 const filter = ref('all')
 const allTasks = ref([])
 const sheetVisible = ref(false)
 const editingTask = ref(null)
 const manageVisible = ref(false)
-const collapsedGroups = ref(getSettings().collapsedGroups || [])
+const collapsedGroups = ref([])
 
 const todoCount = computed(() => allTasks.value.filter((task) => !task.parentTaskId && task.status !== 'done').length)
 
 function onCategoriesChanged() {
-  categories.value = getCategories()
-  if (filter.value !== 'all' && !categories.value.some((cat) => cat.id === filter.value)) filter.value = 'all'
+  load()
 }
 
 const groups = computed(() => {
-  const hideCompleted = getSettings().hideCompleted
+  const hideCompleted = settings.value.hideCompleted
   const source = (filter.value === 'all' ? allTasks.value : allTasks.value.filter((task) => task.categoryId === filter.value))
     .filter(task => !hideCompleted || task.status === 'todo' || parseKind(task.repeatRule) !== 'none')
   const today = todayString()
@@ -96,11 +104,30 @@ const groups = computed(() => {
 })
 
 onShow(load)
+onBackPress(() => {
+  if (sheetVisible.value) { taskSheet.value?.requestClose(); return true }
+  if (manageVisible.value) { categorySheet.value?.requestClose(); return true }
+  return false
+})
 
 function load() {
-  allTasks.value = [...listTasks()]
-  categories.value = [...getCategories()]
-  collapsedGroups.value = getSettings().collapsedGroups || []
+  try {
+    const tasks = listTasks().map(task => ({ ...task }))
+    const cats = getCategories().map(cat => ({ ...cat }))
+    const nextSettings = { ...getSettings() }
+    allTasks.value = tasks
+    categories.value = cats
+    settings.value = nextSettings
+    collapsedGroups.value = [...(nextSettings.collapsedGroups || [])]
+    if (filter.value !== 'all' && !cats.some(cat => cat.id === filter.value)) filter.value = 'all'
+    loadError.value = ''
+    ready.value = true
+    return true
+  } catch (error) {
+    loadError.value = error.message || String(error)
+    ready.value = false
+    return false
+  }
 }
 
 function isCollapsed(label) {
@@ -108,7 +135,8 @@ function isCollapsed(label) {
 }
 
 function toggleGroup(label) {
-  collapsedGroups.value = toggleGroupCollapsed(label)
+  try { collapsedGroups.value = [...toggleGroupCollapsed(label)] }
+  catch (error) { toast(error.message || String(error)); load() }
 }
 
 function occursOnToday(task, today) {
@@ -134,7 +162,7 @@ function addDays(value, amount) {
 }
 
 function colorOf(task) {
-  return categoryById(task.categoryId)?.color || '#8b98a8'
+  return categories.value.find(cat => cat.id === task.categoryId)?.color || '#8b98a8'
 }
 
 function checkStyle(task) {
@@ -150,7 +178,7 @@ function metaOf(task) {
   const kind = parseKind(task.repeatRule)
   if (kind !== 'none') parts.push(`↻ ${repeatLabel(kind)}`)
   if (task.plannedTime) parts.push(task.plannedTime)
-  const children = listChildren(task.id)
+  const children = allTasks.value.filter(child => child.parentTaskId === task.id && child.title?.trim())
   if (children.length) {
     const done = children.filter((child) => child.status === 'done').length
     parts.push(`子任务${done}/${children.length}`)
@@ -158,14 +186,31 @@ function metaOf(task) {
   return parts.join(' ')
 }
 
-function toggle(task) {
+async function toggle(task) {
+  if (toggling.value || sheetVisible.value || loadError.value) return
   if (parseKind(task.repeatRule) !== 'none') { toast('请在规划月历中更新当次事项状态'); return }
-  try { setTaskStatus(task.id, task.status === 'done' ? 'todo' : 'done'); load() }
-  catch (error) { toast(error.message || String(error)) }
+  toggling.value = true
+  try {
+    const current = listTasks().find(item => item.id === task.id)
+    if (!current) throw new Error('事项不存在')
+    const children = listTasks().filter(child => child.parentTaskId === current.id && child.title?.trim())
+    if (!current.parentTaskId && current.status !== 'done' && children.length >= 2) {
+      const confirmed = await new Promise((resolve, reject) => uni.showModal({
+        title: '完成父事项', content: '完成后将同时完成所有子事项，是否继续？',
+        success: result => resolve(result.confirm), fail: reject
+      }))
+      if (!confirmed) return
+    }
+    await setTaskStatus(current.id, current.status === 'done' ? 'todo' : 'done')
+    load()
+  } catch (error) { toast(error.message || String(error)); load() }
+  finally { toggling.value = false }
 }
 
 function openEdit(task) {
-  editingTask.value = task
+  if (toggling.value || sheetVisible.value || !ready.value || !load()) return
+  editingTask.value = task ? allTasks.value.find(item => item.id === task.id) : null
+  if (task && !editingTask.value) { toast('事项不存在'); return }
   sheetVisible.value = true
 }
 
@@ -188,6 +233,7 @@ function onMore() {
 </script>
 
 <style scoped>
+.filter-bar, .task-scroll { width: 100%; box-sizing: border-box; }
 .task-priority { display: inline-block; min-width: 44rpx; margin-right: 8rpx; color: #97a6b9; font-size: 23rpx; }
 .tasks-page {
   display: flex;

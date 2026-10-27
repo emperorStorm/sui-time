@@ -5,6 +5,8 @@
       <view class="topbar-action" @click="resetMonth">↻</view>
     </view>
 
+    <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="reload">重试读取</button></view>
+    <template v-else-if="ready">
     <view class="month-scroll">
       <view class="month-head">
         <text class="month-title">{{ monthTitle(anchor) }}</text>
@@ -36,19 +38,20 @@
     </view>
 
     <view v-if="selectedDate" class="day-layer" @click="selectedDate = ''"><view class="day-sheet" @click.stop><view class="day-sheet-header"><text>{{ selectedDate }} · 当天事项</text><button aria-label="关闭当天事项" @click="selectedDate = ''">×</button></view><scroll-view class="day-sheet-list" scroll-y><text v-if="selectedDay.anniversaries.length" class="day-group">纪念日</text><view v-for="item in selectedDay.anniversaries" :key="item.anniversaryId" :class="['day-list-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]" @click="activeRecord = item"><text>{{ marks[item.kind] }}</text><text>{{ item.label }}</text><text>{{ item.record?.confirmedAt ? '✓ 已纪念' : '›' }}</text></view><text v-if="selectedDay.tasks.length" class="day-group">待办</text><view v-for="task in selectedDay.tasks" :key="task.id" class="day-list-task" @click="editTask(task)"><text class="day-list-mark" :style="{ color: colorOf(task) }">{{ taskMark(task) }}</text><text>{{ task.title }}</text><text>{{ task.scheduleKind === 'range' ? `${task.plannedTime}–${task.plannedEndTime}` : task.plannedTime || '全天' }}</text></view><text v-if="!selectedDay.count" class="day-empty">这一天还没有安排</text></scroll-view><button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button></view></view>
-    <TaskEditSheet :visible="sheetVisible" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
+    <TaskEditSheet ref="taskSheet" :visible="sheetVisible" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
     <AnniversaryRecordSheet ref="recordSheet" :occurrence="activeRecord" :today="today" @close="activeRecord = null" @saved="reload" />
+    </template>
   </view>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { onShow, onHide, onUnload, onBackPress } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import AnniversaryRecordSheet from '../../components/AnniversaryRecordSheet.vue'
 import { anniversaryOccurrences, anniversaryTypes } from '../../../../shared/anniversary.mjs'
 import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../../api/holiday'
-import { tasksForDate, categoryById, listAnniversaries, listAnniversaryRecords } from '../../api/store'
+import { tasksForDate, getCategories, listAnniversaries, listAnniversaryRecords } from '../../api/store'
 import { monthDates, monthTitle, shiftMonth, todayString } from '../../utils/date'
 import { taskMark } from '../../utils/task'
 
@@ -56,7 +59,11 @@ const anchor = ref(todayString())
 const today = ref(todayString())
 const sheetVisible = ref(false)
 const presetDate = ref('')
-const revision = ref(0)
+const ready = ref(false)
+const loadError = ref('')
+const taskSheet = ref(null)
+const categories = ref([])
+const dayData = ref({})
 const selectedDate = ref('')
 const activeRecord = ref(null)
 const recordSheet = ref(null)
@@ -69,17 +76,6 @@ let holidayRefreshRequestId = 0
 const days = computed(() => monthDates(anchor.value))
 const visibleHolidayYears = computed(() => [...new Set(days.value.map((date) => Number(date.slice(0, 4))))])
 
-const dayData = computed(() => {
-  // 本地存储不响应 Vue 更新，版本号驱动月历重新计算。
-  revision.value
-  const map = {}
-  const dates = days.value
-  const occurrences = anniversaryOccurrences(listAnniversaries(), dates[0], dates[dates.length - 1], listAnniversaryRecords({ startDate: dates[0], endDate: dates[dates.length - 1] }))
-  dates.forEach(date => { map[date] = { tasks: tasksForDate(date), anniversaries: [], count: 0 } })
-  occurrences.forEach(item => { map[item.date].anniversaries.push(item) })
-  dates.forEach(date => { map[date].count = map[date].tasks.length + map[date].anniversaries.length })
-  return map
-})
 const selectedDay = computed(() => dayData.value[selectedDate.value] || { tasks: [], anniversaries: [], count: 0 })
 
 onShow(() => {
@@ -93,7 +89,8 @@ onShow(() => {
 })
 onHide(releasePage)
 onUnload(releasePage)
-onBackPress(() => { if (activeRecord.value) { recordSheet.value?.close(); return true } if (sheetVisible.value) { closeSheet(); return true } if (selectedDate.value) { selectedDate.value = ''; return true } return false })
+onBeforeUnmount(releasePage)
+onBackPress(() => { if (activeRecord.value) { recordSheet.value?.close(); return true } if (sheetVisible.value) { taskSheet.value?.requestClose(); return true } if (selectedDate.value) { selectedDate.value = ''; return true } return false })
 
 function scheduleDay() { clearTimeout(dayTimer); const next = new Date(); next.setHours(24, 0, 0, 0); dayTimer = setTimeout(() => { reload(); scheduleDay() }, next.getTime() - Date.now() + 100) }
 function releasePage() {
@@ -113,6 +110,7 @@ function visibilityChanged() {
 function shift(amount) {
   anchor.value = shiftMonth(anchor.value, amount)
   selectedDate.value = ''
+  reload()
   void refreshVisibleHolidayCalendar(false)
 }
 
@@ -150,16 +148,17 @@ function holidayDescription(holiday) {
 }
 
 function colorOf(task) {
-  return categoryById(task.categoryId)?.color || '#8b98a8'
+  return categories.value.find(cat => cat.id === task.categoryId)?.color || '#8b98a8'
 }
 
 function openCreate(date) {
+  if (sheetVisible.value || !reload()) return
   presetDate.value = date
   editingTask.value = null
   selectedDate.value = ''
   sheetVisible.value = true
 }
-function editTask(task) { editingTask.value = task; selectedDate.value = ''; sheetVisible.value = true }
+function editTask(task) { if (sheetVisible.value || !reload()) return; editingTask.value = task; selectedDate.value = ''; sheetVisible.value = true }
 
 function closeSheet() {
   sheetVisible.value = false
@@ -168,7 +167,24 @@ function closeSheet() {
 
 function reload() {
   today.value = todayString()
-  revision.value++
+  try {
+    const dates = days.value
+    const cats = getCategories().map(cat => ({ ...cat }))
+    const occurrences = anniversaryOccurrences(listAnniversaries(), dates[0], dates[dates.length - 1], listAnniversaryRecords({ startDate: dates[0], endDate: dates[dates.length - 1] }))
+    const map = {}
+    dates.forEach(date => { map[date] = { tasks: tasksForDate(date).map(task => ({ ...task })), anniversaries: [], count: 0 } })
+    occurrences.forEach(item => { if (map[item.date]) map[item.date].anniversaries.push(item) })
+    dates.forEach(date => { map[date].count = map[date].tasks.length + map[date].anniversaries.length })
+    categories.value = cats
+    dayData.value = map
+    loadError.value = ''
+    ready.value = true
+    return true
+  } catch (error) {
+    loadError.value = error.message || String(error)
+    ready.value = false
+    return false
+  }
 }
 </script>
 

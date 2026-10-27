@@ -569,7 +569,7 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
 .subtask-row .task-check { display: grid; width: 21px; height: 21px; min-width: 21px; min-height: 21px; place-items: center; border: 1.5px solid var(--subtask-color, var(--ui-primary)); border-radius: 50%; background: transparent; box-shadow: none; color: transparent; }
 .subtask-row .task-check:hover, .subtask-row .task-check.done { border-color: var(--subtask-color, var(--ui-primary)); background: var(--subtask-color, var(--ui-primary)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--subtask-color, var(--ui-primary)) 14%, transparent); color: #fff; }
 .notes-editor { padding-top: 14px; }
-.notes-editor textarea { min-height: 92px; max-height: min(136px, 18dvh); }
+.notes-editor textarea { min-height: 92px; overflow: hidden; resize: none; }
 .task-check.failed { border-color: var(--task-color, #5c7894); background: var(--task-color, #5c7894); color: #fff; }
 .task-card .task-check.done { border-color: var(--task-color); background: var(--task-color); }
 .schedule-card, .month-item, .month-overflow-item { background: var(--task-color); }

@@ -7,8 +7,34 @@ import { onLaunch, onShow } from '@dcloudio/uni-app'
 import { listTasks } from './api/store'
 import { syncTaskReminders } from './api/reminders'
 import { resumeUpdateInstallation } from './api/update'
-onLaunch(() => { void syncTaskReminders(listTasks()) })
-onShow(() => { void syncTaskReminders(listTasks()).then(() => uni.$emit('reminder-permissions')); resumeUpdateInstallation() })
+let reminderSyncing = false
+let reminderErrorVisible = false
+async function refreshReminders() {
+  if (reminderSyncing || reminderErrorVisible) return
+  reminderSyncing = true
+  try {
+    await syncTaskReminders(listTasks())
+    uni.$emit('reminder-permissions')
+  } catch (error) {
+    reminderErrorVisible = true
+    uni.showModal({
+      title: '本机事项同步失败',
+      content: `${error.message || String(error)}。现有数据已保留，可重试读取并同步提醒。`,
+      confirmText: '重试',
+      cancelText: '稍后',
+      success: result => {
+        reminderErrorVisible = false
+        if (result.confirm) void refreshReminders()
+      },
+      fail: () => {
+        reminderErrorVisible = false
+        uni.showToast({ title: '本机数据读取失败，请返回应用重试', icon: 'none' })
+      }
+    })
+  } finally { reminderSyncing = false }
+}
+onLaunch(() => { void refreshReminders() })
+onShow(() => { void refreshReminders(); resumeUpdateInstallation() })
 </script>
 
 <style>
@@ -91,6 +117,12 @@ page {
 .topbar .topbar-action:active {
   background: #eef2f6;
 }
+
+/* 存储读取失败时阻断业务入口，重试成功后才恢复内容。 */
+.storage-error { margin: 32rpx 28rpx; padding: 40rpx 32rpx; color: var(--ink); text-align: center; }
+.storage-error > text { display: block; }
+.storage-error-detail { margin-top: 20rpx; color: var(--muted); font-size: 26rpx; line-height: 1.7; overflow-wrap: anywhere; }
+.storage-error button { margin-top: 28rpx; background: var(--blue-soft); color: #287fc1; font-size: 28rpx; }
 
 /* H5 下 uni-modal 需高于底部弹层（sheet-layer z-index 1000）与原生 tabBar */
 .uni-picker-container {
