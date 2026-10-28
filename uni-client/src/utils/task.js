@@ -17,6 +17,24 @@ export function compareTasks(a, b) {
     || (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id)
 }
 
+export function validateTaskDateRange(startDate, endDate) {
+  if (startDate && endDate && endDate < startDate) throw new Error('结束日期不能早于开始日期')
+}
+
+export function matchesTaskFilter(task, { query = '', startDate = '', endDate = '', categoryId = 'all', hideCompleted = false } = {}) {
+  if (task.parentTaskId || (categoryId !== 'all' && task.categoryId !== categoryId)) return false
+  if (hideCompleted && task.status !== 'todo') {
+    let kind = 'none'
+    try { kind = JSON.parse(task.repeatRule || '{}').kind || 'none' } catch { /* 旧坏规则按普通事项处理 */ }
+    if (kind === 'none') return false
+  }
+  const keyword = query.trim().toLowerCase()
+  if (keyword && !(typeof task.title === 'string' && task.title.toLowerCase().includes(keyword))
+    && !(typeof task.notes === 'string' && task.notes.toLowerCase().includes(keyword))) return false
+  if (startDate && endDate && endDate < startDate) return false
+  return !(startDate || endDate) || Boolean(task.plannedDate && (!startDate || task.plannedDate >= startDate) && (!endDate || task.plannedDate <= endDate))
+}
+
 export function hasReminderTime(task) {
   return Boolean(!task.parentTaskId && task.plannedDate && task.plannedTime && task.scheduleKind !== 'all_day')
 }
@@ -30,7 +48,8 @@ export function applyTaskTime(draft, patch) {
 }
 
 export function normalizeTask(input) {
-  const task = { plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: input.plannedTime ? 'point' : 'all_day', reminderOffsets: [], occurrenceOverrides: '{}', ...input }
+  const task = { categoryId: null, priority: 'not_urgent_not_important', plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: input.plannedTime ? 'point' : 'all_day', reminderOffsets: [], occurrenceOverrides: '{}', ...input }
+  if (!priorities.some(([key]) => key === task.priority)) throw new Error('请选择有效优先级')
   if (typeof task.title !== 'string' || !task.title.trim()) throw new Error('请先填写事项名称')
   task.title = task.title.trim()
   if (task.title.length > 120) throw new Error('事项名称最多 120 字')

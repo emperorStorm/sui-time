@@ -41,6 +41,7 @@
           <text class="row-label">▦ 分类</text>
         </view>
         <view class="option-grid">
+          <view :class="['option-chip', draft.categoryId === null ? 'active' : '']" @click="draft.categoryId = null"><text>未分类</text></view>
           <view v-for="cat in categories" :key="cat.id" :class="['option-chip', draft.categoryId === cat.id ? 'active' : '']" :style="draft.categoryId === cat.id ? { borderColor: cat.color, background: cat.color, color: '#fff' } : {}" @click="draft.categoryId = cat.id">
             <text>{{ cat.icon }} {{ cat.name }}</text>
           </view>
@@ -69,7 +70,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { onShow, onHide } from '@dcloudio/uni-app'
-import { getCategories, saveTask, removeTask, findTask, listChildren } from '../api/store'
+import { getCategories, getNewTaskDefaults, saveTask, removeTask, findTask, listChildren } from '../api/store'
 import { parseOccurrenceId, parseRepeatRule, repeatLabel } from '../utils/occurrence'
 import { applyTaskTime, hasReminderTime, priorities, reminderOptions } from '../utils/task'
 import { todayString } from '../utils/date'
@@ -96,6 +97,7 @@ const reminderWarning = ref('')
 let initializing = false
 let revision = 0
 let generation = 0
+let newSession = false
 let saveTimer
 let pendingSave = null
 let pendingGeneration = 0
@@ -135,12 +137,13 @@ watch(
     error.value = ''; focusedChild.value = ''; scrollTarget.value = ''; permissions.value = reminderState()
     categories.value = getCategories()
     const source = props.task
+    newSession = !source?.id
     if (source && source.id) {
       const loaded = findTask(source.id)
       Object.assign(draft, {
         id: source.id,
         title: loaded?.title || '',
-        categoryId: loaded?.categoryId || '',
+        categoryId: loaded?.categoryId ?? null,
         plannedDate: loaded?.plannedDate || '',
         plannedTime: loaded?.plannedTime || null,
         plannedEndTime: loaded?.plannedEndTime || null,
@@ -154,10 +157,11 @@ watch(
         notes: loaded?.notes || ''
       })
     } else {
+      const defaults = getNewTaskDefaults()
       Object.assign(draft, {
         id: '',
         title: '',
-        categoryId: categories.value[0]?.id || '',
+        categoryId: defaults.categoryId,
         plannedDate: props.presetDate || '',
         plannedTime: null,
         plannedEndTime: null,
@@ -166,7 +170,7 @@ watch(
         repeatRule: '{"kind":"none"}',
         occurrenceOverrides: '{}',
         repeatKind: 'none',
-        priority: 'not_urgent_not_important',
+        priority: defaults.priority,
         subtasks: [],
         notes: ''
       })
@@ -252,7 +256,7 @@ async function drainDraft(session) {
   try {
     while (props.visible && session === generation && dirty.value) {
       const version = revision
-      const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })))
+      const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), { rememberDefaults: newSession })
       initializing = true
       draft.id = occurrence.value ? draft.id : saved.id
       initializing = false
@@ -359,7 +363,7 @@ async function changeStatus(status) {
       const result = await new Promise(resolve => uni.showModal({ title: '完成全部子事项？', content: '确认后将同时完成该事项及全部子事项。', success: resolve, fail: () => resolve({ confirm: false }) }))
       if (!result.confirm || session !== generation) return
     }
-    const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), { status })
+    const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), { status, rememberDefaults: newSession })
     dirty.value = false
     error.value = ''
     emit('saved', saved)

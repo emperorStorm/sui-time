@@ -19,6 +19,17 @@
       <view class="filter-chip chip-add" @click="manageVisible = true"><text>＋</text></view>
     </scroll-view>
 
+    <view class="search-tools">
+      <view class="search-row"><input v-model="searchInput" class="search-input" placeholder="搜索标题或备注" /><button class="date-toggle" @click="dateExpanded = !dateExpanded">日期筛选 {{ dateExpanded ? '▴' : '▾' }}</button></view>
+      <text v-if="appliedRange.startDate || appliedRange.endDate" class="range-summary">生效：{{ appliedRange.startDate || '不限' }} 至 {{ appliedRange.endDate || '不限' }}</text>
+      <view v-if="dateExpanded" class="date-panel">
+        <view class="date-inputs"><picker mode="date" :value="pendingStart" @change="pendingStart = $event.detail.value"><view>开始：{{ pendingStart || '不限' }}</view></picker><picker mode="date" :value="pendingEnd" @change="pendingEnd = $event.detail.value"><view>结束：{{ pendingEnd || '不限' }}</view></picker></view>
+        <view class="date-actions"><button @click="applyDates">应用</button><button @click="clearDates">清除日期</button></view>
+        <text v-if="dateError" class="date-error">{{ dateError }}</text>
+        <text class="date-hint">重复事项按起始日期筛选，当次安排请到规划页查看</text>
+      </view>
+    </view>
+
     <scroll-view class="task-scroll" scroll-y>
       <view v-if="groups.length" class="shell">
         <view v-for="group in groups" :key="group.label" class="task-group panel">
@@ -44,7 +55,8 @@
         </view>
       </view>
       <view v-else class="list-empty">
-        <text>暂时没有事项</text>
+        <text>{{ hasConditions ? '没有符合条件的事项' : '暂时没有事项' }}</text>
+        <button v-if="hasConditions" class="clear-filters" @click="clearFilters">清除搜索与日期条件</button>
       </view>
     </scroll-view>
 
@@ -57,21 +69,20 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onShow, onBackPress } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
-import { getCategories, listTasks, setTaskStatus, getSettings, toggleGroupCollapsed } from '../../api/store'
+import { getCategories, listTasks, setTaskStatus, getSettings, getHideCompleted, toggleGroupCollapsed } from '../../api/store'
 import { repeatLabel } from '../../utils/occurrence'
 import { occursOn } from '../../utils/occurrence'
-import { compareTasks, taskMark } from '../../utils/task'
+import { compareTasks, matchesTaskFilter, taskMark, validateTaskDateRange } from '../../utils/task'
 import { shortDate, weekday, todayString } from '../../utils/date'
 import { toast } from '../../utils/platform'
 
 const categories = ref([])
 const ready = ref(false)
 const loadError = ref('')
-const settings = ref({})
 const taskSheet = ref(null)
 const categorySheet = ref(null)
 const toggling = ref(false)
@@ -81,6 +92,38 @@ const sheetVisible = ref(false)
 const editingTask = ref(null)
 const manageVisible = ref(false)
 const collapsedGroups = ref([])
+const hideCompleted = ref(true)
+const searchInput = ref('')
+const searchQuery = ref('')
+const dateExpanded = ref(false)
+const pendingStart = ref('')
+const pendingEnd = ref('')
+const dateError = ref('')
+const appliedRange = ref({ startDate: '', endDate: '' })
+const hasConditions = computed(() => Boolean(searchInput.value.trim() || appliedRange.value.startDate || appliedRange.value.endDate || filter.value !== 'all'))
+let searchTimer
+watch(searchInput, value => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { searchQuery.value = value.trim() }, 180)
+})
+onBeforeUnmount(() => clearTimeout(searchTimer))
+
+function applyDates() {
+  try {
+    validateTaskDateRange(pendingStart.value, pendingEnd.value)
+    appliedRange.value = { startDate: pendingStart.value, endDate: pendingEnd.value }
+    dateError.value = ''
+  } catch (error) { dateError.value = error.message }
+}
+function clearDates() {
+  pendingStart.value = ''; pendingEnd.value = ''; dateError.value = ''
+  appliedRange.value = { startDate: '', endDate: '' }
+}
+function clearFilters() {
+  searchInput.value = ''; searchQuery.value = ''
+  clearTimeout(searchTimer)
+  clearDates()
+}
 
 const todoCount = computed(() => allTasks.value.filter((task) => !task.parentTaskId && task.status !== 'done').length)
 
@@ -89,9 +132,8 @@ function onCategoriesChanged() {
 }
 
 const groups = computed(() => {
-  const hideCompleted = settings.value.hideCompleted
-  const source = (filter.value === 'all' ? allTasks.value : allTasks.value.filter((task) => task.categoryId === filter.value))
-    .filter(task => !hideCompleted || task.status === 'todo' || parseKind(task.repeatRule) !== 'none')
+  const conditions = { query: searchQuery.value, ...appliedRange.value, categoryId: filter.value, hideCompleted: hideCompleted.value }
+  const source = allTasks.value.filter(task => matchesTaskFilter(task, conditions))
   const today = todayString()
   const bucket = { '今天': [], '7天内': [], '稍后': [] }
   source.forEach((task) => {
@@ -117,7 +159,7 @@ function load() {
     const nextSettings = { ...getSettings() }
     allTasks.value = tasks
     categories.value = cats
-    settings.value = nextSettings
+    hideCompleted.value = getHideCompleted('tasks')
     collapsedGroups.value = [...(nextSettings.collapsedGroups || [])]
     if (filter.value !== 'all' && !cats.some(cat => cat.id === filter.value)) filter.value = 'all'
     loadError.value = ''
@@ -233,6 +275,22 @@ function onMore() {
 </script>
 
 <style scoped>
+.search-tools { flex: 0 0 auto; padding: 16rpx 28rpx; background: var(--panel); font-size: 24rpx; }
+.search-row, .date-inputs, .date-actions { display: flex; align-items: center; gap: 16rpx; }
+.search-input { flex: 1; min-width: 0; height: 64rpx; padding: 0 16rpx; background: #f4f7fa; border-radius: 10rpx; font-size: 26rpx; }
+.search-tools button, .clear-filters { margin: 0; padding: 0 16rpx; line-height: 64rpx; font-size: 24rpx; color: var(--blue); background: #f1f7ff; }
+.search-tools button::after, .clear-filters::after { border: 0; }
+.date-toggle { flex-shrink: 0; }
+.date-panel { margin-top: 16rpx; }
+.date-inputs { align-items: stretch; }
+.date-inputs picker { flex: 1; min-width: 0; padding: 12rpx 0; }
+.date-inputs picker view { overflow-wrap: anywhere; }
+.date-actions { margin-top: 8rpx; }
+.range-summary, .date-hint, .date-error { display: block; margin-top: 12rpx; line-height: 1.5; overflow-wrap: anywhere; }
+.range-summary { color: var(--blue); }
+.date-hint { color: var(--muted); font-size: 22rpx; }
+.date-error { color: var(--danger); }
+.clear-filters { margin: 24rpx auto; width: fit-content; }
 .filter-bar, .task-scroll { width: 100%; box-sizing: border-box; }
 .task-priority { display: inline-block; min-width: 44rpx; margin-right: 8rpx; color: #97a6b9; font-size: 23rpx; }
 .tasks-page {

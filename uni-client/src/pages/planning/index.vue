@@ -26,6 +26,7 @@
             <text class="day-num">{{ dayNum(date) }}</text>
             <text v-if="holidayOf(date)" class="holiday-badge" :class="holidayOf(date).isOffDay ? 'is-off' : 'is-work'" :title="holidayDescription(holidayOf(date))" :aria-label="holidayDescription(holidayOf(date))">{{ holidayOf(date).isOffDay ? '休' : '班' }}</text>
           </view>
+          <text class="day-subtitle" :class="{ 'has-marker': calendarMeta[date].marker }">{{ calendarMeta[date].marker || calendarMeta[date].lunarLabel }}</text>
           <view class="day-items">
             <view v-for="item in dayData[date].anniversaries.slice(0, 2)" :key="item.anniversaryId" :class="['day-item', 'day-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]"><text>{{ marks[item.kind] }} {{ item.label }}{{ item.record?.confirmedAt ? ' ✓' : '' }}</text></view>
             <view v-for="task in dayData[date].tasks.slice(0, Math.max(0, 2 - dayData[date].anniversaries.length))" :key="task.id" class="day-item" :style="{ background: colorOf(task) }">
@@ -37,7 +38,7 @@
       </view>
     </view>
 
-    <view v-if="selectedDate" class="day-layer" @click="selectedDate = ''"><view class="day-sheet" @click.stop><view class="day-sheet-header"><text>{{ selectedDate }} · 当天事项</text><button aria-label="关闭当天事项" @click="selectedDate = ''">×</button></view><scroll-view class="day-sheet-list" scroll-y><text v-if="selectedDay.anniversaries.length" class="day-group">纪念日</text><view v-for="item in selectedDay.anniversaries" :key="item.anniversaryId" :class="['day-list-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]" @click="activeRecord = item"><text>{{ marks[item.kind] }}</text><text>{{ item.label }}</text><text>{{ item.record?.confirmedAt ? '✓ 已纪念' : '›' }}</text></view><text v-if="selectedDay.tasks.length" class="day-group">待办</text><view v-for="task in selectedDay.tasks" :key="task.id" class="day-list-task" @click="editTask(task)"><text class="day-list-mark" :style="{ color: colorOf(task) }">{{ taskMark(task) }}</text><text>{{ task.title }}</text><text>{{ task.scheduleKind === 'range' ? `${task.plannedTime}–${task.plannedEndTime}` : task.plannedTime || '全天' }}</text></view><text v-if="!selectedDay.count" class="day-empty">这一天还没有安排</text></scroll-view><button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button></view></view>
+    <view v-if="selectedDate" class="day-layer" @click="selectedDate = ''"><view class="day-sheet" @click.stop><view class="day-sheet-header"><text>{{ selectedDate }} · 当天事项</text><button aria-label="关闭当天事项" @click="selectedDate = ''">×</button></view><view class="day-calendar-detail"><text>{{ selectedMeta.lunarText }}</text><text v-if="selectedMeta.markers.length">{{ selectedMeta.markers.join(' · ') }}</text><text v-if="holidayOf(selectedDate)">{{ holidayDescription(holidayOf(selectedDate)) }}</text></view><scroll-view class="day-sheet-list" scroll-y><text v-if="selectedDay.anniversaries.length" class="day-group">纪念日</text><view v-for="item in selectedDay.anniversaries" :key="item.anniversaryId" :class="['day-list-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]" @click="activeRecord = item"><text>{{ marks[item.kind] }}</text><text>{{ item.label }}</text><text>{{ item.record?.confirmedAt ? '✓ 已纪念' : '›' }}</text></view><text v-if="selectedDay.tasks.length" class="day-group">待办</text><view v-for="task in selectedDay.tasks" :key="task.id" class="day-list-task" @click="editTask(task)"><text class="day-list-mark" :style="{ color: colorOf(task) }">{{ taskMark(task) }}</text><text>{{ task.title }}</text><text>{{ task.scheduleKind === 'range' ? `${task.plannedTime}–${task.plannedEndTime}` : task.plannedTime || '全天' }}</text></view><text v-if="!selectedDay.count" class="day-empty">这一天还没有安排</text></scroll-view><button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button></view></view>
     <TaskEditSheet ref="taskSheet" :visible="sheetVisible" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
     <AnniversaryRecordSheet ref="recordSheet" :occurrence="activeRecord" :today="today" @close="activeRecord = null" @saved="reload" />
     </template>
@@ -54,6 +55,7 @@ import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../../api/holi
 import { tasksForDate, getCategories, listAnniversaries, listAnniversaryRecords } from '../../api/store'
 import { monthDates, monthTitle, shiftMonth, todayString } from '../../utils/date'
 import { taskMark } from '../../utils/task'
+import { resolveCalendarMeta } from '../../utils/calendar-meta'
 
 const anchor = ref(todayString())
 const today = ref(todayString())
@@ -74,6 +76,8 @@ const holidayByDate = ref({})
 let holidayRefreshRequestId = 0
 
 const days = computed(() => monthDates(anchor.value))
+const calendarMeta = computed(() => Object.fromEntries(days.value.map(date => [date, resolveCalendarMeta(date)])))
+const selectedMeta = computed(() => calendarMeta.value[selectedDate.value] || { lunarText: '', markers: [] })
 const visibleHolidayYears = computed(() => [...new Set(days.value.map((date) => Number(date.slice(0, 4))))])
 
 const selectedDay = computed(() => dayData.value[selectedDate.value] || { tasks: [], anniversaries: [], count: 0 })
@@ -189,6 +193,13 @@ function reload() {
 </script>
 
 <style scoped>
+.day-subtitle { display: block; height: 28rpx; line-height: 28rpx; font-size: 19rpx; text-align: center; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-subtitle.has-marker { color: #7898b8; }
+.day-calendar-detail { padding: 0 32rpx 12rpx; color: #8493a4; font-size: 24rpx; line-height: 1.6; overflow-wrap: anywhere; }
+.day-calendar-detail text { display: block; }
+.day-sheet { display: flex; flex-direction: column; box-sizing: border-box; }
+.day-sheet-list { min-height: 0; flex: 1; }
+.day-sheet-header, .day-calendar-detail, .day-add { flex-shrink: 0; }
 .day-list-mark { width: 36rpx; flex-shrink: 0; text-align: center; font-size: 24rpx; }
 .day-item { display: flex; gap: 4rpx; }
 .day-task-mark { flex: 0 0 26rpx; text-align: center; font-size: 17rpx; }
@@ -259,7 +270,9 @@ function reload() {
 
 .month-day {
   width: 14.2857%;
-  min-height: 148rpx;
+  height: 196rpx;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 10rpx 6rpx 8rpx;
   border-right: 2rpx solid #f2f4f6;
   border-bottom: 2rpx solid #f2f4f6;

@@ -29,12 +29,12 @@
             </view>
             <text class="row-chevron">›</text>
           </view>
-          <view class="mine-row">
+          <view v-for="[view, label] in [['tasks', '事项列表'], ['month', '规划月历']]" :key="view" class="mine-row">
             <view>
-              <text class="row-title">隐藏已完成</text>
-              <text class="row-hint">列表与日历中隐藏已结束事项</text>
+              <text class="row-title">{{ label }}隐藏已结束</text>
+              <text class="row-hint">隐藏已完成和已失败事项</text>
             </view>
-            <switch :key="switchRevision" :checked="settings.hideCompleted" color="#2996f6" @change="toggleHideCompleted" />
+            <switch :key="`${view}-${switchRevision}`" :checked="settings.hideCompletedByView[view]" color="#2996f6" @change="toggleHideCompleted(view, $event)" />
           </view>
         </view>
 
@@ -66,7 +66,7 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { onShow, onUnload } from '@dcloudio/uni-app'
 import UpdateSheet from '../../components/UpdateSheet.vue'
-import { getProfile, getSettings, setSetting, restoreDemoData } from '../../api/store'
+import { getProfile, getSettings, setHideCompleted, restoreDemoData } from '../../api/store'
 import { checkUpdate, downloadUpdate, cancelDownload, installDownloaded, installedVersion, subscribeUpdate, openUpdateInBrowser } from '../../api/update'
 import { toast } from '../../utils/platform'
 
@@ -106,10 +106,10 @@ function load() {
   }
 }
 
-function toggleHideCompleted(event) {
+function toggleHideCompleted(view, event) {
   if (!ready.value) return
   try {
-    setSetting('hideCompleted', event.detail.value)
+    setHideCompleted(view, event.detail.value)
     load()
   } catch (error) {
     toast(error.message || String(error))

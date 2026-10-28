@@ -110,7 +110,7 @@ export function findTask(id) {
   return load().tasks.find((item) => item.id === id) || null
 }
 
-// options.status 与编辑草稿在同一次严格写入中提交；返回对象的 reminderPromise 可供 UI 等待排程。
+// 草稿、父子状态与新建默认值同次严格落盘；返回 reminderPromise 供 UI 等待排程。
 export function saveTask(input, children, options = {}) {
   const data = load()
   const now = Date.now()
@@ -122,6 +122,7 @@ export function saveTask(input, children, options = {}) {
   const effective = occurrence ? findTask(input.id) : existing
   if (occurrence && !effective) throw new Error('当次事项不存在')
   const normalized = normalizeTask({ ...effective, ...input })
+  if (normalized.categoryId != null && !data.categories.some(category => category.id === normalized.categoryId)) throw new Error('分类不存在，请重新选择')
   if (occurrence && !normalized.plannedDate) throw new Error('重复事项的当次日期不能为空')
   const id = sourceId || `t${now}-${Math.random().toString(36).slice(2, 8)}`
   let saved = { status: 'todo', createdAt: now, ...existing, ...normalized, id, updatedAt: now }
@@ -162,7 +163,12 @@ export function saveTask(input, children, options = {}) {
     }
   }
   if (options.status !== undefined) tasks = applyTaskStatus(tasks, saved, occurrence, options.status, now)
-  const reminderPromise = saveTaskData({ ...data, tasks })
+  const defaults = { categoryId: normalized.categoryId ?? null, priority: normalized.priority }
+  const previous = data.settings.newTaskDefaults
+  const settings = options.rememberDefaults === true && !occurrence && !normalized.parentTaskId
+    && (previous?.categoryId !== defaults.categoryId || previous?.priority !== defaults.priority)
+    ? { ...data.settings, newTaskDefaults: { ...previous, ...defaults } } : data.settings
+  const reminderPromise = saveTaskData({ ...data, tasks, settings })
   const result = { ...(occurrence ? findTask(input.id) : tasks.find(task => task.id === id)) }
   Object.defineProperty(result, 'reminderPromise', { value: reminderPromise })
   return result
@@ -217,12 +223,13 @@ export function listChildren(parentId) {
   return load().tasks.filter((item) => item.parentTaskId === (parseOccurrenceId(parentId)?.sourceId || parentId)).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
 }
 
-function isVisible(task) {
-  return !load().settings.hideCompleted || task.status === 'todo'
+function isVisible(task, view) {
+  return !getHideCompleted(view) || task.status === 'todo'
+    || (view === 'tasks' && parseRepeatRule(task.repeatRule).kind !== 'none')
 }
 
 export function tasksForDate(date) {
-  return resolveTasksForDate(listTasks(), date).filter(isVisible).sort(compareTasks)
+  return resolveTasksForDate(listTasks(), date).filter(task => isVisible(task, 'month')).sort(compareTasks)
 }
 
 export function tasksGrouped() {
@@ -232,7 +239,7 @@ export function tasksGrouped() {
   const weekItems = []
   const laterItems = []
   listTasks().forEach((task) => {
-    if (task.parentTaskId || !isVisible(task)) return
+    if (task.parentTaskId || !isVisible(task, 'tasks')) return
     if (occursOn(task, today)) todayItems.push(task)
     else if (task.plannedDate && task.plannedDate > today && task.plannedDate <= weekEnd) weekItems.push(task)
     else laterItems.push(task)
@@ -246,6 +253,28 @@ export function tasksGrouped() {
 
 export function getSettings() {
   return load().settings
+}
+
+export function getHideCompleted(view) {
+  if (!['tasks', 'month'].includes(view)) throw new Error('视图无效')
+  const settings = getSettings()
+  const value = settings.hideCompletedByView?.[view]
+  return typeof value === 'boolean' ? value : typeof settings.hideCompleted === 'boolean' ? settings.hideCompleted : true
+}
+
+export function setHideCompleted(view, value) {
+  if (!['tasks', 'month'].includes(view) || typeof value !== 'boolean') throw new Error('视图设置无效')
+  setSetting('hideCompletedByView', { ...getSettings().hideCompletedByView, [view]: value })
+}
+
+export function getNewTaskDefaults() {
+  const data = load()
+  const defaults = data.settings.newTaskDefaults
+  const categoryId = defaults?.categoryId === null ? null
+    : data.categories.some(category => category.id === defaults?.categoryId) ? defaults.categoryId : data.categories[0]?.id ?? null
+  const priority = ['urgent_important', 'important_not_urgent', 'urgent_not_important', 'not_urgent_not_important'].includes(defaults?.priority)
+    ? defaults.priority : 'not_urgent_not_important'
+  return { categoryId, priority }
 }
 
 export function setSetting(key, value) {

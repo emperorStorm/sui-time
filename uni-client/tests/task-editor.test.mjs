@@ -29,10 +29,10 @@ async function editor() {
     vue: { ...vue, onBeforeUnmount: callback => callbacks.push(callback) },
     '@dcloudio/uni-app': { onShow() {}, onHide() {} },
     '../api/store': {
-      getCategories: () => [], findTask: () => ({ ...parent }), listChildren: () => [],
+      getCategories: () => [], getNewTaskDefaults: () => ({ categoryId: null, priority: 'urgent_important' }), findTask: () => ({ ...parent }), listChildren: () => [],
       saveTask: (input, children, options) => {
         if (fail) throw new Error('写入失败')
-        writes.push(structuredClone({ input, children, options }))
+        writes.push(JSON.parse(JSON.stringify({ input, children, options })))
         return { ...input, id: 'parent', reminderPromise: hold ? new Promise(resolve => { release = () => resolve({ supported: false }) }) : Promise.resolve({ supported: false }) }
       },
       removeTask() {}
@@ -63,6 +63,63 @@ async function editor() {
     close: () => { props.visible = false; callbacks.forEach(callback => callback()) }
   }
 }
+
+test('新建首次获ID后队列仍记忆，快速重开旧事项不串新建标记', async () => {
+  const ui = await editor()
+  try {
+    ui.props.visible = false
+    await vue.nextTick()
+    ui.props.task = null
+    ui.props.visible = true
+    await vue.nextTick()
+    assert.equal(ui.draft.categoryId, null)
+    assert.equal(ui.draft.priority, 'urgent_important')
+    ui.setHold(true)
+    ui.draft.title = '新建第一版'
+    const saving = ui.flushDraft(true)
+    assert.equal(ui.draft.id, 'parent', ui.error.value)
+    ui.draft.priority = 'important_not_urgent'
+    ui.setHold(false)
+    ui.release()
+    assert.equal(await saving, true)
+    assert.deepEqual(ui.writes.map(write => write.options.rememberDefaults), [true, true])
+    assert.equal(ui.writes.at(-1).input.priority, 'important_not_urgent')
+    await ui.changeStatus('done')
+    assert.equal(ui.writes.at(-1).options.rememberDefaults, true)
+    assert.equal(ui.writes.at(-1).options.status, 'done')
+    ui.props.visible = false
+    await vue.nextTick()
+    ui.props.task = { id: 'parent' }
+    ui.props.visible = true
+    await vue.nextTick()
+    ui.draft.title = '旧编辑'
+    await ui.flushDraft(true)
+    assert.equal(ui.writes.at(-1).options.rememberDefaults, false)
+  } finally { ui.close() }
+})
+
+test('旧排程未结束时快速重开，旧会话不覆盖新会话默认值和记忆选项', async () => {
+  const ui = await editor()
+  try {
+    ui.setHold(true)
+    ui.draft.title = '旧会话'
+    const previous = ui.flushDraft(true)
+    ui.props.visible = false
+    await vue.nextTick()
+    ui.props.task = null
+    ui.props.visible = true
+    await vue.nextTick()
+    ui.draft.title = '新会话'
+    const next = ui.flushDraft(true)
+    ui.setHold(false)
+    ui.release()
+    assert.equal(await previous, false)
+    assert.equal(await next, true)
+    assert.deepEqual(ui.writes.map(write => write.options.rememberDefaults), [false, true])
+    assert.equal(ui.writes.at(-1).input.title, '新会话')
+    assert.equal(ui.writes.at(-1).input.priority, 'urgent_important')
+  } finally { ui.close() }
+})
 
 test('保存期间的后续编辑持续排队，完成结果不清掉新修改', async () => {
   const ui = await editor()

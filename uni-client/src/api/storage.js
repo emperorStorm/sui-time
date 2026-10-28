@@ -7,7 +7,7 @@ function seedData() {
   const today = todayString()
   return {
     profile: { name: '暴走的小陌', phone: '182****9035', signature: '暴走方知深浅' },
-    settings: { hideCompleted: true, collapsedGroups: [] },
+    settings: { hideCompleted: true, hideCompletedByView: { tasks: true, month: true }, collapsedGroups: [] },
     anniversaries: [],
     anniversaryRecords: [],
     categories: [
@@ -56,9 +56,16 @@ export function load() {
     || (raw.anniversaryRecords !== undefined && !Array.isArray(raw.anniversaryRecords))) {
     throw new Error('本机数据已损坏，请保留数据并重试')
   }
+  const settings = { hideCompleted: true, collapsedGroups: [], ...raw.settings }
+  const legacyHide = typeof settings.hideCompleted === 'boolean' ? settings.hideCompleted : true
+  const byView = isObject(settings.hideCompletedByView) ? settings.hideCompletedByView : {}
+  settings.hideCompletedByView = { ...byView }
+  for (const view of ['tasks', 'month']) {
+    settings.hideCompletedByView[view] = typeof byView[view] === 'boolean' ? byView[view] : legacyHide
+  }
   cache = {
     ...raw,
-    settings: { hideCompleted: true, collapsedGroups: [], ...raw.settings },
+    settings,
     anniversaries: raw.anniversaries || [],
     anniversaryRecords: raw.anniversaryRecords || []
   }

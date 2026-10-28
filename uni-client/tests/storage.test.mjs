@@ -49,7 +49,7 @@ test('旧数据补设置默认值、保留未知及超长旧字段，兼容 H5 �
     const before = structuredClone(raw)
     globalThis.uni = { getStorageSync: () => wrapped ? { type: 'object', data: raw } : raw, setStorageSync: () => assert.fail('旧数据读取不应写盘') }
     const data = storage.load()
-    assert.deepEqual(data.settings, { hideCompleted: false, collapsedGroups: [], custom: 42 })
+    assert.deepEqual(data.settings, { hideCompleted: false, hideCompletedByView: { tasks: false, month: false }, collapsedGroups: [], custom: 42 })
     assert.deepEqual(data.extra, { keep: true })
     assert.equal(data.tasks[0].title.length, 121)
     assert.equal(data.tasks[0].notes.length, 1001)
@@ -57,7 +57,32 @@ test('旧数据补设置默认值、保留未知及超长旧字段，兼容 H5 �
   }
   const storage = await freshStorage()
   globalThis.uni = { getStorageSync: () => validData(), setStorageSync: () => {} }
-  assert.deepEqual(storage.load().settings, { hideCompleted: true, collapsedGroups: [] })
+  assert.deepEqual(storage.load().settings, { hideCompleted: true, hideCompletedByView: { tasks: true, month: true }, collapsedGroups: [] })
+})
+
+test('逐项迁移布尔偏好保留 false、未知视图及旧字段，读时不写盘', async () => {
+  const cases = [
+    [{ hideCompleted: true }, { tasks: true, month: true }],
+    [{ hideCompleted: false }, { tasks: false, month: false }],
+    [{ hideCompleted: 'false' }, { tasks: true, month: true }],
+    [{ hideCompleted: false, hideCompletedByView: { tasks: true } }, { tasks: true, month: false }],
+    [{ hideCompleted: true, hideCompletedByView: { tasks: false, month: false, week: 'keep' } }, { tasks: false, month: false, week: 'keep' }],
+    [{ hideCompleted: false, hideCompletedByView: { tasks: 0, month: 'true' } }, { tasks: false, month: false }],
+    [{ hideCompletedByView: { month: false } }, { tasks: true, month: false }],
+    [{ hideCompletedByView: null }, { tasks: true, month: true }],
+    [{ hideCompletedByView: [] }, { tasks: true, month: true }]
+  ]
+  for (const [settings, expected] of cases) {
+    const storage = await freshStorage()
+    const raw = validData({ settings: { extra: 23, ...settings } })
+    const before = structuredClone(raw)
+    globalThis.uni = { getStorageSync: () => raw, setStorageSync: () => assert.fail('迁移不写盘') }
+    const loaded = storage.load()
+    assert.deepEqual(loaded.settings.hideCompletedByView, expected)
+    assert.equal(loaded.settings.extra, 23)
+    if ('hideCompleted' in settings) assert.equal(loaded.settings.hideCompleted, settings.hideCompleted)
+    assert.deepEqual(raw, before)
+  }
 })
 
 test('H5 同步读取吞错返回空值时不将已有数据当作首次启动', async () => {

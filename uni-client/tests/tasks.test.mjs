@@ -289,6 +289,86 @@ test('子项 id 不得覆盖其他事项，不接受重复 id', () => {
   assert.deepEqual(load(), before)
 })
 
+test('双视图独立过滤、重复源保留、严格失败不改任一偏好', async () => {
+  const before = load()
+  saveStorage({ ...before, tasks: [], settings: { ...before.settings, hideCompleted: true, hideCompletedByView: { tasks: false, month: true, future: false } } }, { strict: true })
+  try {
+    const ordinary = store.saveTask(task({ status: 'done' }))
+    const repeat = store.saveTask(task({ status: 'done', repeatRule: '{"kind":"daily"}' }))
+    assert.equal(store.tasksForDate('2026-10-10').some(item => item.id === ordinary.id), false)
+    assert.ok(store.tasksGrouped().flatMap(group => group.items).some(item => item.id === ordinary.id))
+    store.setHideCompleted('tasks', true)
+    assert.equal(store.getHideCompleted('month'), true)
+    const groups = store.tasksGrouped().flatMap(group => group.items)
+    assert.equal(groups.some(item => item.id === ordinary.id), false)
+    assert.ok(groups.some(item => item.id === repeat.id))
+    store.setHideCompleted('month', false)
+    assert.ok(store.tasksForDate('2026-10-10').some(item => item.id === ordinary.id))
+    assert.deepEqual(store.getSettings().hideCompletedByView, { tasks: true, month: false, future: false })
+    const snapshot = structuredClone(load())
+    const diskBefore = structuredClone(disk)
+    fail = true
+    assert.throws(() => store.setHideCompleted('tasks', false), /无法保存/)
+    assert.deepEqual(load(), snapshot)
+    assert.deepEqual(disk, diskBefore)
+  } finally { fail = false; saveStorage(before, { strict: true }) }
+})
+
+test('新建默认值区分缺省与null、失效分类、非法优先级及空分类', () => {
+  const before = load()
+  try {
+    const categories = [{ id: 'first' }, { id: 'second' }]
+    const cases = [
+      [undefined, 'first', 'not_urgent_not_important'],
+      [{ categoryId: null, priority: 'urgent_important' }, null, 'urgent_important'],
+      [{ categoryId: 'second', priority: 'important_not_urgent' }, 'second', 'important_not_urgent'],
+      [{ categoryId: 'deleted', priority: 'invalid' }, 'first', 'not_urgent_not_important'],
+      [{ priority: false }, 'first', 'not_urgent_not_important']
+    ]
+    for (const [defaults, categoryId, priority] of cases) {
+      saveStorage({ ...before, categories, settings: { ...before.settings, newTaskDefaults: defaults } }, { strict: true })
+      assert.deepEqual(store.getNewTaskDefaults(), { categoryId, priority })
+    }
+    saveStorage({ ...before, categories: [], settings: {} }, { strict: true })
+    assert.deepEqual(store.getNewTaskDefaults(), { categoryId: null, priority: 'not_urgent_not_important' })
+  } finally { saveStorage(before, { strict: true }) }
+})
+
+test('规范化的新建记忆和父子状态仅写一次，旧编辑不记忆，失败全部不变，提醒失败保留落盘', async () => {
+  const before = load()
+  try {
+    let count = writes
+    const created = store.saveTask(task({ title: '  新建  ', categoryId: null, priority: 'urgent_important' }), [{ title: '子项' }], { rememberDefaults: true, status: 'done' })
+    await created.reminderPromise
+    assert.equal(writes, count + 1)
+    assert.equal(created.title, '新建')
+    assert.equal(created.status, 'done')
+    assert.equal(store.listChildren(created.id)[0].status, 'done')
+    assert.deepEqual(store.getNewTaskDefaults(), { categoryId: null, priority: 'urgent_important' })
+    store.saveTask({ id: created.id, priority: 'important_not_urgent' }, undefined, { rememberDefaults: true })
+    assert.equal(store.getNewTaskDefaults().priority, 'important_not_urgent')
+    store.saveTask({ id: created.id, priority: 'urgent_not_important' })
+    assert.equal(store.getNewTaskDefaults().priority, 'important_not_urgent')
+    const snapshot = structuredClone(load())
+    const diskBefore = structuredClone(disk)
+    fail = true
+    try {
+      assert.throws(() => store.saveTask(task({ priority: 'urgent_important' }), [{ title: '子项' }], { rememberDefaults: true, status: 'done' }), /无法保存/)
+      assert.deepEqual(load(), snapshot)
+      assert.deepEqual(disk, diskBefore)
+    } finally { fail = false }
+    globalThis.plus = { os: { name: 'Android' }, android: { runtimeMainActivity: () => ({}), invoke: () => { throw Error('排程失败') } } }
+    count = writes
+    const saved = store.saveTask(task({ priority: 'urgent_important' }), [], { rememberDefaults: true })
+    const result = await saved.reminderPromise
+    assert.ok(result.error)
+    assert.equal(writes, count + 1)
+    assert.ok(store.findTask(saved.id))
+    assert.equal(store.getNewTaskDefaults().priority, 'urgent_important')
+    assert.deepEqual(disk.settings.newTaskDefaults, load().settings.newTaskDefaults)
+  } finally { fail = false; delete globalThis.plus; saveStorage(before, { strict: true }) }
+})
+
 test('返回权限设置后读取新权限，不被上轮排程结果覆盖', async () => {
   let allowed = false
   globalThis.plus = { os: { name: 'Android' }, android: { runtimeMainActivity: () => ({}), invoke: (_, method) => JSON.stringify(method === 'state' ? { supported: true, notifications: allowed, exactAlarm: allowed } : { supported: true, notifications: false, exactAlarm: false, scheduled: 0 }) } }
