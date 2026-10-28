@@ -127,7 +127,6 @@ jobs:
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,publishedAt > android-release-info.json
           export ANDROID_APK="sui-time-${VERSION}-android.apk"
           export ANDROID_RELEASE_INFO=android-release-info.json
-          export ANDROID_DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/sui-time-${VERSION}-android.apk"
           node uni-client/scripts/generate-android-update.mjs
           pip install oss2 -q
           python <<'PY'

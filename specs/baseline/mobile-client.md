@@ -2,7 +2,7 @@
 id: baseline-mobile-client
 title: 移动端客户端基线
 status: implemented
-updated: 2026-10-10
+updated: 2026-10-28
 ---
 
 # 移动端客户端基线
@@ -41,10 +41,10 @@ updated: 2026-10-10
 
 ## 更新检查（安卓）
 
-- App 端检查 OSS 的 `sui-time/latest-android.json`，优先与运行时 `versionCode` 比较，旧清单回退语义版本；H5 使用构建版本。
+- App 端检查 `https://package.laoshi.chat/sui-time/latest-android.json`，优先与运行时 `versionCode` 比较，旧清单回退语义版本；H5 使用构建版本。
 - 更新说明仅从清单 `notes` 读取，不请求 GitHub compare。网络失败与清单错误明确提示，不误报最新。
 - 点「立即更新」使用 `plus.downloader` 下载并显示进度，完成后 `plus.runtime.install` 唤起系统安装。支持去重、取消与重试；未知来源授权返回后继续安装，用户取消保留重新安装入口，只有实际运行版本变更才确认升级。
-- 浏览器下载为用户主动选择的降级入口，与应用内下载使用清单中的同一个地址；当前 OSS 默认域名禁止 APK 时使用官方 GitHub Release 资产，配置可用 HTTPS CNAME 后可切回 OSS。
+- 浏览器下载为用户主动选择的降级入口，与应用内下载使用清单中的同一个地址；清单与 APK 统一由 OSS 自定义域名 `package.laoshi.chat` 提供，客户端仍兼容官方 GitHub Release 地址作为应急通道。
 - H5 端固定返回"已是最新"演示态。
 - `latest-android.json` 格式：`{ "version", "versionCode", "notes", "url", "pubDate" }`，兼容缺失 `versionCode` 的旧清单。
 
@@ -54,7 +54,7 @@ updated: 2026-10-10
 - `uni-client/android-templates/` 为离线打包模板（manifest/control 用占位符）；`scripts/prepare-android.mjs` 注入 appkey、版本号、签名配置与 uni-app www 资源。
 - DCloud 离线打包 Key 存于 Secrets `DCLOUD_APPKEY`；appid `__UNI__DACC2E3`，包名 `fun.upup.suitime`，证书为自生成 keystore（必须离线备份，丢失后已装用户无法升级）。
 - APK 上传后，共用 `scripts/generate-android-update.mjs` 从公开下载地址完整下载并核对大小及 SHA-256，成功才生成上传清单；失败保留线上旧清单。两个发布入口统一调用 `android-apk.yml`，桌面 OSS 同步不重复覆盖安卓清单。
-- 更新清单本身仍来自 `ALIYUN_OSS_BASE_URL`；APK 地址可使用 OSS 或官方 GitHub Release。OSS 默认 endpoint 返回 `ApkDownloadForbidden` 时优先配置 HTTPS CNAME，未配置前使用 GitHub Release 资产，不能靠更换下载组件解决。
+- 更新清单本身仍来自 `ALIYUN_OSS_BASE_URL`；APK 地址与清单统一使用桶绑定的 HTTPS 自定义域名 `package.laoshi.chat`。OSS 默认 endpoint 分发 APK 会返回 `ApkDownloadForbidden`，不能靠更换下载组件解决；客户端保留官方 GitHub Release 地址兼容。
 
 ## 验收与证据
 

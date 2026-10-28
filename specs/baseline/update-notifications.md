@@ -2,7 +2,7 @@
 id: baseline-update-notifications
 title: 更新与通知中心基线
 status: implemented
-updated: 2026-08-14
+updated: 2026-10-28
 ---
 
 # 更新与通知中心基线
@@ -38,4 +38,4 @@ updated: 2026-08-14
 - Tauri updater 不支持安卓。安卓端检查 `sui-time/latest-android.json`（OSS），见 `specs/baseline/mobile-client.md`。
 - 安卓更新说明只读取 manifest `notes`；原生运行时版本码优先，兼容旧清单版本比较。
 - 使用 `plus.downloader` 显示下载进度、取消与重试，下载完成后 `plus.runtime.install` 唤起系统安装确认；未知来源授权返回继续安装，取消后可重新安装。
-- 应用内和浏览器主动降级均使用清单中的同一个 HTTPS URL。公开 APK 完整下载校验通过后才更新清单，拒绝下载时保留旧清单；OSS 默认域名禁止 APK 时允许官方 GitHub Release 资产作为临时分发地址。
+- 应用内和浏览器主动降级均使用清单中的同一个 HTTPS URL。公开 APK 完整下载校验通过后才更新清单，拒绝下载时保留旧清单；清单与 APK 统一由自定义域名 `package.laoshi.chat` 分发，客户端保留官方 GitHub Release 地址兼容。

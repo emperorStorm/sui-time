@@ -1,7 +1,7 @@
 import buildManifest from '../manifest.json'
 import { androidPermissions, androidSettings } from './android.js'
 
-export const OSS_BASE_URL = 'https://suisui-package.oss-cn-hangzhou.aliyuncs.com'
+export const OSS_BASE_URL = 'https://package.laoshi.chat'
 export const APP_VERSION = buildManifest.versionName
 const MANIFEST_URL = `${OSS_BASE_URL}/sui-time/latest-android.json`
 const CACHE_KEY = 'sui-time:downloaded-update'

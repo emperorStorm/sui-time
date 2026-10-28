@@ -1,6 +1,6 @@
 # 岁岁时光
 
-岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.6.6`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
+岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.6.7`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
 
 ![岁岁时光本地优先数据架构](docs/assets/sui-time-local-first-sync.png)
 
@@ -96,9 +96,9 @@ Vue 页面
 - `ALIYUN_ACCESS_KEY_ID`
 - `ALIYUN_ACCESS_KEY_SECRET`
 
-GitHub Actions 构建 macOS 与 Windows 安装包、签名更新资产并创建 Release，随后把不可变安装包和当前 `latest.json` 同步到 OSS。密钥只能配置在 GitHub Secrets/Variables，禁止写入仓库。
+GitHub Actions 构建 macOS 与 Windows 安装包、签名更新资产并创建 Release，随后把不可变安装包和当前 `latest.json` 同步到 OSS，统一通过 `https://package.laoshi.chat` 分发。密钥只能配置在 GitHub Secrets/Variables，禁止写入仓库。
 
-安卓移动端不使用 Tauri updater。“检查更新”读取 OSS 的 `sui-time/latest-android.json`，以运行时版本码优先比较，更新说明来自清单；发现更新后应用内下载 APK 并显示进度，完成后唤起系统确认安装，支持未知来源授权往返及重新安装。APK 由 CI 离线打包（`uni-client/android-templates/` + `scripts/prepare-android.mjs`）；上传后 `generate-android-update.mjs` 完整核对公开下载内容，成功才发布清单。由于当前 OSS 默认域名禁止公开 APK，本次清单使用对应 GitHub Release 资产地址；APK 仍同步归档到 OSS，后续配置 HTTPS CNAME 后可切回 OSS 下载。
+安卓移动端不使用 Tauri updater。“检查更新”读取 `https://package.laoshi.chat/sui-time/latest-android.json`，以运行时版本码优先比较，更新说明来自清单；发现更新后应用内下载 APK 并显示进度，完成后唤起系统确认安装，支持未知来源授权往返及重新安装。APK 由 CI 离线打包（`uni-client/android-templates/` + `scripts/prepare-android.mjs`）；上传后 `generate-android-update.mjs` 完整核对公开下载内容，成功才发布清单。OSS 默认域名禁止公开分发 APK，因此清单中的 APK 地址使用桶绑定的 `package.laoshi.chat` 自定义域名；客户端仍兼容官方 GitHub Release 地址作为应急分发通道。
 
 浏览器模式只能验证”当前已是最新版本”的降级分支和通知界面；真实签名、下载、安装和重启必须使用 Tauri 安装包或 CI/Release 环境验证。
 

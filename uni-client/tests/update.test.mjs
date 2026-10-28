@@ -27,11 +27,15 @@ test('版本码、运行时版本、无效清单及网络失败不误报最新',
   h.context.plus.runtime.version = '0.6.1'; h.context.plus.runtime.versionCode = 601
   assert.equal(h.api.installedVersion().code, 601)
   assert.equal(h.api.compareVersions('0.100.0', '1.0.0'), -1)
+  assert.equal(h.api.OSS_BASE_URL, 'https://package.laoshi.chat')
+  assert.doesNotThrow(() => h.api.validateUpdateManifest({ version: '0.6.7', url: 'https://package.laoshi.chat/sui-time/releases/v0.6.7/sui-time-0.6.7-android.apk' }))
+  assert.throws(() => h.api.validateUpdateManifest({ version: '0.6.7', url: 'http://package.laoshi.chat/sui-time/releases/v0.6.7/sui-time-0.6.7-android.apk' }), /OSS|GitHub/)
   assert.doesNotThrow(() => h.api.validateUpdateManifest({ version: '0.6.4', url: 'https://github.com/emperorStorm/sui-time/releases/download/v0.6.4/sui-time-0.6.4-android.apk' }))
   assert.throws(() => h.api.validateUpdateManifest({ version: '0.6.3', url: 'https://github.com/sui-time/releases/v0.6.3/a.apk' }), /OSS|GitHub/)
   assert.throws(() => h.api.validateUpdateManifest({ version: '0.6.3', url: 'https://oss@github.com/emperorStorm/sui-time/releases/download/v0.6.3/sui-time-0.6.3-android.apk' }), /OSS|GitHub/)
   const a = h.api.checkUpdate(), b = h.api.checkUpdate()
   assert.equal(a, b); assert.equal(h.requests.length, 1)
+  assert.match(h.requests[0].options.url, /^https:\/\/package\.laoshi\.chat\/sui-time\/latest-android\.json\?t=\d+$/)
   h.requests[0].options.fail()
   await a
   assert.equal(h.state().status, 'error')
@@ -80,13 +84,14 @@ test('清单生成仅在完整公开 APK 校验通过后写入，失败保留旧
   try {
     const apk = `${dir}/app.apk`, output = `${dir}/latest.json`
     await writeFile(apk, new Uint8Array([0x50, 0x4b, 3, 4])); await writeFile(output, '旧清单')
-    const args = { tag: 'v0.6.2', baseUrl: 'https://downloads.example.cn', apk, output, manifest: { versionName: '0.6.2', versionCode: 602 }, release: { body: '中文更新说明' } }
+    const args = { tag: 'v0.6.2', baseUrl: 'https://package.laoshi.chat', apk, output, manifest: { versionName: '0.6.2', versionCode: 602 }, release: { body: '中文更新说明' } }
     await assert.rejects(generateAndroidUpdate(args, async () => new Response('ApkDownloadForbidden', { status: 400 })), /旧清单保留/)
     assert.equal(await readFile(output, 'utf8'), '旧清单')
     await assert.rejects(generateAndroidUpdate(args, async () => new Response('错误文件')), /不一致/)
     assert.equal(await readFile(output, 'utf8'), '旧清单')
     const result = await generateAndroidUpdate(args, async () => new Response(new Uint8Array([0x50, 0x4b, 3, 4])))
     assert.equal(result.versionCode, 602); assert.equal(result.notes, '中文更新说明')
+    assert.equal(result.url, 'https://package.laoshi.chat/sui-time/releases/v0.6.2/sui-time-0.6.2-android.apk')
     const githubArgs = { ...args, downloadUrl: 'https://github.com/emperorStorm/sui-time/releases/download/v0.6.2/sui-time-0.6.2-android.apk' }
     const githubResult = await generateAndroidUpdate(githubArgs, async () => new Response(new Uint8Array([0x50, 0x4b, 3, 4])))
     assert.equal(githubResult.url, githubArgs.downloadUrl)
