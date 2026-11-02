@@ -2,44 +2,79 @@
   <view class="page planning-page">
     <view class="topbar">
       <view class="topbar-title">规划</view>
-      <view class="topbar-action" @click="resetMonth">↻</view>
+      <view class="topbar-action" role="button" :aria-label="viewMode === 'week' ? '回到本周' : '回到今天'" @click="resetView">↻</view>
     </view>
 
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="reload">重试读取</button></view>
     <template v-else-if="ready">
+    <view class="view-tabs" role="tablist">
+      <view role="tab" :aria-selected="viewMode === 'week'" :class="['view-tab', { active: viewMode === 'week' }]" @click="switchView('week')">周</view>
+      <view role="tab" :aria-selected="viewMode === 'month'" :class="['view-tab', { active: viewMode === 'month' }]" @click="switchView('month')">月</view>
+    </view>
+
     <view class="month-scroll">
       <view class="month-head">
-        <text class="month-title">{{ monthTitle(anchor) }}</text>
+        <text class="month-title">{{ viewMode === 'week' ? weekTitle(days) : monthTitle(anchor) }}</text>
         <view class="month-nav">
           <view class="month-nav-btn" @click="shift(-1)">‹</view>
           <view class="month-nav-btn" @click="shift(1)">›</view>
         </view>
       </view>
 
-      <view class="month-weekdays">
-        <text v-for="label in ['一', '二', '三', '四', '五', '六', '日']" :key="label">{{ label }}</text>
-      </view>
+      <template v-if="viewMode === 'month'">
+        <view class="month-weekdays">
+          <text v-for="label in ['一', '二', '三', '四', '五', '六', '日']" :key="label">{{ label }}</text>
+        </view>
 
-      <view class="month-grid">
-        <view v-for="date in days" :key="date" :class="['month-day', { 'is-today': date === today, 'is-muted': !inMonth(date) }]" @click="selectedDate = date">
-          <view class="day-head">
-            <text class="day-num">{{ dayNum(date) }}</text>
-            <text v-if="holidayOf(date)" class="holiday-badge" :class="holidayOf(date).isOffDay ? 'is-off' : 'is-work'" :title="holidayDescription(holidayOf(date))" :aria-label="holidayDescription(holidayOf(date))">{{ holidayOf(date).isOffDay ? '休' : '班' }}</text>
-          </view>
-          <text class="day-subtitle" :class="{ 'has-marker': calendarMeta[date].marker }">{{ calendarMeta[date].marker || calendarMeta[date].lunarLabel }}</text>
-          <view class="day-items">
-            <view v-for="item in dayData[date].anniversaries.slice(0, 2)" :key="item.anniversaryId" :class="['day-item', 'day-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]"><text>{{ marks[item.kind] }} {{ item.label }}{{ item.record?.confirmedAt ? ' ✓' : '' }}</text></view>
-            <view v-for="task in dayData[date].tasks.slice(0, Math.max(0, 2 - dayData[date].anniversaries.length))" :key="task.id" class="day-item" :style="{ background: colorOf(task) }">
-              <text class="day-task-mark">{{ taskMark(task) }}</text><text class="day-task-title">{{ task.title }}</text>
+        <view class="month-grid">
+          <view v-for="date in days" :key="date" :class="['month-day', { 'is-today': date === today, 'is-muted': !inMonth(date) }]" @click="selectedDate = date">
+            <view class="day-head">
+              <text class="day-num">{{ dayNum(date) }}</text>
+              <text v-if="holidayOf(date)" class="holiday-badge" :class="holidayOf(date).isOffDay ? 'is-off' : 'is-work'" :title="holidayDescription(holidayOf(date))" :aria-label="holidayDescription(holidayOf(date))">{{ holidayOf(date).isOffDay ? '休' : '班' }}</text>
             </view>
-            <text v-if="dayData[date].count > 2" class="day-more">+{{ dayData[date].count - 2 }}</text>
+            <text class="day-subtitle" :class="{ 'has-marker': calendarMeta[date].marker }">{{ calendarMeta[date].marker || calendarMeta[date].lunarLabel }}</text>
+            <view class="day-items">
+              <view v-for="item in dayData[date].anniversaries.slice(0, 2)" :key="item.anniversaryId" :class="['day-item', 'day-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]"><text>{{ marks[item.kind] }} {{ item.label }}{{ item.record?.confirmedAt ? ' ✓' : '' }}</text></view>
+              <view v-for="task in dayData[date].tasks.slice(0, Math.max(0, 2 - dayData[date].anniversaries.length))" :key="task.id" class="day-item" :style="{ background: colorOf(task) }">
+                <text class="day-task-mark">{{ taskMark(task) }}</text><text class="day-task-title">{{ task.title }}</text>
+              </view>
+              <text v-if="dayData[date].count > 2" class="day-more">+{{ dayData[date].count - 2 }}</text>
+            </view>
           </view>
         </view>
-      </view>
+      </template>
+
+      <template v-else>
+        <view class="week-strip">
+          <view v-for="date in days" :key="date" :class="['week-day', { 'is-today': date === today, 'is-selected': date === selectedDate }]" @click="selectedDate = date">
+            <text class="week-weekday">{{ weekdayLabel(date) }}</text>
+            <view class="day-head">
+              <text class="day-num">{{ dayNum(date) }}</text>
+              <text v-if="holidayOf(date)" class="holiday-badge" :class="holidayOf(date).isOffDay ? 'is-off' : 'is-work'" :title="holidayDescription(holidayOf(date))" :aria-label="holidayDescription(holidayOf(date))">{{ holidayOf(date).isOffDay ? '休' : '班' }}</text>
+            </view>
+            <text class="day-subtitle" :class="{ 'has-marker': calendarMeta[date].marker }">{{ calendarMeta[date].marker || calendarMeta[date].lunarLabel }}</text>
+            <text class="week-count">{{ dayData[date].count ? `${dayData[date].count} 项` : '—' }}</text>
+          </view>
+        </view>
+        <view class="week-agenda panel">
+          <view class="week-agenda-head"><text>{{ selectedDate }} · 当天事项</text><text v-if="selectedDay.count">{{ selectedDay.count }} 项</text></view>
+          <DayAgenda :tasks="selectedDay.tasks" :anniversaries="selectedDay.anniversaries" :count="selectedDay.count" :meta="selectedMeta" :holiday="holidayOf(selectedDate)" :marks="marks" :color-of="colorOf" @edit-task="editTask" @open-anniversary="openRecord" @adjust-task="openQuickAdjust" />
+          <button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button>
+        </view>
+      </template>
     </view>
 
-    <view v-if="selectedDate" class="day-layer" @click="selectedDate = ''"><view class="day-sheet" @click.stop><view class="day-sheet-header"><text>{{ selectedDate }} · 当天事项</text><button aria-label="关闭当天事项" @click="selectedDate = ''">×</button></view><view class="day-calendar-detail"><text>{{ selectedMeta.lunarText }}</text><text v-if="selectedMeta.markers.length">{{ selectedMeta.markers.join(' · ') }}</text><text v-if="holidayOf(selectedDate)">{{ holidayDescription(holidayOf(selectedDate)) }}</text></view><scroll-view class="day-sheet-list" scroll-y><text v-if="selectedDay.anniversaries.length" class="day-group">纪念日</text><view v-for="item in selectedDay.anniversaries" :key="item.anniversaryId" :class="['day-list-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]" @click="activeRecord = item"><text>{{ marks[item.kind] }}</text><text>{{ item.label }}</text><text>{{ item.record?.confirmedAt ? '✓ 已纪念' : '›' }}</text></view><text v-if="selectedDay.tasks.length" class="day-group">待办</text><view v-for="task in selectedDay.tasks" :key="task.id" class="day-list-task" @click="editTask(task)"><text class="day-list-mark" :style="{ color: colorOf(task) }">{{ taskMark(task) }}</text><text>{{ task.title }}</text><text>{{ task.scheduleKind === 'range' ? `${task.plannedTime}–${task.plannedEndTime}` : task.plannedTime || '全天' }}</text></view><text v-if="!selectedDay.count" class="day-empty">这一天还没有安排</text></scroll-view><button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button></view></view>
+    <view v-if="selectedDate && viewMode === 'month'" class="day-layer" @click="selectedDate = ''">
+      <view class="day-sheet" @click.stop>
+        <view class="day-sheet-header"><text>{{ selectedDate }} · 当天事项</text><button aria-label="关闭当天事项" @click="selectedDate = ''">×</button></view>
+        <scroll-view class="day-sheet-list" scroll-y>
+          <DayAgenda :tasks="selectedDay.tasks" :anniversaries="selectedDay.anniversaries" :count="selectedDay.count" :meta="selectedMeta" :holiday="holidayOf(selectedDate)" :marks="marks" :color-of="colorOf" @edit-task="editTask" @open-anniversary="openRecord" @adjust-task="openQuickAdjust" />
+        </scroll-view>
+        <button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button>
+      </view>
+    </view>
     <TaskEditSheet ref="taskSheet" :visible="sheetVisible" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
+    <QuickAdjustSheet :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
     <AnniversaryRecordSheet ref="recordSheet" :occurrence="activeRecord" :today="today" @close="activeRecord = null" @saved="reload" />
     </template>
   </view>
@@ -49,15 +84,21 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { onShow, onHide, onUnload, onBackPress } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
+import DayAgenda from '../../components/DayAgenda.vue'
+import QuickAdjustSheet from '../../components/QuickAdjustSheet.vue'
 import AnniversaryRecordSheet from '../../components/AnniversaryRecordSheet.vue'
 import { anniversaryOccurrences, anniversaryTypes } from '../../../../shared/anniversary.mjs'
 import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../../api/holiday'
 import { tasksForDate, getCategories, listAnniversaries, listAnniversaryRecords } from '../../api/store'
-import { monthDates, monthTitle, shiftMonth, todayString } from '../../utils/date'
+import { addDays, monthDates, monthTitle, shiftMonth, todayString, weekDates, weekTitle, weekday } from '../../utils/date'
 import { taskMark } from '../../utils/task'
 import { resolveCalendarMeta } from '../../utils/calendar-meta'
 
 const anchor = ref(todayString())
+const viewMode = ref('month')
+const adjustVisible = ref(false)
+const adjustingTask = ref(null)
+let longPressAt = 0
 const today = ref(todayString())
 const sheetVisible = ref(false)
 const presetDate = ref('')
@@ -75,7 +116,7 @@ let dayTimer
 const holidayByDate = ref({})
 let holidayRefreshRequestId = 0
 
-const days = computed(() => monthDates(anchor.value))
+const days = computed(() => viewMode.value === 'week' ? weekDates(anchor.value) : monthDates(anchor.value))
 const calendarMeta = computed(() => Object.fromEntries(days.value.map(date => [date, resolveCalendarMeta(date)])))
 const selectedMeta = computed(() => calendarMeta.value[selectedDate.value] || { lunarText: '', markers: [] })
 const visibleHolidayYears = computed(() => [...new Set(days.value.map((date) => Number(date.slice(0, 4))))])
@@ -94,7 +135,14 @@ onShow(() => {
 onHide(releasePage)
 onUnload(releasePage)
 onBeforeUnmount(releasePage)
-onBackPress(() => { if (activeRecord.value) { recordSheet.value?.close(); return true } if (sheetVisible.value) { taskSheet.value?.requestClose(); return true } if (selectedDate.value) { selectedDate.value = ''; return true } return false })
+onBackPress(() => {
+  if (adjustVisible.value) { adjustVisible.value = false; return true }
+  if (activeRecord.value) { recordSheet.value?.close(); return true }
+  if (sheetVisible.value) { taskSheet.value?.requestClose(); return true }
+  if (viewMode.value === 'week') { switchView('month'); return true }
+  if (selectedDate.value) { selectedDate.value = ''; return true }
+  return false
+})
 
 function scheduleDay() { clearTimeout(dayTimer); const next = new Date(); next.setHours(24, 0, 0, 0); dayTimer = setTimeout(() => { reload(); scheduleDay() }, next.getTime() - Date.now() + 100) }
 function releasePage() {
@@ -112,15 +160,32 @@ function visibilityChanged() {
 }
 
 function shift(amount) {
-  anchor.value = shiftMonth(anchor.value, amount)
-  selectedDate.value = ''
+  if (viewMode.value === 'week') {
+    const index = Math.max(0, days.value.indexOf(selectedDate.value))
+    anchor.value = addDays(anchor.value, amount * 7)
+    selectedDate.value = days.value[index] || days.value[0]
+  } else {
+    anchor.value = shiftMonth(anchor.value, amount)
+    selectedDate.value = ''
+  }
   reload()
   void refreshVisibleHolidayCalendar(false)
 }
 
-function resetMonth() {
-  anchor.value = todayString()
-  selectedDate.value = ''
+function switchView(mode) {
+  if (viewMode.value === mode) return
+  anchor.value = selectedDate.value || anchor.value
+  viewMode.value = mode
+  selectedDate.value = mode === 'week' ? (days.value.includes(today.value) ? today.value : days.value[0]) : ''
+  reload()
+  void refreshVisibleHolidayCalendar(false)
+}
+
+function resetView() {
+  const now = todayString()
+  today.value = now
+  anchor.value = now
+  selectedDate.value = viewMode.value === 'week' ? now : ''
   reload()
   void refreshVisibleHolidayCalendar(true)
 }
@@ -155,14 +220,34 @@ function colorOf(task) {
   return categories.value.find(cat => cat.id === task.categoryId)?.color || '#8b98a8'
 }
 
+function weekdayLabel(date) {
+  return weekday(date).slice(1)
+}
+
 function openCreate(date) {
   if (sheetVisible.value || !reload()) return
   presetDate.value = date
   editingTask.value = null
-  selectedDate.value = ''
+  if (viewMode.value === 'month') selectedDate.value = ''
   sheetVisible.value = true
 }
-function editTask(task) { if (sheetVisible.value || !reload()) return; editingTask.value = task; selectedDate.value = ''; sheetVisible.value = true }
+function editTask(task) {
+  if (Date.now() - longPressAt < 700) return
+  if (sheetVisible.value || !reload()) return
+  editingTask.value = task
+  if (viewMode.value === 'month') selectedDate.value = ''
+  sheetVisible.value = true
+}
+function openRecord(item) {
+  activeRecord.value = item
+}
+function openQuickAdjust(task) {
+  if (!task || sheetVisible.value || adjustVisible.value) return
+  longPressAt = Date.now()
+  if (!reload()) return
+  adjustingTask.value = task
+  adjustVisible.value = true
+}
 
 function closeSheet() {
   sheetVisible.value = false
@@ -208,6 +293,105 @@ function reload() {
 .planning-page {
   display: flex;
   flex-direction: column;
+}
+
+.view-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8rpx;
+  padding: 8rpx 28rpx 12rpx;
+  background: var(--panel);
+}
+
+.view-tab {
+  flex: 1;
+  border-radius: 10rpx;
+  background: #f4f7fa;
+  color: #7b8794;
+  font-size: 26rpx;
+  line-height: 64rpx;
+  text-align: center;
+}
+
+.view-tab.active {
+  background: #7299d5;
+  color: #fff;
+  font-weight: 600;
+}
+
+.week-strip {
+  display: flex;
+  border-top: 2rpx solid var(--line);
+  border-bottom: 2rpx solid var(--line);
+}
+
+.week-day {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  padding: 10rpx 2rpx 8rpx;
+  border-right: 2rpx solid #f2f4f6;
+}
+
+.week-day:last-child {
+  border-right: 0;
+}
+
+.week-weekday {
+  color: var(--muted);
+  font-size: 20rpx;
+}
+
+.week-day .day-head {
+  min-height: 44rpx;
+}
+
+.week-day .day-num {
+  width: 44rpx;
+  height: 44rpx;
+  font-size: 24rpx;
+}
+
+.week-day .day-subtitle {
+  max-width: 100%;
+  padding: 0 2rpx;
+  height: 24rpx;
+  line-height: 24rpx;
+  font-size: 17rpx;
+}
+
+.week-day.is-selected {
+  background: #eef4fb;
+}
+
+.week-day.is-selected .day-num {
+  box-shadow: 0 0 0 3rpx #7299d5;
+}
+
+.week-count {
+  margin-top: 4rpx;
+  color: #a0aab7;
+  font-size: 18rpx;
+}
+
+.week-agenda {
+  margin: 16rpx 20rpx 32rpx;
+  padding-bottom: 8rpx;
+  overflow: hidden;
+}
+
+.week-agenda-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 20rpx 32rpx 8rpx;
+  color: #657c96;
+  font-size: 26rpx;
+}
+
+.week-agenda .day-add {
+  margin: 16rpx 32rpx 24rpx;
 }
 
 .month-scroll {

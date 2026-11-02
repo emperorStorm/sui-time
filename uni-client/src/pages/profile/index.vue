@@ -19,6 +19,7 @@
 
         <text class="mine-group-title">基础管理</text>
         <view class="mine-section panel">
+          <view class="mine-row" @click="openAccount"><view><text class="row-title">账号与同步</text><text class="row-hint">{{ syncAccountHint }}</text></view><text class="row-chevron">›</text></view>
           <view class="mine-row" @click="openAnniversaries"><view><text class="row-title">纪念日</text><text class="row-hint">记住生日、周年与值得期待的日子</text></view><text class="row-chevron">›</text></view>
         </view>
         <view class="mine-section panel">
@@ -49,7 +50,7 @@
           <view class="mine-row">
             <view>
               <text class="row-title">关于岁岁时光</text>
-              <text class="row-hint">本地优先 · 数据仅存本机</text>
+              <text class="row-hint">本地优先 · 按需账号同步</text>
             </view>
             <text class="row-value">v{{ currentVersion }}</text>
           </view>
@@ -69,9 +70,12 @@ import UpdateSheet from '../../components/UpdateSheet.vue'
 import { getProfile, getSettings, setHideCompleted, restoreDemoData } from '../../api/store'
 import { checkUpdate, downloadUpdate, cancelDownload, installDownloaded, installedVersion, subscribeUpdate, openUpdateInBrowser } from '../../api/update'
 import { toast } from '../../utils/platform'
+import { load as loadStorage } from '../../api/storage.js'
 
 function openAnniversaries() { uni.navigateTo({ url: '/pages/anniversaries/index' }) }
+function openAccount() { uni.navigateTo({ url: '/pages/account/index' }) }
 
+const syncAccountHint = ref('登录账号，在设备间同步')
 const profile = ref(null)
 const settings = ref(null)
 const ready = ref(false)
@@ -94,6 +98,8 @@ function load() {
     const nextProfile = getProfile()
     if (!nextProfile || typeof nextProfile !== 'object') throw new Error('本机个人资料无效，请保留数据并重试')
     const nextSettings = { ...getSettings() }
+    const syncMeta = loadStorage().syncMeta
+    syncAccountHint.value = syncMeta?.remoteUserId ? `已绑定 ${syncMeta.remoteUsername}` : '登录账号，在设备间同步'
     profile.value = { ...nextProfile }
     settings.value = nextSettings
     loadError.value = ''

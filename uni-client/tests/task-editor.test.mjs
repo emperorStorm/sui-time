@@ -17,7 +17,7 @@ async function editor() {
   let confirmed = false
   const parent = { id: 'parent', title: '原名称', notes: '', repeatRule: '{"kind":"none"}', priority: 'not_urgent_not_important' }
   const context = vm.createContext({
-    setTimeout, clearTimeout, console,
+    setTimeout, clearTimeout, setInterval, clearInterval, console,
     window: { addEventListener() {}, removeEventListener() {} },
     document: { addEventListener() {}, removeEventListener() {}, visibilityState: 'visible' },
     defineProps: () => props,
@@ -44,7 +44,7 @@ async function editor() {
     '../api/android': { androidSettings() {}, requestNotificationPermission() {} },
     '../utils/platform': { toast() {} }
   }
-  const module = new vm.SourceTextModule(`${source}\nexport { draft, flushDraft, requestClose, changeStatus, dirty, error };`, { context })
+  const module = new vm.SourceTextModule(`${source}\nexport { draft, flushDraft, requestClose, changeStatus, dirty, error, moveSubtaskTo, cancelSubtaskDrag, dragIndex, drag };`, { context })
   await module.link(specifier => {
     const exports = modules[specifier]
     return new vm.SyntheticModule(Object.keys(exports), function () {
@@ -175,5 +175,19 @@ test('当次事项保存不提交源子事项，状态使用同一个单次ID', 
     assert.equal(ui.writes.at(-1).input.id, 'parent@2026-10-27')
     assert.equal(ui.writes.at(-1).children, undefined)
     assert.equal(ui.writes.at(-1).options.status, 'failed')
+  } finally { ui.close() }
+})
+
+test('子项换位只调整数组顺序，取消拖动恢复开始前顺序', async () => {
+  const ui = await editor()
+  try {
+    ui.draft.subtasks = [{ id: 'a', title: '甲' }, { id: 'b', title: '乙' }, { id: 'c', title: '丙' }]
+    ui.moveSubtaskTo(0, 2)
+    assert.equal(ui.draft.subtasks.map(item => item.id).join(','), 'b,c,a')
+    ui.drag.snapshot = ['a', 'b', 'c']
+    ui.dragIndex.value = 1
+    ui.cancelSubtaskDrag()
+    assert.equal(ui.draft.subtasks.map(item => item.id).join(','), 'a,b,c')
+    assert.equal(ui.dragIndex.value, -1)
   } finally { ui.close() }
 })

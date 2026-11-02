@@ -12,18 +12,21 @@ test('旧存储升级保留原数据，存储失败不会更改缓存或误报�
   const { load, save } = await import('./storage.js')
   assert.deepEqual(load().anniversaries, [])
   assert.deepEqual(load().anniversaryRecords, [])
-  assert.deepEqual(load().tasks, original.tasks)
+  assert.equal(load().tasks[0].id, original.tasks[0].id)
+  assert.equal(load().tasks[0].deletedAt, null)
+  assert.ok(load().tasks[0].deviceId)
+  const migrated = structuredClone(stored)
   const candidate = { ...load(), anniversaries: [{ id: 'new' }] }
   failWrites = true
   assert.throws(() => save(candidate, { strict: true }), /无法保存/)
   assert.deepEqual(load().anniversaries, [])
-  assert.equal(stored.anniversaries, undefined)
+  assert.deepEqual(stored.anniversaries, [])
   failWrites = false
   save(candidate, { strict: true })
   assert.equal(load().anniversaries[0].id, 'new')
   assert.deepEqual(stored.profile, original.profile)
-  assert.deepEqual(stored.tasks, original.tasks)
-  assert.deepEqual(stored.categories, original.categories)
+  assert.deepEqual(stored.tasks, migrated.tasks)
+  assert.deepEqual(stored.categories, migrated.categories)
   const recordsCandidate = { ...load(), anniversaryRecords: [{ anniversaryId: 'new', date: '2020-01-01', notes: '回忆' }] }
   failWrites = true
   assert.throws(() => save(recordsCandidate, { strict: true }), /无法保存/)

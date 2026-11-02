@@ -3,10 +3,27 @@
 </template>
 
 <script setup>
-import { onLaunch, onShow } from '@dcloudio/uni-app'
+import { onBeforeUnmount } from 'vue'
+import { onHide, onLaunch, onShow } from '@dcloudio/uni-app'
 import { listTasks } from './api/store'
 import { syncTaskReminders } from './api/reminders'
 import { resumeUpdateInstallation } from './api/update'
+import { startAutoSync, syncNow } from './api/sync.js'
+let stopAutoSync = null
+function refreshSyncedPages() {
+  const pages = getCurrentPages()
+  const current = pages[pages.length - 1]
+  // 页面原有 onShow 负责从 store 重读，避免重建页面和丢失编辑草稿。
+  current?.$vm?.$callHook?.('onShow')
+  uni.$emit('store-refresh')
+  void refreshReminders()
+}
+function enableAutoSync() {
+  if (!stopAutoSync) stopAutoSync = startAutoSync(refreshSyncedPages)
+}
+function disableAutoSync() { stopAutoSync?.(); stopAutoSync = null }
+onHide(disableAutoSync)
+onBeforeUnmount(disableAutoSync)
 let reminderSyncing = false
 let reminderErrorVisible = false
 async function refreshReminders() {
@@ -33,8 +50,8 @@ async function refreshReminders() {
     })
   } finally { reminderSyncing = false }
 }
-onLaunch(() => { void refreshReminders() })
-onShow(() => { void refreshReminders(); resumeUpdateInstallation() })
+onLaunch(() => { enableAutoSync(); void refreshReminders() })
+onShow(() => { enableAutoSync(); void syncNow().catch(() => {}); void refreshReminders(); resumeUpdateInstallation() })
 </script>
 
 <style>

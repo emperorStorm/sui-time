@@ -7,6 +7,9 @@ use uuid::Uuid;
 use crate::models::{
     Anniversary, AnniversaryInput, AnniversaryRecord, AnniversaryRecordInput, AnniversarySummary,
 };
+use crate::sync_repo::{
+    enqueue_outbox, local_device_id, ENTITY_ANNIVERSARY, ENTITY_ANNIVERSARY_RECORD,
+};
 
 fn read_record(row: &Row<'_>) -> rusqlite::Result<AnniversaryRecord> {
     Ok(AnniversaryRecord {
@@ -44,7 +47,7 @@ pub fn list_anniversary_records(
     let mut statement = conn.prepare(
         "SELECT r.anniversary_id,r.date,r.notes,r.confirmed_at,r.title,r.kind,r.original_date,r.created_at,r.updated_at
          FROM anniversary_records r JOIN anniversaries a ON a.id=r.anniversary_id AND a.owner_id=r.owner_id
-         WHERE r.owner_id=?1 AND (?2 IS NULL OR r.anniversary_id=?2)
+         WHERE r.owner_id=?1 AND r.deleted_at IS NULL AND a.deleted_at IS NULL AND (?2 IS NULL OR r.anniversary_id=?2)
          AND (?3 IS NULL OR r.date>=?3) AND (?4 IS NULL OR r.date<=?4) ORDER BY r.date DESC,r.anniversary_id"
     ).map_err(|error| error.to_string())?;
     let rows = statement
@@ -135,12 +138,24 @@ pub fn save_anniversary_record(
         created_at: previous.as_ref().map(|r| r.created_at).unwrap_or(now),
         updated_at: now,
     };
-    transaction.execute(
-        "INSERT INTO anniversary_records(anniversary_id,owner_id,date,notes,confirmed_at,title,kind,original_date,created_at,updated_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
-         ON CONFLICT(anniversary_id,date) DO UPDATE SET notes=excluded.notes,confirmed_at=excluded.confirmed_at,updated_at=excluded.updated_at",
-        params![record.anniversary_id,owner,record.date,record.notes,record.confirmed_at,record.title,record.kind,record.original_date,record.created_at,record.updated_at]
+    let device_id = local_device_id(&transaction)?;
+    let changed = transaction.execute(
+        "INSERT INTO anniversary_records(anniversary_id,owner_id,date,notes,confirmed_at,title,kind,original_date,created_at,updated_at,device_id)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+         ON CONFLICT(anniversary_id,date) DO UPDATE SET notes=excluded.notes,confirmed_at=excluded.confirmed_at,updated_at=excluded.updated_at,device_id=excluded.device_id
+         WHERE anniversary_records.owner_id=excluded.owner_id AND anniversary_records.deleted_at IS NULL",
+        params![record.anniversary_id,owner,record.date,record.notes,record.confirmed_at,record.title,record.kind,record.original_date,record.created_at,record.updated_at,device_id]
     ).map_err(|error| error.to_string())?;
+    if changed == 0 {
+        return Err("纪念记录不存在或无权修改".to_string());
+    }
+    enqueue_outbox(
+        &transaction,
+        owner,
+        ENTITY_ANNIVERSARY_RECORD,
+        &format!("{}@{}", record.anniversary_id, record.date),
+        now,
+    )?;
     transaction.commit().map_err(|error| error.to_string())?;
     Ok(record)
 }
@@ -161,7 +176,7 @@ fn read_summary(row: &Row<'_>) -> rusqlite::Result<AnniversarySummary> {
 
 fn get_summary(conn: &Connection, owner: &str, id: &str) -> Result<AnniversarySummary, String> {
     conn.query_row(
-        "SELECT id,kind,title,date,notes,pinned,theme,created_at,updated_at FROM anniversaries WHERE owner_id=?1 AND id=?2",
+        "SELECT id,kind,title,date,notes,pinned,theme,created_at,updated_at FROM anniversaries WHERE owner_id=?1 AND id=?2 AND deleted_at IS NULL",
         params![owner, id], read_summary,
     ).map_err(|error| error.to_string())
 }
@@ -173,7 +188,7 @@ pub fn list_anniversaries(
     let mut statement = conn
         .prepare(
             "SELECT id, kind, title, date, notes, pinned, theme, created_at, updated_at
-         FROM anniversaries WHERE owner_id = ?1 ORDER BY created_at, id",
+         FROM anniversaries WHERE owner_id = ?1 AND deleted_at IS NULL ORDER BY created_at, id",
         )
         .map_err(|error| error.to_string())?;
     let rows = statement
@@ -186,7 +201,7 @@ pub fn list_anniversaries(
 pub fn get_anniversary(conn: &Connection, owner: &str, id: &str) -> Result<Anniversary, String> {
     conn.query_row(
         "SELECT id, kind, title, date, notes, pinned, theme, created_at, updated_at, photos_json, cover_index
-         FROM anniversaries WHERE owner_id = ?1 AND id = ?2", params![owner, id],
+         FROM anniversaries WHERE owner_id = ?1 AND deleted_at IS NULL AND id = ?2", params![owner, id],
         |row| {
             let encoded: String = row.get(9)?;
             let photos = serde_json::from_str(&encoded).map_err(|error| rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(error)))?;
@@ -212,38 +227,68 @@ pub fn save_anniversary(
     let transaction = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
+    let device_id = local_device_id(&transaction)?;
     if input.id.is_some() {
         let changed = transaction.execute(
             "UPDATE anniversaries SET kind=?1, title=?2, date=?3, notes=?4, pinned=?5, theme=?6,
-             photos_json=?7, cover_index=?8, updated_at=?9 WHERE id=?10 AND owner_id=?11",
-            params![input.kind, input.title, input.date, input.notes, input.pinned, input.theme, photos, input.cover_index, now, id, owner]
+             photos_json=?7, cover_index=?8, updated_at=?9, device_id=?12 WHERE id=?10 AND owner_id=?11 AND deleted_at IS NULL",
+            params![input.kind, input.title, input.date, input.notes, input.pinned, input.theme, photos, input.cover_index, now, id, owner, device_id]
         ).map_err(|error| error.to_string())?;
         if changed == 0 {
             return Err("纪念日不存在或无权修改".to_string());
         }
     } else {
         transaction.execute(
-            "INSERT INTO anniversaries (id, owner_id, kind, title, date, notes, pinned, theme, photos_json, cover_index, created_at, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)",
-            params![id, owner, input.kind, input.title, input.date, input.notes, input.pinned, input.theme, photos, input.cover_index, now]
+            "INSERT INTO anniversaries (id, owner_id, kind, title, date, notes, pinned, theme, photos_json, cover_index, created_at, updated_at, device_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11,?12)",
+            params![id, owner, input.kind, input.title, input.date, input.notes, input.pinned, input.theme, photos, input.cover_index, now, device_id]
         ).map_err(|error| error.to_string())?;
     }
+    enqueue_outbox(&transaction, owner, ENTITY_ANNIVERSARY, &id, now)?;
     let result = get_anniversary(&transaction, owner, &id)?;
     transaction.commit().map_err(|error| error.to_string())?;
     Ok(result)
 }
 
 pub fn delete_anniversary(conn: &Connection, owner: &str, id: &str) -> Result<(), String> {
-    let changed = conn
-        .execute(
-            "DELETE FROM anniversaries WHERE id=?1 AND owner_id=?2",
-            params![id, owner],
-        )
+    let transaction = conn
+        .unchecked_transaction()
         .map_err(|error| error.to_string())?;
+    let now = Local::now().timestamp_millis();
+    let device_id = local_device_id(&transaction)?;
+    let changed = transaction.execute(
+        "UPDATE anniversaries SET deleted_at=?3, updated_at=?3, device_id=?4 WHERE id=?1 AND owner_id=?2 AND deleted_at IS NULL",
+        params![id, owner, now, device_id],
+    ).map_err(|error| error.to_string())?;
     if changed == 0 {
         return Err("纪念日不存在或无权删除".to_string());
     }
-    Ok(())
+    let dates = {
+        let mut statement = transaction
+            .prepare(
+                "UPDATE anniversary_records SET deleted_at=?3, updated_at=?3, device_id=?4
+             WHERE anniversary_id=?1 AND owner_id=?2 AND deleted_at IS NULL RETURNING date",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(params![id, owner, now, device_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    for date in dates {
+        enqueue_outbox(
+            &transaction,
+            owner,
+            ENTITY_ANNIVERSARY_RECORD,
+            &format!("{id}@{date}"),
+            now,
+        )?;
+    }
+    enqueue_outbox(&transaction, owner, ENTITY_ANNIVERSARY, id, now)?;
+    transaction.commit().map_err(|error| error.to_string())
 }
 
 pub fn pin_anniversary(
@@ -252,16 +297,20 @@ pub fn pin_anniversary(
     id: &str,
     pinned: bool,
 ) -> Result<(), String> {
-    let changed = conn
-        .execute(
-            "UPDATE anniversaries SET pinned=?1, updated_at=?2 WHERE id=?3 AND owner_id=?4",
-            params![pinned, Local::now().timestamp_millis(), id, owner],
-        )
+    let transaction = conn
+        .unchecked_transaction()
         .map_err(|error| error.to_string())?;
+    let now = Local::now().timestamp_millis();
+    let device_id = local_device_id(&transaction)?;
+    let changed = transaction.execute(
+            "UPDATE anniversaries SET pinned=?1, updated_at=?2, device_id=?5 WHERE id=?3 AND owner_id=?4 AND deleted_at IS NULL",
+            params![pinned, now, id, owner, device_id],
+        ).map_err(|error| error.to_string())?;
     if changed == 0 {
         return Err("纪念日不存在或无权修改".to_string());
     }
-    Ok(())
+    enqueue_outbox(&transaction, owner, ENTITY_ANNIVERSARY, id, now)?;
+    transaction.commit().map_err(|error| error.to_string())
 }
 
 fn validate_anniversary(input: &AnniversaryInput) -> Result<(), String> {
@@ -373,6 +422,66 @@ mod tests {
     }
 
     #[test]
+    fn deletion_keeps_record_tombstones_and_queues_every_row() {
+        let conn = database();
+        let item = save_anniversary(&conn, "one", input()).unwrap();
+        let id = &item.summary.id;
+        save_anniversary_record(&conn, "one", record_input(id, "2020-02-01", true)).unwrap();
+        conn.execute("DELETE FROM sync_outbox", []).unwrap();
+        delete_anniversary(&conn, "one", id).unwrap();
+        assert_eq!(crate::sync_repo::pending_count(&conn, "one").unwrap(), 2);
+        let device = local_device_id(&conn).unwrap();
+        for table in ["anniversaries", "anniversary_records"] {
+            let (deleted, updated, row_device): (i64, i64, String) = conn
+                .query_row(
+                    &format!(
+                        "SELECT deleted_at,updated_at,device_id FROM {table} WHERE owner_id='one'"
+                    ),
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(deleted, updated);
+            assert_eq!(row_device, device);
+        }
+        assert!(get_anniversary(&conn, "one", id).is_err());
+        assert!(pin_anniversary(&conn, "one", id, true).is_err());
+        assert!(
+            save_anniversary_record(&conn, "one", record_input(id, "2020-02-01", true)).is_err()
+        );
+        assert!(list_anniversary_records(&conn, "one", None, None, None)
+            .unwrap()
+            .is_empty());
+        let mut draft = input();
+        draft.id = Some(id.clone());
+        assert!(save_anniversary(&conn, "one", draft).is_err());
+    }
+
+    #[test]
+    fn outbox_failure_rolls_back_anniversary_records_and_deletion() {
+        let conn = database();
+        let item = save_anniversary(&conn, "one", input()).unwrap();
+        let id = &item.summary.id;
+        save_anniversary_record(&conn, "one", record_input(id, "2020-02-01", true)).unwrap();
+        conn.execute("DELETE FROM sync_outbox", []).unwrap();
+        conn.execute_batch("CREATE TRIGGER fail_outbox BEFORE INSERT ON sync_outbox BEGIN SELECT RAISE(ABORT,'blocked'); END;").unwrap();
+        assert!(delete_anniversary(&conn, "one", id).is_err());
+        assert!(pin_anniversary(&conn, "one", id, true).is_err());
+        assert!(
+            save_anniversary_record(&conn, "one", record_input(id, "2020-02-01", false)).is_err()
+        );
+        assert!(save_anniversary(&conn, "one", input()).is_err());
+        assert_eq!(list_anniversaries(&conn, "one").unwrap().len(), 1);
+        assert!(!get_anniversary(&conn, "one", id).unwrap().summary.pinned);
+        assert!(
+            list_anniversary_records(&conn, "one", Some(id), None, None).unwrap()[0]
+                .confirmed_at
+                .is_some()
+        );
+        assert_eq!(crate::sync_repo::pending_count(&conn, "one").unwrap(), 0);
+    }
+
+    #[test]
     fn rejects_invalid_inputs_and_photos() {
         for (field, value) in [
             ("date", "2025-02-29"),
@@ -418,7 +527,7 @@ mod tests {
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            12
         );
         assert_eq!(
             conn.query_row("SELECT count(*) FROM users", [], |row| row.get::<_, i64>(0))

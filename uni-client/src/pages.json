@@ -5,6 +5,7 @@
     { "path": "pages/anniversaries/detail", "style": { "navigationStyle": "custom", "navigationBarTitleText": "纪念日详情" } },
     { "path": "pages/planning/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "规划" } },
     { "path": "pages/profile/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "我的" } },
+    { "path": "pages/account/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "账号与同步" } },
     { "path": "pages/diary/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "日记" } },
     { "path": "pages/goals/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "目标" } }
   ],

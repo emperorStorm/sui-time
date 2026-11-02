@@ -9,5 +9,7 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=src/macos_notifications.m");
     println!("cargo:rerun-if-changed=src/macos_notifications.h");
+    // 同步地址由编译期 option_env! 注入，变化时必须重新编译命令模块。
+    println!("cargo:rerun-if-env-changed=SUI_TIME_SYNC_BASE_URL");
     tauri_build::build()
 }

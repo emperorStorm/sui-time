@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { applyTaskTime, normalizeTask, compareTasks, taskMark } from '../src/utils/task.js'
 import { resolveTasksForDate } from '../src/utils/occurrence.js'
+import { weekDates, weekTitle } from '../src/utils/date.js'
 import * as store from '../src/api/store.js'
 import { syncTaskReminders, reminderState } from '../src/api/reminders.js'
 import { load, save as saveStorage } from '../src/api/storage.js'
@@ -377,4 +378,71 @@ test('返回权限设置后读取新权限，不被上轮排程结果覆盖', as
   assert.equal(reminderState().notifications, true)
   assert.equal(reminderState().exactAlarm, true)
   delete globalThis.plus
+})
+
+test('周日期以周一为起始，跨月与跨年标题可读', () => {
+  assert.deepEqual(weekDates('2026-10-01'), ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'])
+  assert.equal(weekDates('2026-10-04')[0], '2026-09-28')
+  assert.deepEqual(weekDates('2027-01-01'), ['2026-12-28', '2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03'])
+  assert.equal(weekTitle(weekDates('2026-10-05')), '2026年10月5日 – 11日')
+  assert.equal(weekTitle(weekDates('2026-10-01')), '2026年9月28日 – 10月4日')
+  assert.equal(weekTitle(weekDates('2027-01-01')), '2026年12月28日 – 2027年1月3日')
+})
+
+test('快捷改期改分类：普通事项更新自身，实例只写当次覆盖并刷新目标日期', async () => {
+  const category = store.saveCategory({ name: '快捷调整', color: '#123456' })
+  const plain = store.saveTask(task())
+  const moved = store.saveTask({ id: plain.id, plannedDate: '2026-10-20', categoryId: category.id })
+  await moved.reminderPromise
+  assert.equal(store.findTask(plain.id).plannedDate, '2026-10-20')
+  assert.equal(store.findTask(plain.id).categoryId, category.id)
+  assert.equal(store.findTask(plain.id).title, '测试事项')
+
+  const source = store.saveTask(task({ repeatRule: '{"kind":"daily"}', plannedDate: '2026-10-01' }))
+  const id = `${source.id}@2026-10-05`
+  const instance = store.saveTask({ id, plannedDate: '2026-10-20', categoryId: category.id })
+  await instance.reminderPromise
+  assert.equal(store.findTask(source.id).plannedDate, '2026-10-01')
+  assert.equal(store.findTask(source.id).categoryId, null)
+  assert.equal(store.tasksForDate('2026-10-05').some(item => item.id === id), false)
+  const target = store.tasksForDate('2026-10-20').find(item => item.id === id)
+  assert.ok(target)
+  assert.equal(target.plannedDate, '2026-10-20')
+  assert.equal(target.categoryId, category.id)
+  assert.equal(target.status, 'todo')
+  const override = JSON.parse(store.findTask(source.id).occurrenceOverrides)['2026-10-05']
+  assert.equal(override.plannedDate, '2026-10-20')
+  assert.equal(override.categoryId, category.id)
+  assert.ok(store.tasksForDate('2026-10-06').some(item => item.id === `${source.id}@2026-10-06`))
+})
+
+test('重复源改分类影响后续规则，已有当次覆盖保留自身分类与日期', () => {
+  const source = store.saveTask(task({ repeatRule: '{"kind":"weekly"}', plannedDate: '2026-10-01' }))
+  const overrideId = `${source.id}@2026-10-08`
+  store.saveTask({ id: overrideId, notes: '当次备注' })
+  const category = store.saveCategory({ name: '系列分类', color: '#654321' })
+  store.saveTask({ id: source.id, categoryId: category.id })
+  assert.equal(store.findTask(source.id).categoryId, category.id)
+  const kept = store.tasksForDate('2026-10-08').find(item => item.id === overrideId)
+  assert.equal(kept.categoryId, null)
+  const next = store.tasksForDate('2026-10-15').find(item => item.id === `${source.id}@2026-10-15`)
+  assert.equal(next.categoryId, category.id)
+})
+
+test('快捷调整写入失败不污染缓存、磁盘且不触发提醒排程', async () => {
+  const calls = []
+  globalThis.plus = { os: { name: 'Android' }, android: { runtimeMainActivity: () => ({}), invoke: (_, method, context, snapshot) => { calls.push(snapshot); return '{"supported":true}' } } }
+  const item = store.saveTask(task())
+  await item.reminderPromise
+  await syncTaskReminders(store.listTasks())
+  const before = structuredClone(load())
+  const diskBefore = structuredClone(disk)
+  const count = calls.length
+  fail = true
+  try {
+    assert.throws(() => store.saveTask({ id: item.id, plannedDate: '2026-12-01', categoryId: null }), /无法保存/)
+  } finally { fail = false; delete globalThis.plus }
+  assert.deepEqual(load(), before)
+  assert.deepEqual(disk, diskBefore)
+  assert.equal(calls.length, count)
 })

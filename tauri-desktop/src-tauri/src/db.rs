@@ -25,11 +25,16 @@ use crate::models::{
     AccountInput, Category, CategoryInput, ShowCompletedByView, Task, TaskChildInput,
     TaskChildrenInput, TaskInput, TaskView, UserSession,
 };
+use crate::sync_repo::{
+    enqueue_outbox, local_device_id, ENTITY_CATEGORY, ENTITY_SETTING, ENTITY_TASK,
+    SETTING_LAST_CATEGORY, SETTING_LAST_PRIORITY, SETTING_SHOW_MONTH, SETTING_SHOW_TASKS,
+    SETTING_SHOW_WEEK,
+};
 
 const ACTIVE_USER_KEY: &str = "active_user_id";
 const LAST_TASK_CATEGORY_KEY_PREFIX: &str = "last_task_category:";
 const LAST_TASK_PRIORITY_KEY_PREFIX: &str = "last_task_priority:";
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 const BACKUP_MAGIC: &[u8] = b"SUITIME-BACKUP-1";
 const BACKUP_SALT_LENGTH: usize = 16;
 const BACKUP_NONCE_LENGTH: usize = 12;
@@ -134,6 +139,9 @@ pub fn initialize(conn: &Connection) -> Result<(), String> {
             )
             .map_err(|error| error.to_string())?;
         transaction.commit().map_err(|error| error.to_string())?;
+    }
+    if version < 12 {
+        migrate_to_v12(conn)?;
     }
     Ok(())
 }
@@ -477,6 +485,51 @@ fn migrate_to_v9(conn: &Connection) -> Result<(), String> {
     transaction.commit().map_err(|error| error.to_string())
 }
 
+/// v12：同步所需的软删除墓碑、设备标识与待上传队列。
+fn migrate_to_v12(conn: &Connection) -> Result<(), String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    for table in [
+        "categories",
+        "tasks",
+        "anniversaries",
+        "anniversary_records",
+    ] {
+        if !column_exists(&transaction, table, "deleted_at")? {
+            transaction
+                .execute_batch(&format!(
+                    "ALTER TABLE {table} ADD COLUMN deleted_at INTEGER;"
+                ))
+                .map_err(|error| error.to_string())?;
+        }
+        if !column_exists(&transaction, table, "device_id")? {
+            transaction
+                .execute_batch(&format!(
+                    "ALTER TABLE {table} ADD COLUMN device_id TEXT NOT NULL DEFAULT '';"
+                ))
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    transaction
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS sync_outbox (
+               owner_id TEXT NOT NULL,
+               entity TEXT NOT NULL,
+               entity_id TEXT NOT NULL,
+               updated_at INTEGER NOT NULL,
+               PRIMARY KEY (owner_id, entity, entity_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_categories_owner_updated ON categories(owner_id, updated_at);
+             CREATE INDEX IF NOT EXISTS idx_tasks_owner_updated ON tasks(owner_id, updated_at);
+             CREATE INDEX IF NOT EXISTS idx_anniversaries_owner_updated ON anniversaries(owner_id, updated_at);
+             CREATE INDEX IF NOT EXISTS idx_anniversary_records_owner_updated ON anniversary_records(owner_id, updated_at);
+             PRAGMA user_version = 12;",
+        )
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
+}
+
 fn table_exists(conn: &Connection, table: &str) -> Result<bool, String> {
     conn.query_row(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -628,7 +681,16 @@ pub fn save_show_completed(
         TaskView::Week => "show_completed_week",
         TaskView::Month => "show_completed_month",
     };
-    let changed = conn
+    let setting_key = match view {
+        TaskView::All => SETTING_SHOW_TASKS,
+        TaskView::Week => SETTING_SHOW_WEEK,
+        TaskView::Month => SETTING_SHOW_MONTH,
+    };
+    let now = now_millis();
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let changed = transaction
         .execute(
             &format!("UPDATE users SET {column} = ?1 WHERE id = ?2"),
             params![show_completed, owner_id],
@@ -637,6 +699,8 @@ pub fn save_show_completed(
     if changed == 0 {
         return Err("账号不存在或无权修改".to_string());
     }
+    enqueue_outbox(&transaction, owner_id, ENTITY_SETTING, setting_key, now)?;
+    transaction.commit().map_err(|error| error.to_string())?;
     Ok(show_completed)
 }
 
@@ -655,7 +719,7 @@ pub fn get_last_task_category(conn: &Connection, owner_id: &str) -> Result<Optio
     };
     let valid = conn
         .query_row(
-            "SELECT 1 FROM categories WHERE id = ?1 AND owner_id = ?2",
+            "SELECT 1 FROM categories WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
             params![category_id, owner_id],
             |_| Ok(()),
         )
@@ -665,8 +729,7 @@ pub fn get_last_task_category(conn: &Connection, owner_id: &str) -> Result<Optio
     if valid {
         Ok(Some(category_id))
     } else {
-        conn.execute("DELETE FROM app_settings WHERE setting_key = ?1", [&key])
-            .map_err(|error| error.to_string())?;
+        save_last_task_category(conn, owner_id, None)?;
         Ok(None)
     }
 }
@@ -677,21 +740,43 @@ pub fn save_last_task_category(
     category_id: Option<&str>,
 ) -> Result<Option<String>, String> {
     let key = last_task_category_key(owner_id);
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    if !transaction
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE id=?1)",
+            [owner_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| error.to_string())?
+    {
+        return Err("账号不存在或无权修改".to_string());
+    }
     let category_id = category_id.map(str::trim).filter(|value| !value.is_empty());
-    let Some(category_id) = category_id else {
-        conn.execute("DELETE FROM app_settings WHERE setting_key = ?1", [&key])
+    let category_id = verify_category(&transaction, owner_id, category_id)?;
+    if let Some(id) = &category_id {
+        transaction
+            .execute(
+                "INSERT INTO app_settings (setting_key, setting_value) VALUES (?1, ?2)
+             ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value",
+                params![key, id],
+            )
             .map_err(|error| error.to_string())?;
-        return Ok(None);
-    };
-    let category_id = verify_category(conn, owner_id, Some(category_id))?
-        .ok_or_else(|| "分类不存在或无权使用".to_string())?;
-    conn.execute(
-        "INSERT INTO app_settings (setting_key, setting_value) VALUES (?1, ?2)
-         ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value",
-        params![key, category_id],
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(Some(category_id))
+    } else {
+        transaction
+            .execute("DELETE FROM app_settings WHERE setting_key = ?1", [&key])
+            .map_err(|error| error.to_string())?;
+    }
+    enqueue_outbox(
+        &transaction,
+        owner_id,
+        ENTITY_SETTING,
+        SETTING_LAST_CATEGORY,
+        now_millis(),
+    )?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(category_id)
 }
 
 fn last_task_category_key(owner_id: &str) -> String {
@@ -714,8 +799,20 @@ pub fn get_last_task_priority(conn: &Connection, owner_id: &str) -> Result<Optio
     if is_valid_priority(&priority) {
         Ok(Some(priority))
     } else {
-        conn.execute("DELETE FROM app_settings WHERE setting_key = ?1", [&key])
+        let transaction = conn
+            .unchecked_transaction()
             .map_err(|error| error.to_string())?;
+        transaction
+            .execute("DELETE FROM app_settings WHERE setting_key = ?1", [&key])
+            .map_err(|error| error.to_string())?;
+        enqueue_outbox(
+            &transaction,
+            owner_id,
+            ENTITY_SETTING,
+            SETTING_LAST_PRIORITY,
+            now_millis(),
+        )?;
+        transaction.commit().map_err(|error| error.to_string())?;
         Ok(None)
     }
 }
@@ -737,12 +834,24 @@ pub fn save_last_task_priority(
         return Err("账号不存在或无权修改".to_string());
     }
     let key = last_task_priority_key(owner_id);
-    conn.execute(
-        "INSERT INTO app_settings (setting_key, setting_value) VALUES (?1, ?2)
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute(
+            "INSERT INTO app_settings (setting_key, setting_value) VALUES (?1, ?2)
          ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value",
-        params![key, priority],
-    )
-    .map_err(|error| error.to_string())?;
+            params![key, priority],
+        )
+        .map_err(|error| error.to_string())?;
+    enqueue_outbox(
+        &transaction,
+        owner_id,
+        ENTITY_SETTING,
+        SETTING_LAST_PRIORITY,
+        now_millis(),
+    )?;
+    transaction.commit().map_err(|error| error.to_string())?;
     Ok(priority.to_string())
 }
 
@@ -761,7 +870,7 @@ fn is_valid_priority(priority: &str) -> bool {
 }
 
 pub fn list_categories(conn: &Connection, owner_id: &str) -> Result<Vec<Category>, String> {
-    let mut statement = conn.prepare("SELECT id, name, color, icon, sort_order FROM categories WHERE owner_id = ?1 ORDER BY sort_order, name COLLATE NOCASE")
+    let mut statement = conn.prepare("SELECT id, name, color, icon, sort_order FROM categories WHERE owner_id = ?1 AND deleted_at IS NULL ORDER BY sort_order, name COLLATE NOCASE")
         .map_err(|error| error.to_string())?;
     let rows = statement
         .query_map([owner_id], |row| {
@@ -795,14 +904,20 @@ pub fn save_category(
     }
     let now = now_millis();
     let id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
-    let changed = conn.execute(
-        "INSERT INTO categories (id, owner_id, name, color, icon, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
-         ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color, icon = excluded.icon, sort_order = excluded.sort_order, updated_at = excluded.updated_at WHERE categories.owner_id = excluded.owner_id",
-        params![id, owner_id, name, input.color, input.icon, input.sort_order, now],
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let device_id = local_device_id(&transaction)?;
+    let changed = transaction.execute(
+        "INSERT INTO categories (id, owner_id, name, color, icon, sort_order, created_at, updated_at, device_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color, icon = excluded.icon, sort_order = excluded.sort_order, updated_at = excluded.updated_at, device_id = excluded.device_id WHERE categories.owner_id = excluded.owner_id AND categories.deleted_at IS NULL",
+        params![id, owner_id, name, input.color, input.icon, input.sort_order, now, device_id],
     ).map_err(map_category_error)?;
     if changed == 0 {
         return Err("分类不存在或无权修改".to_string());
     }
+    enqueue_outbox(&transaction, owner_id, ENTITY_CATEGORY, &id, now)?;
+    transaction.commit().map_err(|error| error.to_string())?;
     Ok(Category {
         id,
         name: name.to_string(),
@@ -816,36 +931,45 @@ pub fn delete_category(conn: &Connection, owner_id: &str, category_id: &str) -> 
     let transaction = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    let last_category_key = last_task_category_key(owner_id);
-    transaction
-        .execute(
-            "UPDATE tasks SET category_id = NULL, updated_at = ?1 WHERE owner_id = ?2 AND category_id = ?3",
-            params![now_millis(), owner_id, category_id],
-        )
-        .map_err(|error| error.to_string())?;
+    let now = now_millis();
+    let device_id = local_device_id(&transaction)?;
     let changed = transaction
         .execute(
-            "DELETE FROM categories WHERE id = ?1 AND owner_id = ?2",
-            params![category_id, owner_id],
+            "UPDATE categories SET deleted_at = ?3, updated_at = ?3, device_id = ?4
+         WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
+            params![category_id, owner_id, now, device_id],
         )
         .map_err(|error| error.to_string())?;
     if changed == 0 {
         return Err("分类不存在或无权删除".to_string());
     }
-    transaction
+    enqueue_outbox(&transaction, owner_id, ENTITY_CATEGORY, category_id, now)?;
+    write_tasks(&transaction, owner_id,
+        "UPDATE tasks SET category_id = NULL, updated_at = ?1 WHERE owner_id = ?2 AND category_id = ?3",
+        params![now, owner_id, category_id], now)?;
+    let cleared = transaction
         .execute(
             "DELETE FROM app_settings WHERE setting_key = ?1 AND setting_value = ?2",
-            params![last_category_key, category_id],
+            params![last_task_category_key(owner_id), category_id],
         )
         .map_err(|error| error.to_string())?;
+    if cleared > 0 {
+        enqueue_outbox(
+            &transaction,
+            owner_id,
+            ENTITY_SETTING,
+            SETTING_LAST_CATEGORY,
+            now,
+        )?;
+    }
     transaction.commit().map_err(|error| error.to_string())
 }
 
 pub fn list_tasks(conn: &Connection, owner_id: &str) -> Result<Vec<Task>, String> {
     let mut statement = conn.prepare(
         "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.sort_order, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
-         FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id
-         WHERE tasks.owner_id = ?1
+         FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id AND categories.deleted_at IS NULL
+         WHERE tasks.owner_id = ?1 AND tasks.deleted_at IS NULL
          ORDER BY CASE WHEN tasks.planned_date IS NULL THEN 1 ELSE 0 END, tasks.planned_date, tasks.planned_time, tasks.created_at DESC",
     ).map_err(|error| error.to_string())?;
     let rows = statement
@@ -864,8 +988,8 @@ pub fn list_task_children(
     let mut statement = conn
         .prepare(
             "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.sort_order, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
-             FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id
-             WHERE tasks.owner_id = ?1 AND tasks.parent_task_id = ?2
+             FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id AND categories.deleted_at IS NULL
+             WHERE tasks.owner_id = ?1 AND tasks.deleted_at IS NULL AND tasks.parent_task_id = ?2
              ORDER BY tasks.sort_order, tasks.created_at, tasks.id",
         )
         .map_err(|error| error.to_string())?;
@@ -885,25 +1009,31 @@ pub fn reschedule_overdue_tasks(
     let transaction = conn
         .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    let changed = transaction
-        .execute(
-            "UPDATE tasks
+    let now = now_millis();
+    let changed = write_tasks(
+        &transaction,
+        owner_id,
+        "UPDATE tasks
              SET planned_date = ?1, updated_at = ?2
-             WHERE owner_id = ?3
+             WHERE owner_id = ?3 AND deleted_at IS NULL
                AND status = 'todo'
                AND planned_date IS NOT NULL
                AND planned_date < ?1
                AND parent_task_id IS NULL
                AND json_valid(repeat_rule) = 1
                AND json_extract(repeat_rule, '$.kind') = 'none'",
-            params![today, now_millis(), owner_id],
-        )
-        .map_err(|error| error.to_string())?;
+        params![today, now, owner_id],
+        now,
+    )?;
     transaction.commit().map_err(|error| error.to_string())?;
     Ok(changed)
 }
 
 pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<Task, String> {
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let conn = &transaction;
     let title = input.title.trim();
     if title.is_empty() || title.chars().count() > 120 {
         return Err("事项标题需为 1 至 120 个字符".to_string());
@@ -920,29 +1050,78 @@ pub fn save_task(conn: &Connection, owner_id: &str, input: TaskInput) -> Result<
     let occurrence_overrides = normalize_occurrence_overrides(&input.occurrence_overrides)?;
     let occurrence_overrides =
         preserve_terminal_override_history(existing.as_ref(), &occurrence_overrides)?;
-    let changed = conn.execute(
+    if let Some(parent_id) = input.parent_task_id.as_deref() {
+        if parent_id == id || get_task(conn, owner_id, parent_id)?.is_none() {
+            return Err("父事项不存在或无权使用".to_string());
+        }
+    }
+    let changed = write_tasks(conn, owner_id,
         "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'todo', NULL, ?14, ?15, NULL, ?15)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, reminder_offsets = excluded.reminder_offsets, parent_task_id = excluded.parent_task_id, status = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN 'todo' ELSE tasks.status END, failure_reason = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN NULL WHEN tasks.status = 'failed' THEN ?16 ELSE NULL END, completed_at = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN NULL ELSE tasks.completed_at END, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id",
-        params![id, owner_id, title, category_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, occurrence_overrides, serde_json::to_string(&input.reminder_offsets).map_err(|error| error.to_string())?, input.parent_task_id, input.notes.trim(), now, failure_reason],
-    ).map_err(|error| error.to_string())?;
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, category_id = excluded.category_id, planned_date = excluded.planned_date, planned_time = excluded.planned_time, planned_end_time = excluded.planned_end_time, schedule_kind = excluded.schedule_kind, priority = excluded.priority, repeat_rule = excluded.repeat_rule, occurrence_overrides = excluded.occurrence_overrides, reminder_offsets = excluded.reminder_offsets, parent_task_id = excluded.parent_task_id, status = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN 'todo' ELSE tasks.status END, failure_reason = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN NULL WHEN tasks.status = 'failed' THEN ?16 ELSE NULL END, completed_at = CASE WHEN json_valid(excluded.repeat_rule) = 1 AND COALESCE(json_extract(excluded.repeat_rule, '$.kind'), 'none') <> 'none' THEN NULL ELSE tasks.completed_at END, notes = excluded.notes, updated_at = excluded.updated_at WHERE tasks.owner_id = excluded.owner_id AND tasks.deleted_at IS NULL",
+        params![id, owner_id, title, category_id, input.planned_date, input.planned_time, input.planned_end_time, input.schedule_kind, input.priority, input.repeat_rule, occurrence_overrides, serde_json::to_string(&input.reminder_offsets).map_err(|error| error.to_string())?, input.parent_task_id, input.notes.trim(), now, failure_reason], now,
+    )?;
     if changed == 0 {
         return Err("事项不存在或无权修改".to_string());
     }
-    get_task(conn, owner_id, &id)?.ok_or_else(|| "事项保存失败".to_string())
+    let result = get_task(conn, owner_id, &id)?.ok_or_else(|| "事项保存失败".to_string())?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(result)
+}
+
+/// 调用方持有业务事务；仅为实际写入的事项更新设备标识并入队。
+fn write_tasks<P: rusqlite::Params>(
+    conn: &Connection,
+    owner_id: &str,
+    sql: &str,
+    parameters: P,
+    now: i64,
+) -> Result<usize, String> {
+    let ids = {
+        let mut statement = conn
+            .prepare(&format!("{sql} RETURNING id"))
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(parameters, |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    let device_id = local_device_id(conn)?;
+    for id in &ids {
+        conn.execute(
+            "UPDATE tasks SET device_id = ?1 WHERE id = ?2 AND owner_id = ?3",
+            params![device_id, id, owner_id],
+        )
+        .map_err(|error| error.to_string())?;
+        enqueue_outbox(conn, owner_id, ENTITY_TASK, id, now)?;
+    }
+    Ok(ids.len())
+}
+
+fn tombstone_task(
+    conn: &Connection,
+    owner_id: &str,
+    task_id: &str,
+    now: i64,
+) -> Result<(), String> {
+    get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项不存在或无权删除".to_string())?;
+    write_tasks(conn, owner_id,
+        "WITH RECURSIVE descendants(id) AS (
+            SELECT id FROM tasks WHERE id = ?1 AND owner_id = ?2
+            UNION SELECT t.id FROM tasks t JOIN descendants d ON t.parent_task_id = d.id WHERE t.owner_id = ?2
+         ) UPDATE tasks SET deleted_at = ?3, updated_at = ?3
+         WHERE owner_id = ?2 AND id IN (SELECT id FROM descendants) AND deleted_at IS NULL",
+        params![task_id, owner_id, now], now)?;
+    Ok(())
 }
 
 pub fn delete_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<(), String> {
-    let changed = conn
-        .execute(
-            "DELETE FROM tasks WHERE id = ?1 AND owner_id = ?2",
-            params![task_id, owner_id],
-        )
+    let transaction = conn
+        .unchecked_transaction()
         .map_err(|error| error.to_string())?;
-    if changed == 0 {
-        return Err("事项不存在或无权删除".to_string());
-    }
-    Ok(())
+    tombstone_task(&transaction, owner_id, task_id, now_millis())?;
+    transaction.commit().map_err(|error| error.to_string())
 }
 
 pub fn sync_task_children(
@@ -961,15 +1140,10 @@ pub fn sync_task_children(
         if !deleted_ids.insert(child_id) {
             return Err("子事项删除列表重复".to_string());
         }
-        let changed = transaction
-            .execute(
-                "DELETE FROM tasks WHERE id = ?1 AND owner_id = ?2 AND parent_task_id = ?3",
-                params![child_id, owner_id, input.parent_task_id],
-            )
-            .map_err(|error| error.to_string())?;
-        if changed == 0 {
-            return Err("子事项不存在或无权修改".to_string());
-        }
+        let child = get_task(&transaction, owner_id, child_id)?
+            .filter(|child| child.parent_task_id.as_deref() == Some(input.parent_task_id.as_str()))
+            .ok_or_else(|| "子事项不存在或无权修改".to_string())?;
+        tombstone_task(&transaction, owner_id, &child.id, now_millis())?;
     }
 
     let now = now_millis();
@@ -1008,7 +1182,7 @@ fn sync_parent_status_from_children(
     let (child_count, unfinished_count): (i64, i64) = conn
         .query_row(
             "SELECT COUNT(*), COUNT(CASE WHEN status != 'done' THEN 1 END)
-             FROM tasks WHERE owner_id = ?1 AND parent_task_id = ?2",
+             FROM tasks WHERE owner_id = ?1 AND parent_task_id = ?2 AND deleted_at IS NULL",
             params![owner_id, parent.id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -1018,18 +1192,16 @@ fn sync_parent_status_from_children(
     }
     if unfinished_count == 0 {
         if parent.status != "done" {
-            conn.execute(
-                "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3",
-                params![now, parent.id, owner_id],
-            )
-            .map_err(|error| error.to_string())?;
+            write_tasks(conn, owner_id,
+                "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3 AND deleted_at IS NULL",
+                params![now, parent.id, owner_id], now,
+            )?;
         }
     } else if parent.status == "done" {
-        conn.execute(
-            "UPDATE tasks SET status = 'todo', failure_reason = NULL, completed_at = NULL, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3",
-            params![now, parent.id, owner_id],
-        )
-        .map_err(|error| error.to_string())?;
+        write_tasks(conn, owner_id,
+            "UPDATE tasks SET status = 'todo', failure_reason = NULL, completed_at = NULL, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3 AND deleted_at IS NULL",
+            params![now, parent.id, owner_id], now,
+        )?;
     }
     Ok(())
 }
@@ -1068,24 +1240,21 @@ fn sync_child_task(
         if !seen_ids.insert(id.clone()) {
             return Err("子事项重复".to_string());
         }
-        let changed = conn
-            .execute(
-                "UPDATE tasks SET title = ?1, status = ?2, failure_reason = NULL, completed_at = ?3, sort_order = ?4, updated_at = ?5 WHERE id = ?6 AND owner_id = ?7 AND parent_task_id = ?8",
-                params![title, child.status, completed_at, child.sort_order, now, id, owner_id, parent_task_id],
-            )
-            .map_err(|error| error.to_string())?;
+        let changed = write_tasks(conn, owner_id,
+                "UPDATE tasks SET title = ?1, status = ?2, failure_reason = NULL, completed_at = ?3, sort_order = ?4, updated_at = ?5 WHERE id = ?6 AND owner_id = ?7 AND parent_task_id = ?8 AND deleted_at IS NULL",
+                params![title, child.status, completed_at, child.sort_order, now, id, owner_id, parent_task_id], now,
+            )?;
         if changed == 0 {
             return Err("子事项不存在或无权修改".to_string());
         }
         return Ok(());
     }
 
-    conn.execute(
+    write_tasks(conn, owner_id,
         "INSERT INTO tasks (id, owner_id, title, category_id, planned_date, planned_time, planned_end_time, schedule_kind, priority, repeat_rule, occurrence_overrides, reminder_offsets, sort_order, parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at)
          VALUES (?1, ?2, ?3, NULL, NULL, NULL, NULL, 'all_day', 'not_urgent_not_important', '{\"kind\":\"none\"}', '{}', '[]', ?4, ?5, ?6, NULL, '', ?7, ?8, ?7)",
-        params![Uuid::new_v4().to_string(), owner_id, title, child.sort_order, parent_task_id, child.status, now, completed_at],
-    )
-    .map_err(|error| error.to_string())?;
+        params![Uuid::new_v4().to_string(), owner_id, title, child.sort_order, parent_task_id, child.status, now, completed_at], now,
+    )?;
     Ok(())
 }
 
@@ -1113,18 +1282,15 @@ pub fn set_task_status(
         None
     };
     let now = now_millis();
-    transaction.execute(
-        "UPDATE tasks SET status = ?1, failure_reason = ?2, completed_at = ?3, updated_at = ?4 WHERE id = ?5 AND owner_id = ?6",
-        params![status, reason, if status == "done" { Some(now) } else { None }, now, task_id, owner_id],
-    )
-    .map_err(|error| error.to_string())?;
+    write_tasks(&transaction, owner_id,
+        "UPDATE tasks SET status = ?1, failure_reason = ?2, completed_at = ?3, updated_at = ?4 WHERE id = ?5 AND owner_id = ?6 AND deleted_at IS NULL",
+        params![status, reason, if status == "done" { Some(now) } else { None }, now, task_id, owner_id], now,
+    )?;
     if status == "todo" && current.status == "done" {
-        transaction
-            .execute(
-                "UPDATE tasks SET status = 'todo', failure_reason = NULL, completed_at = NULL, updated_at = ?1 WHERE owner_id = ?2 AND parent_task_id = ?3",
-                params![now, owner_id, task_id],
-            )
-            .map_err(|error| error.to_string())?;
+        write_tasks(&transaction, owner_id,
+                "UPDATE tasks SET status = 'todo', failure_reason = NULL, completed_at = NULL, updated_at = ?1 WHERE owner_id = ?2 AND parent_task_id = ?3 AND deleted_at IS NULL",
+                params![now, owner_id, task_id], now,
+            )?;
     }
     transaction.commit().map_err(|error| error.to_string())?;
     get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项修改失败".to_string())
@@ -1138,7 +1304,7 @@ pub fn count_unfinished_task_children(
     get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项不存在或无权修改".to_string())?;
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM tasks WHERE owner_id = ?1 AND parent_task_id = ?2 AND status != 'done'",
+            "SELECT COUNT(*) FROM tasks WHERE owner_id = ?1 AND parent_task_id = ?2 AND deleted_at IS NULL AND status != 'done'",
             params![owner_id, task_id],
             |row| row.get(0),
         )
@@ -1162,18 +1328,14 @@ pub fn complete_task_with_children(
     }
 
     let now = now_millis();
-    transaction
-        .execute(
-            "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE owner_id = ?2 AND parent_task_id = ?3 AND status != 'done'",
-            params![now, owner_id, task_id],
-        )
-        .map_err(|error| error.to_string())?;
-    transaction
-        .execute(
-            "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3",
-            params![now, task_id, owner_id],
-        )
-        .map_err(|error| error.to_string())?;
+    write_tasks(&transaction, owner_id,
+            "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE owner_id = ?2 AND parent_task_id = ?3 AND status != 'done' AND deleted_at IS NULL",
+            params![now, owner_id, task_id], now,
+        )?;
+    write_tasks(&transaction, owner_id,
+            "UPDATE tasks SET status = 'done', failure_reason = NULL, completed_at = ?1, updated_at = ?1 WHERE id = ?2 AND owner_id = ?3 AND deleted_at IS NULL",
+            params![now, task_id, owner_id], now,
+        )?;
     transaction.commit().map_err(|error| error.to_string())?;
     get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项修改失败".to_string())
 }
@@ -1185,22 +1347,27 @@ pub fn reschedule_task(
     planned_date: Option<String>,
 ) -> Result<Task, String> {
     validate_date(planned_date.as_deref())?;
-    let changed = conn
-        .execute(
-            "UPDATE tasks SET planned_date = ?1, updated_at = ?2 WHERE id = ?3 AND owner_id = ?4",
-            params![planned_date, now_millis(), task_id, owner_id],
-        )
+    let transaction = conn
+        .unchecked_transaction()
         .map_err(|error| error.to_string())?;
+    let now = now_millis();
+    let changed = write_tasks(&transaction, owner_id,
+            "UPDATE tasks SET planned_date = ?1, updated_at = ?2 WHERE id = ?3 AND owner_id = ?4 AND deleted_at IS NULL",
+            params![planned_date, now, task_id, owner_id], now,
+        )?;
     if changed == 0 {
         return Err("事项不存在或无权修改".to_string());
     }
-    get_task(conn, owner_id, task_id)?.ok_or_else(|| "事项修改失败".to_string())
+    let result =
+        get_task(&transaction, owner_id, task_id)?.ok_or_else(|| "事项修改失败".to_string())?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(result)
 }
 
 fn get_task(conn: &Connection, owner_id: &str, task_id: &str) -> Result<Option<Task>, String> {
     conn.query_row(
         "SELECT tasks.id, tasks.title, tasks.category_id, categories.name, categories.color, categories.icon, tasks.planned_date, tasks.planned_time, tasks.planned_end_time, tasks.schedule_kind, tasks.priority, tasks.repeat_rule, tasks.occurrence_overrides, tasks.reminder_offsets, tasks.sort_order, tasks.parent_task_id, tasks.status, tasks.notes, tasks.created_at, tasks.completed_at, tasks.updated_at, tasks.failure_reason
-         FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id WHERE tasks.id = ?1 AND tasks.owner_id = ?2",
+         FROM tasks LEFT JOIN categories ON categories.id = tasks.category_id AND categories.owner_id = tasks.owner_id AND categories.deleted_at IS NULL WHERE tasks.id = ?1 AND tasks.owner_id = ?2 AND tasks.deleted_at IS NULL",
         params![task_id, owner_id], task_from_row,
     ).optional().map_err(|error| error.to_string())
 }
@@ -1345,7 +1512,7 @@ fn verify_category(
     };
     let exists = conn
         .query_row(
-            "SELECT 1 FROM categories WHERE id = ?1 AND owner_id = ?2",
+            "SELECT 1 FROM categories WHERE id = ?1 AND owner_id = ?2 AND deleted_at IS NULL",
             params![category_id, owner_id],
             |_| Ok(()),
         )
@@ -1471,8 +1638,9 @@ pub fn restore_app_data(
     let restored_bytes = decrypt_backup_file(Path::new(&backup_path), &password)?;
     let restore_path = temporary_database_path(&database_path, "restore");
     write_new_file(&restore_path, &restored_bytes)?;
-    if let Err(error) = validate_database_file(&restore_path) {
+    if let Err(error) = prepare_restored_database(&restore_path) {
         let _ = fs::remove_file(&restore_path);
+        remove_sqlite_sidecars(&restore_path);
         return Err(error);
     }
 
@@ -1629,6 +1797,20 @@ fn validate_database_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn prepare_restored_database(path: &Path) -> Result<(), String> {
+    validate_database_file(path)?;
+    let conn = Connection::open(path).map_err(|error| error.to_string())?;
+    initialize(&conn)?;
+    let transaction = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    crate::sync_repo::reset_sync_state(&transaction)?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|error| error.to_string())?;
+    conn.close().map_err(|(_, error)| error.to_string())
+}
+
 fn replace_database_file(database_path: &Path, restored_path: &Path) -> Result<(), String> {
     let displaced_path = temporary_database_path(database_path, "previous");
     fs::rename(database_path, &displaced_path).map_err(|error| error.to_string())?;
@@ -1687,7 +1869,7 @@ fn is_category_icon(value: &str) -> bool {
     .contains(&value)
 }
 
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1757,6 +1939,134 @@ mod tests {
             failure_reason: None,
             notes: String::new(),
         }
+    }
+
+    #[test]
+    fn task_tombstones_include_descendants_and_reject_later_writes() {
+        let conn = memory_db();
+        conn.execute(
+            "INSERT INTO users(id,username,password_hash,created_at) VALUES('one','甲','unused',0)",
+            [],
+        )
+        .unwrap();
+        let parent = save_task(
+            &conn,
+            "one",
+            task_input("父", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let child = save_task(
+            &conn,
+            "one",
+            task_input(
+                "子",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        let grandchild = save_task(
+            &conn,
+            "one",
+            task_input(
+                "孙",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(child.id.clone()),
+            ),
+        )
+        .unwrap();
+        conn.execute("DELETE FROM sync_outbox", []).unwrap();
+        delete_task(&conn, "one", &parent.id).unwrap();
+        let device = local_device_id(&conn).unwrap();
+        for id in [&parent.id, &child.id, &grandchild.id] {
+            let (deleted, updated, row_device): (i64, i64, String) = conn
+                .query_row(
+                    "SELECT deleted_at,updated_at,device_id FROM tasks WHERE id=?1",
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            assert_eq!(deleted, updated);
+            assert_eq!(row_device, device);
+            assert!(get_task(&conn, "one", id).unwrap().is_none());
+            assert!(reschedule_task(&conn, "one", id, None).is_err());
+        }
+        assert_eq!(crate::sync_repo::pending_count(&conn, "one").unwrap(), 3);
+        assert!(list_tasks(&conn, "one").unwrap().is_empty());
+        assert_eq!(
+            reschedule_overdue_tasks(&conn, "one", "2026-01-01").unwrap(),
+            0
+        );
+        let mut draft = task_input("不能复活", None, None, r#"{"kind":"none"}"#, None);
+        draft.id = Some(parent.id.clone());
+        assert!(save_task(&conn, "one", draft).is_err());
+        assert!(delete_task(&conn, "one", &parent.id).is_err());
+    }
+
+    #[test]
+    fn outbox_failure_rolls_back_task_and_setting_writes() {
+        let conn = memory_db();
+        conn.execute(
+            "INSERT INTO users(id,username,password_hash,created_at) VALUES('one','甲','unused',0)",
+            [],
+        )
+        .unwrap();
+        let task = save_task(
+            &conn,
+            "one",
+            task_input("原始", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        conn.execute("DELETE FROM sync_outbox", []).unwrap();
+        conn.execute_batch("CREATE TRIGGER fail_outbox BEFORE INSERT ON sync_outbox BEGIN SELECT RAISE(ABORT,'blocked'); END;").unwrap();
+        assert!(delete_task(&conn, "one", &task.id).is_err());
+        assert!(set_task_status(&conn, "one", &task.id, "done", None).is_err());
+        assert!(reschedule_task(&conn, "one", &task.id, Some("2026-01-01".into())).is_err());
+        assert!(save_last_task_priority(&conn, "one", "urgent_important").is_err());
+        assert!(save_show_completed(&conn, "one", TaskView::All, true).is_err());
+        assert!(get_last_task_priority(&conn, "one").unwrap().is_none());
+        let saved = get_task(&conn, "one", &task.id).unwrap().unwrap();
+        assert_eq!(saved.status, "todo");
+        assert!(saved.planned_date.is_none());
+        assert_eq!(crate::sync_repo::pending_count(&conn, "one").unwrap(), 0);
+    }
+
+    #[test]
+    fn restored_database_clears_sync_context_and_preserves_business_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("restore.sqlite3");
+        {
+            let conn = Connection::open(&path).unwrap();
+            initialize(&conn).unwrap();
+            conn.execute("INSERT INTO users(id,username,password_hash,created_at) VALUES('one','甲','unused',0)", []).unwrap();
+            save_task(
+                &conn,
+                "one",
+                task_input("保留", None, None, r#"{"kind":"none"}"#, None),
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO app_settings VALUES('sync_account:one','{}')",
+                [],
+            )
+            .unwrap();
+        }
+        prepare_restored_database(&path).unwrap();
+        let conn = Connection::open(&path).unwrap();
+        assert_eq!(list_tasks(&conn, "one").unwrap().len(), 1);
+        assert_eq!(crate::sync_repo::pending_count(&conn, "one").unwrap(), 0);
+        assert!(crate::sync_repo::read_account(&conn, "one")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            12
+        );
     }
 
     #[test]
@@ -2006,6 +2316,99 @@ mod tests {
     }
 
     #[test]
+    fn v12_migration_preserves_rows_and_adds_sync_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        configure_connection(&conn).unwrap();
+        for table in [
+            "categories",
+            "tasks",
+            "anniversaries",
+            "anniversary_records",
+        ] {
+            conn.execute_batch(&format!(
+                "CREATE TABLE {table}(id TEXT, owner_id TEXT, updated_at INTEGER); INSERT INTO {table} VALUES('old','one',123);"
+            )).unwrap();
+        }
+        conn.execute_batch("PRAGMA user_version=11;").unwrap();
+        migrate_to_v12(&conn).unwrap();
+        migrate_to_v12(&conn).unwrap();
+        for table in [
+            "categories",
+            "tasks",
+            "anniversaries",
+            "anniversary_records",
+        ] {
+            let row: (String, i64, Option<i64>, String) = conn
+                .query_row(
+                    &format!("SELECT id,updated_at,deleted_at,device_id FROM {table}"),
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .unwrap();
+            assert_eq!(row, ("old".into(), 123, None, String::new()));
+        }
+        assert!(table_exists(&conn, "sync_outbox").unwrap());
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            12
+        );
+    }
+
+    #[test]
+    fn deleted_children_are_excluded_from_status_counts_and_writes() {
+        let conn = memory_db();
+        conn.execute(
+            "INSERT INTO users(id,username,password_hash,created_at) VALUES('one','甲','unused',0)",
+            [],
+        )
+        .unwrap();
+        let parent = save_task(
+            &conn,
+            "one",
+            task_input("父", None, None, r#"{"kind":"none"}"#, None),
+        )
+        .unwrap();
+        let child = save_task(
+            &conn,
+            "one",
+            task_input(
+                "子",
+                None,
+                None,
+                r#"{"kind":"none"}"#,
+                Some(parent.id.clone()),
+            ),
+        )
+        .unwrap();
+        delete_task(&conn, "one", &child.id).unwrap();
+        assert!(list_task_children(&conn, "one", &parent.id)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            count_unfinished_task_children(&conn, "one", &parent.id).unwrap(),
+            0
+        );
+        let before: (i64, i64) = conn
+            .query_row(
+                "SELECT deleted_at,updated_at FROM tasks WHERE id=?1",
+                [&child.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        complete_task_with_children(&conn, "one", &parent.id).unwrap();
+        set_task_status(&conn, "one", &parent.id, "todo", None).unwrap();
+        let after: (i64, i64) = conn
+            .query_row(
+                "SELECT deleted_at,updated_at FROM tasks WHERE id=?1",
+                [&child.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn migration_records_current_schema_version() {
         let conn = memory_db();
         let version: i64 = conn
@@ -2107,7 +2510,30 @@ mod tests {
             },
         )
         .unwrap();
+        conn.execute("DELETE FROM sync_outbox", []).unwrap();
         delete_category(&conn, &user.id, &category.id).unwrap();
+        assert!(list_categories(&conn, &user.id).unwrap().is_empty());
+        assert!(verify_category(&conn, &user.id, Some(&category.id)).is_err());
+        assert_eq!(crate::sync_repo::pending_count(&conn, &user.id).unwrap(), 2);
+        let device = local_device_id(&conn).unwrap();
+        for (table, id) in [("categories", &category.id), ("tasks", &task.id)] {
+            let row_device: String = conn
+                .query_row(
+                    &format!("SELECT device_id FROM {table} WHERE id=?1"),
+                    [id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(row_device, device);
+        }
+        assert!(conn
+            .query_row(
+                "SELECT deleted_at FROM categories WHERE id=?1",
+                [&category.id],
+                |row| row.get::<_, Option<i64>>(0)
+            )
+            .unwrap()
+            .is_some());
         assert!(get_task(&conn, &user.id, &task.id)
             .unwrap()
             .unwrap()
@@ -2235,7 +2661,7 @@ mod tests {
             },
         )
         .unwrap();
-        conn.execute_batch("CREATE TRIGGER block_category_delete BEFORE DELETE ON categories BEGIN SELECT RAISE(ABORT, 'blocked'); END;").unwrap();
+        conn.execute_batch("CREATE TRIGGER block_category_delete BEFORE UPDATE OF deleted_at ON categories BEGIN SELECT RAISE(ABORT, 'blocked'); END;").unwrap();
 
         assert!(delete_category(&conn, &user.id, &category.id).is_err());
         assert_eq!(

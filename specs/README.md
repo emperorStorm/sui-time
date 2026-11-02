@@ -18,4 +18,4 @@ Spec 记录具体能力的需求、边界、数据契约和验收标准；真实
 | 更新与通知中心 | `baseline/update-notifications.md` |
 | 移动端客户端 | `baseline/mobile-client.md` |
 
-云同步、PostgreSQL 和业务服务器不属于当前基线。
+云同步服务端位于 `Laoshi` 仓库的 Go 模块化单体；本仓库只维护客户端同步与本地数据层，云同步尚未完成生产上线验证。

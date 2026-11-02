@@ -412,7 +412,7 @@ body, .app-shell, .workspace, .loading-screen { background: var(--ui-canvas); }
 .subtask-row.is-dragging { opacity: .45; }
 .subtask-row.is-drag-over { box-shadow: inset 0 2px 0 var(--subtask-color, var(--ui-primary)); }
 .subtask-row.is-drag-over-after { box-shadow: inset 0 -2px 0 var(--subtask-color, var(--ui-primary)); }
-.subtask-drag-handle { display: grid; width: 22px; height: 28px; flex: 0 0 22px; place-items: center; cursor: grab; background: transparent; color: #a2acb8; }
+.subtask-drag-handle { display: grid; width: 22px; height: 28px; flex: 0 0 22px; place-items: center; cursor: grab; touch-action: none; user-select: none; background: transparent; color: #a2acb8; }
 .subtask-drag-handle:active { cursor: grabbing; }
 .task-save-state { min-width: 0; overflow: hidden; color: #8a96a3; font-size: 11px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .task-save-state.error { color: #d2555d; }

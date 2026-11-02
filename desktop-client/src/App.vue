@@ -39,7 +39,7 @@
         <Transition name="popover">
           <section v-if="brandMenuOpen" ref="brandMenu" class="brand-menu sidebar-account-menu" :style="brandMenuStyle" aria-label="账户与应用设置" @keydown.esc.stop="brandMenuOpen = false; brandMenuTrigger?.focus()">
             <div class="brand-menu-profile"><span class="avatar">{{ session.displayName.slice(0, 1) }}</span><div><strong>{{ session.displayName }}</strong><small>本地时光簿</small></div></div>
-            <div class="brand-menu-list"><button type="button" @click="openBrandMenuView('categories')"><CategoryIcon :size="16" />分类管理</button><button type="button" @click="openBrandMenuView('about')"><Info :size="16" />关于岁岁时光</button></div>
+            <div class="brand-menu-list"><button type="button" @click="openBrandMenuView('sync')"><RefreshCw :size="16" />账号与同步</button><button type="button" @click="openBrandMenuView('categories')"><CategoryIcon :size="16" />分类管理</button><button type="button" @click="openBrandMenuView('about')"><Info :size="16" />关于岁岁时光</button></div>
             <button class="brand-menu-logout" type="button" @click="handleLogout"><LogOut :size="16" />退出登录</button>
           </section>
         </Transition>
@@ -121,7 +121,8 @@
           </div>
         </section>
 
-        <AnniversaryPage v-else-if="currentView === 'anniversaries'" :key="session.id" :initial-id="anniversaryDetailId" />
+        <SyncSettings v-else-if="currentView === 'sync'" :key="session.id" :status="syncStatus" @state="acceptSyncState" />
+        <AnniversaryPage v-else-if="currentView === 'anniversaries'" :key="`${session.id}:${syncDataRevision}`" :initial-id="anniversaryDetailId" />
         <section v-else-if="currentView === 'categories'" class="page settings-page">
           <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">生活分类</p><h2>分类管理</h2><span>用颜色和图标区分不同生活主题，删除分类不会删除关联事项。</span></div><button class="primary-button" @click="openCategoryModal()"><Plus :size="18" />新增分类</button></div><div v-if="categories.length" class="category-table"><div v-for="category in categories" :key="category.id" class="category-row"><span class="category-icon" :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="17" /></span><strong>{{ category.name }}</strong><small>{{ categoryTaskCount(category.id) }} 项事项</small><div><button class="icon-button ghost" title="编辑分类" @click="openCategoryModal(category)"><Pencil :size="16" /></button><button class="icon-button ghost danger" title="删除分类" @click="deleteCategory(category)"><Trash2 :size="16" /></button></div></div></div><p v-else class="empty-state">还没有分类。先为工作、生活或兴趣添加一个分类。</p></section>
         </section>
@@ -158,7 +159,7 @@
         <Transition name="popover"><div v-if="categoryMenuOpen" class="task-category-menu" role="menu" aria-label="选择分类"><button v-for="category in orderedCategories" :key="category.id" type="button" :class="{ selected: taskDraft.categoryId === category.id }" role="menuitemradio" :aria-checked="taskDraft.categoryId === category.id" @click="selectTaskCategory(category.id)"><span :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="18" /></span><strong>{{ category.name }}</strong><Check v-if="taskDraft.categoryId === category.id" :size="15" /></button></div></Transition>
         <div ref="taskModalBody" class="task-modal-body" @dragover="scrollChildDrag($event)" @dragleave="leaveChildDragBody($event)">
           <section class="task-meta-list" aria-label="事项属性"><button type="button" class="task-meta-row" @click="timeOpen = true"><AlarmClock :size="20" /><span><small>日期与时间</small><strong>{{ timeSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" :disabled="!canSetReminder" @click="openReminderSheet"><BellRing :size="20" /><span><small>提醒</small><strong>{{ reminderSummary }}</strong></span><ChevronRight :size="18" /></button><button type="button" class="task-meta-row" @click="repeatOpen = true"><CircleDot :size="20" /><span><small>重复</small><strong>{{ repeatSummary }}</strong></span><ChevronRight :size="18" /></button></section>
-          <section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id && !childDropAfter, 'is-drag-over-after': dragOverChildId === subtask.id && childDropAfter }]" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id, $event)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" draggable="true" @dragstart.stop="startChildDrag(subtask.id, $event)" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @blur="flushTaskDraftSave" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
+          <section class="subtask-section" :style="{ '--subtask-color': selectedTaskCategory?.color || '#2F80ED' }"><div class="section-label">子事项</div><div class="subtask-list"><div v-for="subtask in childDrafts" :key="subtask.id" :class="['subtask-row', { 'is-dragging': draggedChildId === subtask.id, 'is-drag-over': dragOverChildId === subtask.id && !childDropAfter, 'is-drag-over-after': dragOverChildId === subtask.id && childDropAfter }]" :data-child-id="subtask.id" draggable="true" @dragstart="startChildDrag(subtask.id, $event)" @dragover.prevent="dragOverChild(subtask.id, $event)" @drop.prevent="dropChild(subtask.id)" @dragend="endChildDrag"><button type="button" class="subtask-drag-handle" title="拖动调整顺序" aria-label="拖动调整顺序" draggable="false" @pointerdown.stop.prevent="startChildPointerDrag(subtask.id, $event)" @mousedown.stop><GripVertical :size="17" /></button><button type="button" :class="['task-check', { done: subtask.status === 'done' }]" :disabled="savingTask || updatingTaskStatus" :aria-label="subtask.status === 'done' ? '标记子事项为待完成' : '标记子事项为已完成'" :aria-pressed="subtask.status === 'done'" @click="toggleChildDraftStatus(subtask)"><Check v-if="subtask.status === 'done'" :size="13" /></button><input :data-subtask-id="subtask.id" v-model.trim="subtask.title" maxlength="120" placeholder="子事项" @input="syncTaskDraftStatusWithChildren" @blur="flushTaskDraftSave" @keydown.enter.prevent="addChildDraft(subtask.id)" /><button type="button" class="subtask-remove" title="删除子事项" @click="removeChildDraft(subtask.id)"><CircleMinus :size="17" /></button></div></div><button type="button" class="add-subtask" @click="addChildDraft()"><Plus :size="20" />添加子事项</button></section>
           <label class="notes-editor"><span class="section-label">备注</span><textarea ref="notesTextarea" v-model.trim="taskDraft.notes" rows="4" maxlength="1000" placeholder="补充一点上下文，给未来的自己。" @input="resizeNotesEditor({ keepCaretVisible: true })" @blur="flushTaskDraftSave"></textarea></label>
         </div>
         <footer><div class="task-footer-start"><button v-if="taskDraft.id" class="quiet-button danger-text" type="button" @click="deleteTaskFromModal">删除</button><button v-if="taskDraft.id && !editingRepeatRule && taskDraftStatus !== 'failed'" class="quiet-button failure-action" type="button" :disabled="savingTask || updatingTaskStatus" @click="markTaskFailed"><strong>{{ updatingTaskStatus ? '正在标记' : '失败' }}</strong></button></div><span v-if="taskSaveError || savingTask" class="task-save-state" :class="{ error: taskSaveError }">{{ taskSaveError || '正在保存…' }}</span><button v-if="taskSaveError" class="quiet-button" type="button" @click="retryTaskAutoSave">重试</button></footer>
@@ -207,6 +208,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import AnniversaryPage from './components/AnniversaryPage.vue'
 import AnniversaryRecordModal from './components/AnniversaryRecordModal.vue'
+import SyncSettings from './components/SyncSettings.vue'
+import { getSyncStatus, nowSync, onSyncState, type SyncStatus } from './api/native'
 import { anniversaryOccurrences, anniversaryTypes } from '../../shared/anniversary.mjs'
 import { listAnniversaries, listAnniversaryRecords } from './api/native'
 import type { AnniversarySummary, AnniversaryRecord, AnniversaryOccurrence } from './types'
@@ -220,7 +223,7 @@ import type { BootState, Category, HolidayDay, Priority, RepeatRule, ScheduleKin
 import { resolveCalendarMeta } from './utils/calendar-meta'
 import { isRepeatingTask, parseOccurrenceId, parseOverrides, parseRepeatRule, tasksForDate as resolveTasksForDate } from './utils/task-occurrence'
 
-type View = TaskView | 'categories' | 'anniversaries' | 'about'
+type View = TaskView | 'categories' | 'anniversaries' | 'about' | 'sync'
 type Notice = { text: string; type: 'success' | 'error' }
 
 const colors = ['#4D82D5', '#13A66A', '#E96E4D', '#C65376', '#DE9A22', '#7457D9', '#3489C5', '#D95B8D', '#2DAD96', '#D66A3A', '#70964A', '#8A6B54', '#557DCC', '#D3505A', '#599F82', '#7A7FBE']
@@ -354,6 +357,7 @@ const viewMeta = computed(() => ({
   month: { title: '我的一月', subtitle: '' },
   categories: { title: '分类管理', subtitle: '' },
   anniversaries: { title: '纪念日', subtitle: '' },
+  sync: { title: '账号与同步', subtitle: '' },
   about: { title: '关于岁岁时光', subtitle: '' }
 }[currentView.value]))
 
@@ -414,8 +418,70 @@ let reminderScheduler: ReturnType<typeof createTaskReminderScheduler> | null = n
 let monthOverflowTrigger: HTMLElement | null = null
 let monthOverflowCloseTimer: number | undefined
 let holidayRefreshRequestId = 0
+const syncStatus = ref<SyncStatus | null>(null)
+const syncDataRevision = ref(0)
+let stopSyncState: (() => void) | undefined
+let appDisposed = false
+let focusSyncPending = false
+let lastFocusSyncAt = 0
+let syncRefreshPending = false
+let syncRefreshQueued = false
+let syncStateVersion = 0
+
+function acceptSyncState(status: SyncStatus) {
+  if (appDisposed || !session.value) return
+  const previous = syncStatus.value
+  syncStateVersion++
+  syncStatus.value = status
+  // 只响应成功完成或首次绑定；读取数据不会再请求同步。
+  if (status.bound && !status.syncing && !status.error && !status.needsReauth
+    && (previous?.syncing || (previous && !previous.bound) || (status.lastSyncAt !== null && status.lastSyncAt !== previous?.lastSyncAt))) {
+    void refreshAfterSync()
+  }
+}
+
+async function refreshAfterSync() {
+  if (syncRefreshPending) { syncRefreshQueued = true; return }
+  syncRefreshPending = true
+  const ownerId = session.value?.id
+  try {
+    do {
+      syncRefreshQueued = false
+      if (appDisposed || !ownerId || session.value?.id !== ownerId) return
+      await Promise.all([refreshData(), refreshCalendarAnniversaries()])
+      if (appDisposed || session.value?.id !== ownerId) return
+      syncDataRevision.value++
+    } while (syncRefreshQueued)
+  } catch (error) {
+    if (!appDisposed && session.value?.id === ownerId) showNotice(`同步后刷新数据失败：${messageOf(error)}`, 'error')
+  } finally { syncRefreshPending = false }
+}
+
+async function loadSyncStatus() {
+  const ownerId = session.value?.id
+  const version = syncStateVersion
+  try {
+    const status = await getSyncStatus()
+    if (!appDisposed && ownerId && session.value?.id === ownerId && version === syncStateVersion) syncStatus.value = status
+  } catch { /* 自动读取可静默失败，设置页提供刷新与错误提示。 */ }
+}
+
+async function syncOnFocus() {
+  const status = syncStatus.value
+  if (!session.value || !status?.configured || !status.bound || status.needsReauth || status.syncing || focusSyncPending || Date.now() - lastFocusSyncAt < 1500) return
+  focusSyncPending = true
+  lastFocusSyncAt = Date.now()
+  const ownerId = session.value.id
+  const version = syncStateVersion
+  try {
+    const result = await nowSync()
+    if (!appDisposed && session.value?.id === ownerId && version === syncStateVersion) acceptSyncState(result)
+  } catch { /* 聚焦同步静默失败，手动同步仍展示失败原因。 */ }
+  finally { focusSyncPending = false }
+}
 
 function handleWindowFocus() {
+  void syncOnFocus()
   if (reminderOpen.value || reminderPermissionGuideOpen.value) void refreshReminderPermission()
   if (session.value) void refreshVisibleHolidayCalendar(true)
   todayDate.value = todayString()
@@ -446,6 +512,12 @@ onMounted(async () => {
   window.addEventListener('focus', handleWindowFocus)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   try {
+    const unlisten = await onSyncState(acceptSyncState)
+    if (appDisposed) { unlisten(); return }
+    stopSyncState = unlisten
+  } catch { /* 监听不可用时仍可从设置页手动读取状态。 */ }
+  if (appDisposed) return
+  try {
     version.value = await currentVersion()
     bootState.value = await getBootState()
     session.value = bootState.value.session
@@ -466,7 +538,11 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  appDisposed = true
+  syncStateVersion++
+  stopSyncState?.()
   endChildDrag()
+  dataRequestId++
   anniversaryRequestId++
   document.removeEventListener('mousedown', closeBrandMenuOnOutsideClick)
   document.removeEventListener('keydown', closeSidebarOnEscape)
@@ -501,6 +577,12 @@ watch(monthAnchor, () => {
   if (session.value && currentView.value === 'month') void refreshCalendarAnniversaries()
 })
 watch(() => session.value?.id, () => { anniversaryRequestId++; calendarAnniversaries.value = []; calendarAnniversaryRecords.value = []; activeAnniversary.value = null; anniversaryDetailId.value = ''; anniversaryCalendarError.value = ''; if (session.value && currentView.value === 'month') void refreshCalendarAnniversaries() }, { flush: 'sync' })
+watch(() => session.value?.id, () => {
+  syncStateVersion++
+  syncStatus.value = null
+  lastFocusSyncAt = 0
+  if (session.value) void loadSyncStatus()
+}, { flush: 'sync' })
 watch(currentView, view => { activeAnniversary.value = null; if (view === 'month' && session.value) void refreshCalendarAnniversaries() })
 watch([currentView, monthAnchor, showCompleted], closeMonthOverflow)
 watch(currentView, view => {
@@ -672,7 +754,7 @@ async function handleShowCompleted() {
   }
 }
 
-function openBrandMenuView(view: 'categories' | 'about') {
+function openBrandMenuView(view: 'categories' | 'about' | 'sync') {
   currentView.value = view
   brandMenuOpen.value = false
 }
@@ -1202,6 +1284,50 @@ function addChildDraft(afterId?: string) {
     else if (bottom > bounds.bottom) body.scrollTop += bottom - bounds.bottom
   })
 }
+let childPointerId: number | null = null
+let childPointerY = 0
+
+function startChildPointerDrag(id: string, event: PointerEvent) {
+  if (event.button !== 0 || savingTask.value || updatingTaskStatus.value) return
+  endChildDrag()
+  childPointerId = event.pointerId
+  childPointerY = event.clientY
+  draggedChildId.value = id
+  window.addEventListener('pointermove', moveChildPointerDrag, { passive: false })
+  window.addEventListener('pointerup', finishChildPointerDrag)
+  window.addEventListener('pointercancel', endChildDrag)
+  window.addEventListener('blur', endChildDrag)
+}
+
+function updateChildPointerTarget() {
+  const rows = Array.from(taskModalBody.value?.querySelectorAll<HTMLElement>('.subtask-row') || [])
+  const target = rows.find(row => childPointerY <= row.getBoundingClientRect().bottom) || rows[rows.length - 1]
+  if (!target) return
+  const bounds = target.getBoundingClientRect()
+  dragOverChildId.value = target.dataset.childId || null
+  childDropAfter.value = childPointerY > bounds.top + bounds.height / 2
+}
+
+function moveChildPointerDrag(event: PointerEvent) {
+  if (event.pointerId !== childPointerId) return
+  event.preventDefault()
+  childPointerY = event.clientY
+  updateChildPointerTarget()
+  scrollChildDrag(event)
+}
+
+function finishChildPointerDrag(event: PointerEvent) {
+  if (event.pointerId !== childPointerId) return
+  const body = taskModalBody.value
+  const list = body?.querySelector('.subtask-list')
+  const bounds = list?.getBoundingClientRect()
+  if (!bounds || event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top - 12 || event.clientY > bounds.bottom + 12) return endChildDrag()
+  childPointerY = event.clientY
+  updateChildPointerTarget()
+  if (dragOverChildId.value) dropChild(dragOverChildId.value)
+  else endChildDrag()
+}
+
 function startChildDrag(id: string, event: DragEvent) {
   if (savingTask.value || updatingTaskStatus.value) return
   draggedChildId.value = id
@@ -1228,7 +1354,7 @@ function dropChild(targetId: string) {
   void flushTaskDraftSave()
   endChildDrag()
 }
-function scrollChildDrag(event: DragEvent) {
+function scrollChildDrag(event: DragEvent | PointerEvent) {
   const body = taskModalBody.value
   if (!draggedChildId.value || !body || savingTask.value || updatingTaskStatus.value) return stopChildDragScroll()
   event.preventDefault()
@@ -1244,6 +1370,7 @@ function stepChildDragScroll() {
   if (!body || !draggedChildId.value || !taskModalOpen.value || savingTask.value || updatingTaskStatus.value) return stopChildDragScroll()
   const previous = body.scrollTop
   body.scrollTop += childDragScrollSpeed
+  if (childPointerId !== null) updateChildPointerTarget()
   if (body.scrollTop !== previous && childDragScrollSpeed) childDragScrollFrame = window.requestAnimationFrame(stepChildDragScroll)
 }
 function stopChildDragScroll() {
@@ -1254,7 +1381,17 @@ function stopChildDragScroll() {
 function leaveChildDragBody(event: DragEvent) {
   if (!(event.relatedTarget instanceof Node) || !taskModalBody.value?.contains(event.relatedTarget)) stopChildDragScroll()
 }
-function endChildDrag() { stopChildDragScroll(); draggedChildId.value = null; dragOverChildId.value = null; childDropAfter.value = false }
+function endChildDrag() {
+  stopChildDragScroll()
+  window.removeEventListener('pointermove', moveChildPointerDrag)
+  window.removeEventListener('pointerup', finishChildPointerDrag)
+  window.removeEventListener('pointercancel', endChildDrag)
+  window.removeEventListener('blur', endChildDrag)
+  childPointerId = null
+  draggedChildId.value = null
+  dragOverChildId.value = null
+  childDropAfter.value = false
+}
 async function toggleChildDraftStatus(subtask: Task) {
   if (savingTask.value || updatingTaskStatus.value) return
   subtask.status = subtask.status === 'done' ? 'todo' : 'done'

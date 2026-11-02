@@ -12,6 +12,7 @@ on:
 
 env:
   OSS_PROJECT_PREFIX: sui-time
+  SUI_TIME_SYNC_BASE_URL: https://laoshi.chat
 
 jobs:
   release-info:

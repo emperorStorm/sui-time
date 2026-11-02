@@ -42,13 +42,16 @@ test('读取异常和非空坏数据抛业务错误，不覆盖磁盘，也不�
   assert.equal(writes, 0)
 })
 
-test('旧数据补设置默认值、保留未知及超长旧字段，兼容 H5 包装且不写盘', async () => {
+test('旧数据补设置默认值、保留未知及超长旧字段，兼容 H5 包装并升级落盘', async () => {
   for (const wrapped of [false, true]) {
     const storage = await freshStorage()
     const raw = validData({ settings: { custom: 42, hideCompleted: false }, extra: { keep: true }, tasks: [{ id: 'old', title: '长'.repeat(121), notes: '旧'.repeat(1001) }] })
     const before = structuredClone(raw)
-    globalThis.uni = { getStorageSync: () => wrapped ? { type: 'object', data: raw } : raw, setStorageSync: () => assert.fail('旧数据读取不应写盘') }
+    let writes = 0
+    globalThis.uni = { getStorageSync: () => wrapped ? { type: 'object', data: raw } : raw, setStorageSync: (_, value) => { writes++; assert.equal(value.version, 2) } }
     const data = storage.load()
+    assert.equal(writes, 1)
+    assert.deepEqual(data.syncMeta.outbox, {})
     assert.deepEqual(data.settings, { hideCompleted: false, hideCompletedByView: { tasks: false, month: false }, collapsedGroups: [], custom: 42 })
     assert.deepEqual(data.extra, { keep: true })
     assert.equal(data.tasks[0].title.length, 121)
@@ -60,7 +63,7 @@ test('旧数据补设置默认值、保留未知及超长旧字段，兼容 H5 �
   assert.deepEqual(storage.load().settings, { hideCompleted: true, hideCompletedByView: { tasks: true, month: true }, collapsedGroups: [] })
 })
 
-test('逐项迁移布尔偏好保留 false、未知视图及旧字段，读时不写盘', async () => {
+test('逐项迁移布尔偏好保留 false、未知视图及旧字段', async () => {
   const cases = [
     [{ hideCompleted: true }, { tasks: true, month: true }],
     [{ hideCompleted: false }, { tasks: false, month: false }],
@@ -76,7 +79,7 @@ test('逐项迁移布尔偏好保留 false、未知视图及旧字段，读时�
     const storage = await freshStorage()
     const raw = validData({ settings: { extra: 23, ...settings } })
     const before = structuredClone(raw)
-    globalThis.uni = { getStorageSync: () => raw, setStorageSync: () => assert.fail('迁移不写盘') }
+    globalThis.uni = { getStorageSync: () => raw, setStorageSync: () => {} }
     const loaded = storage.load()
     assert.deepEqual(loaded.settings.hideCompletedByView, expected)
     assert.equal(loaded.settings.extra, 23)

@@ -41,8 +41,8 @@
             </view>
           </view>
           <template v-if="!isCollapsed(group.label)">
-            <view v-for="task in group.items" :key="task.id" class="task-item" @click="openEdit(task)">
-              <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="checkStyle(task)" @click.stop="toggle(task)">
+            <view v-for="task in group.items" :key="task.id" class="task-item" @click="openEdit(task)" @longpress="openQuickAdjust(task)">
+              <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="checkStyle(task)" @click.stop="toggle(task)" @longpress.stop>
                 <text v-if="task.status === 'done'">✓</text>
               </view>
               <view class="task-main">
@@ -63,6 +63,7 @@
     <view class="fab" @click="openEdit(null)"><text>＋</text></view>
 
     <TaskEditSheet ref="taskSheet" :visible="sheetVisible" :task="editingTask" @close="closeSheet" @saved="reload" />
+    <QuickAdjustSheet ref="adjustSheet" :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
     <CategoryManageSheet ref="categorySheet" :visible="manageVisible" @close="manageVisible = false" @changed="onCategoriesChanged" />
     </template>
   </view>
@@ -72,6 +73,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onShow, onBackPress } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
+import QuickAdjustSheet from '../../components/QuickAdjustSheet.vue'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
 import { getCategories, listTasks, setTaskStatus, getSettings, getHideCompleted, toggleGroupCollapsed } from '../../api/store'
 import { repeatLabel } from '../../utils/occurrence'
@@ -85,6 +87,10 @@ const ready = ref(false)
 const loadError = ref('')
 const taskSheet = ref(null)
 const categorySheet = ref(null)
+const adjustSheet = ref(null)
+const adjustVisible = ref(false)
+const adjustingTask = ref(null)
+let longPressAt = 0
 const toggling = ref(false)
 const filter = ref('all')
 const allTasks = ref([])
@@ -147,6 +153,7 @@ const groups = computed(() => {
 
 onShow(load)
 onBackPress(() => {
+  if (adjustVisible.value) { adjustSheet.value?.requestClose(); return true }
   if (sheetVisible.value) { taskSheet.value?.requestClose(); return true }
   if (manageVisible.value) { categorySheet.value?.requestClose(); return true }
   return false
@@ -250,10 +257,19 @@ async function toggle(task) {
 }
 
 function openEdit(task) {
+  if (Date.now() - longPressAt < 700) return
   if (toggling.value || sheetVisible.value || !ready.value || !load()) return
   editingTask.value = task ? allTasks.value.find(item => item.id === task.id) : null
   if (task && !editingTask.value) { toast('事项不存在'); return }
   sheetVisible.value = true
+}
+
+function openQuickAdjust(task) {
+  if (toggling.value || sheetVisible.value || adjustVisible.value || !ready.value) return
+  longPressAt = Date.now()
+  if (!load()) return
+  adjustingTask.value = task
+  adjustVisible.value = true
 }
 
 function closeSheet() {

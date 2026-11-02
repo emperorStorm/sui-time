@@ -9,7 +9,7 @@
 - `prototypes/`：脱离生产运行时的可交互原型，不作为业务数据真值。
 - `.github/workflows/release.yml`：macOS/Windows 构建、GitHub Release 和 OSS 更新元数据同步。
 
-当前应用只实现本地层。不得把 README 架构图中的同步 API、PostgreSQL 或 OSS 同步规划当作可调用服务。
+当前客户端仍以本地数据为主；云同步服务端位于 `Laoshi` 仓库的 Go 模块化单体，客户端通过 `https://laoshi.chat/api/v1/...` 接入，本仓库只维护客户端同步与本地数据层。云同步尚未完成生产上线验证。
 
 ## 移动端（uni-client）边界
 

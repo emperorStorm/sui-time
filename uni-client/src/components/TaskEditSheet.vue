@@ -8,7 +8,7 @@
         <text class="sheet-title">{{ draft.id ? '编辑事项' : '新建事项' }}</text>
         <view class="sheet-save" @click="save">{{ saving ? '保存中' : '保存' }}</view>
       </view>
-      <scroll-view :class="['sheet-body', { 'is-busy': actionBusy }]" scroll-y :scroll-into-view="scrollTarget" :scroll-with-animation="false">
+      <scroll-view :class="['sheet-body', { 'is-busy': actionBusy }]" scroll-y :scroll-into-view="scrollTarget" :scroll-top="dragScrollTop" :scroll-with-animation="false" @scroll="onSubtaskScroll">
         <input class="title-input" v-model="draft.title" placeholder="输入事项名称" :maxlength="Math.max(120, draft.title.length)" @blur="flushDraft()" />
         <view class="sheet-row">
           <text class="row-label">◷ 日期</text>
@@ -48,7 +48,8 @@
         </view>
         <template v-if="!occurrence">
           <view class="subtask-add" @click="addSubtask()"><text>＋ 添加子事项</text></view>
-          <view v-for="(subtask, index) in draft.subtasks" :key="subtask.id" :id="`subtask-${subtask.id}`" class="subtask-row">
+          <view v-for="(subtask, index) in draft.subtasks" :key="subtask.id" :id="`subtask-${subtask.id}`" :class="['subtask-row', { 'is-dragging': dragIndex === index }]">
+            <view class="subtask-drag" :class="{ active: dragIndex === index }" role="button" aria-label="长按拖动排序" @touchstart="recordSubtaskTouch" @longpress="startSubtaskDrag(index)" @touchmove.stop="moveSubtaskDrag" @touchend="landSubtaskDrag" @touchcancel="cancelSubtaskDrag">⋮⋮</view>
             <button v-if="draft.repeatKind === 'none'" :class="['subtask-check', { done: subtask.status === 'done' }]" :aria-label="subtask.status === 'done' ? '恢复子事项' : '完成子事项'" @click="toggleSubtask(subtask)">{{ subtask.status === 'done' ? '✓' : '○' }}</button>
             <input v-model="subtask.title" :focus="focusedChild === subtask.id" @focus="focusedChild = subtask.id" @blur="flushDraft()" @confirm="addSubtask(index + 1)" placeholder="子事项" :maxlength="Math.max(120, subtask.title.length)" confirm-type="next" />
             <view class="subtask-order"><button :disabled="index === 0" aria-label="上移子事项" @click="moveSubtask(index, -1)">↑</button><button :disabled="index === draft.subtasks.length - 1" aria-label="下移子事项" @click="moveSubtask(index, 1)">↓</button></view>
@@ -68,7 +69,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, getCurrentInstance, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { onShow, onHide } from '@dcloudio/uni-app'
 import { getCategories, getNewTaskDefaults, saveTask, removeTask, findTask, listChildren } from '../api/store'
 import { parseOccurrenceId, parseRepeatRule, repeatLabel } from '../utils/occurrence'
@@ -103,6 +104,10 @@ let pendingSave = null
 let pendingGeneration = 0
 const focusedChild = ref('')
 const scrollTarget = ref('')
+const instance = getCurrentInstance()
+const dragIndex = ref(-1)
+const dragScrollTop = ref(0)
+const drag = { rows: [], bodyTop: 0, bodyBottom: 0, maxScroll: 0, startScrollTop: 0, startY: 0, y: 0, timer: null, token: 0, snapshot: [] }
 const occurrence = computed(() => draft.id ? parseOccurrenceId(draft.id) : null)
 const canRemind = computed(() => hasReminderTime(draft))
 const permissionMessage = computed(() => !permissions.value.supported ? '仅安卓客户端支持系统提醒。' : permissions.value.error || (!permissions.value.notifications ? '已设置，需允许系统通知后才能送达。' : !permissions.value.exactAlarm ? '已设置，需允许精确闹钟后才能准时排程。' : '最多三个提醒；展示和声音受通知渠道、免打扰及省电设置影响。'))
@@ -129,6 +134,7 @@ watch(
   (visible) => {
     clearTimeout(saveTimer)
     generation++
+    cancelSubtaskDrag()
     if (!visible) return
     initializing = true
     dirty.value = false
@@ -221,6 +227,112 @@ function moveSubtask(index, offset) {
   draft.subtasks = children
 }
 
+function moveSubtaskTo(from, to) {
+  if (from === to || from < 0 || to < 0 || from >= draft.subtasks.length || to >= draft.subtasks.length) return
+  const children = [...draft.subtasks]
+  const [moved] = children.splice(from, 1)
+  children.splice(to, 0, moved)
+  draft.subtasks = children
+}
+
+function recordSubtaskTouch(event) {
+  const touch = event.touches?.[0]
+  if (!touch || dragIndex.value >= 0) return
+  drag.startY = touch.clientY
+  drag.y = touch.clientY
+}
+
+function startSubtaskDrag(index) {
+  if (dragIndex.value >= 0 || actionBusy.value) return
+  // 长按前手指已明显移动时按滚动处理，不启动拖动
+  if (Math.abs(drag.y - drag.startY) > 12) return
+  if (typeof uni === 'undefined' || typeof uni.createSelectorQuery !== 'function') return
+  const token = ++drag.token
+  const query = uni.createSelectorQuery().in(instance?.proxy)
+  query.select('.sheet-body').boundingClientRect()
+  query.select('.sheet-body').scrollOffset()
+  query.selectAll('.subtask-row').boundingClientRect()
+  query.exec((result) => {
+    if (token !== drag.token || !props.visible || dragIndex.value >= 0) return
+    const [body, offset, rows] = result || []
+    if (!body || !Array.isArray(rows) || rows.length < 2) return
+    drag.rows = rows.map(row => ({ top: row.top, bottom: row.bottom }))
+    drag.bodyTop = body.top
+    drag.bodyBottom = body.bottom
+    drag.maxScroll = Math.max(0, (offset?.scrollHeight || body.height) - body.height)
+    drag.startScrollTop = offset?.scrollTop || 0
+    dragScrollTop.value = drag.startScrollTop
+    drag.snapshot = draft.subtasks.map(item => item.id)
+    dragIndex.value = index
+    drag.timer = setInterval(autoScrollSubtasks, 30)
+    uni.hideKeyboard?.()
+  })
+}
+
+function moveSubtaskDrag(event) {
+  const touch = event.touches?.[0]
+  if (!touch) return
+  drag.y = touch.clientY
+  if (dragIndex.value < 0) return
+  event.preventDefault?.()
+  updateDragIndex()
+}
+
+function updateDragIndex() {
+  if (dragIndex.value < 0 || !drag.rows.length) return
+  const shift = dragScrollTop.value - drag.startScrollTop
+  let target = drag.rows.length - 1
+  for (let index = 0; index < drag.rows.length; index++) {
+    const row = drag.rows[index]
+    if (drag.y < row.top - shift + (row.bottom - row.top) / 2) { target = index; break }
+  }
+  if (target === dragIndex.value) return
+  moveSubtaskTo(dragIndex.value, target)
+  dragIndex.value = target
+}
+
+function autoScrollSubtasks() {
+  if (dragIndex.value < 0) return
+  const edge = 44
+  let delta = 0
+  if (drag.y < drag.bodyTop + edge) delta = -Math.min(8, Math.ceil((drag.bodyTop + edge - drag.y) / 4))
+  else if (drag.y > drag.bodyBottom - edge) delta = Math.min(8, Math.ceil((drag.y - (drag.bodyBottom - edge)) / 4))
+  if (!delta) return
+  const next = Math.max(0, Math.min(drag.maxScroll, dragScrollTop.value + delta))
+  if (next === dragScrollTop.value) return
+  dragScrollTop.value = next
+  updateDragIndex()
+}
+
+function onSubtaskScroll(event) {
+  if (dragIndex.value >= 0) return
+  const top = event.detail?.scrollTop
+  if (typeof top === 'number' && top !== dragScrollTop.value) dragScrollTop.value = top
+}
+
+function landSubtaskDrag() {
+  if (dragIndex.value < 0) return
+  stopSubtaskDrag()
+  void flushDraft()
+}
+
+function cancelSubtaskDrag() {
+  if (dragIndex.value >= 0) {
+    const order = new Map(drag.snapshot.map((id, index) => [id, index]))
+    draft.subtasks = [...draft.subtasks].sort((a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER))
+  }
+  stopSubtaskDrag()
+}
+
+function stopSubtaskDrag() {
+  drag.token++
+  clearInterval(drag.timer)
+  drag.timer = null
+  drag.rows = []
+  drag.snapshot = []
+  dragIndex.value = -1
+}
+
 function toggleSubtask(child) {
   child.status = child.status === 'done' ? 'todo' : 'done'
   void flushDraft()
@@ -298,6 +410,7 @@ async function flushDraft(required = false) {
 
 async function requestClose() {
   if (actionBusy.value) return false
+  cancelSubtaskDrag()
   if (!draft.id && !dirty.value) { emit('close'); return true }
   if (!await flushDraft(true)) return false
   emit('close')
@@ -385,6 +498,7 @@ onHide(saveOnHide)
 uni.$on('reminder-permissions', refreshPermissions)
 onBeforeUnmount(() => {
   clearTimeout(saveTimer)
+  stopSubtaskDrag()
   generation++
   uni.$off('reminder-permissions', refreshPermissions)
 })
@@ -567,8 +681,29 @@ defineExpose({ requestClose, flushDraft })
 .subtask-row {
   display: flex;
   align-items: center;
-  gap: 16rpx;
+  gap: 12rpx;
   padding: 12rpx 0;
+}
+
+.subtask-row.is-dragging {
+  background: #eef4fb;
+}
+
+.subtask-drag {
+  display: flex;
+  flex: 0 0 40rpx;
+  align-items: center;
+  justify-content: center;
+  width: 40rpx;
+  height: 64rpx;
+  color: #b3bdc8;
+  font-size: 24rpx;
+  letter-spacing: -4rpx;
+  user-select: none;
+}
+
+.subtask-drag.active {
+  color: var(--blue);
 }
 
 .subtask-row input {

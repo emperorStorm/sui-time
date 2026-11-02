@@ -3,6 +3,19 @@ mod db;
 #[cfg(target_os = "macos")]
 mod macos_notifications;
 mod models;
+mod sync;
+mod sync_http;
+mod sync_merge;
+mod sync_repo;
+
+use sync::{sync_bind, sync_get_status, sync_login, sync_now, sync_register, sync_unbind};
+
+fn after_write<T>(app: &tauri::AppHandle, result: Result<T, String>) -> Result<T, String> {
+    if result.is_ok() {
+        sync::schedule(app);
+    }
+    result
+}
 
 use anniversaries::{
     delete_anniversary, get_anniversary, list_anniversaries, list_anniversary_records,
@@ -47,7 +60,10 @@ fn save_user_anniversary_record(
     input: AnniversaryRecordInput,
 ) -> Result<AnniversaryRecord, String> {
     let conn = open_app_db(&app)?;
-    save_anniversary_record(&conn, &require_user_id(&conn)?, input)
+    after_write(
+        &app,
+        save_anniversary_record(&conn, &require_user_id(&conn)?, input),
+    )
 }
 
 #[tauri::command]
@@ -71,13 +87,19 @@ fn save_user_anniversary(
     input: AnniversaryInput,
 ) -> Result<Anniversary, String> {
     let conn = open_app_db(&app)?;
-    save_anniversary(&conn, &require_user_id(&conn)?, input)
+    after_write(
+        &app,
+        save_anniversary(&conn, &require_user_id(&conn)?, input),
+    )
 }
 
 #[tauri::command]
 fn remove_user_anniversary(app: tauri::AppHandle, anniversary_id: String) -> Result<(), String> {
     let conn = open_app_db(&app)?;
-    delete_anniversary(&conn, &require_user_id(&conn)?, &anniversary_id)
+    after_write(
+        &app,
+        delete_anniversary(&conn, &require_user_id(&conn)?, &anniversary_id),
+    )
 }
 
 #[tauri::command]
@@ -87,7 +109,10 @@ fn pin_user_anniversary(
     pinned: bool,
 ) -> Result<(), String> {
     let conn = open_app_db(&app)?;
-    pin_anniversary(&conn, &require_user_id(&conn)?, &anniversary_id, pinned)
+    after_write(
+        &app,
+        pin_anniversary(&conn, &require_user_id(&conn)?, &anniversary_id, pinned),
+    )
 }
 
 #[tauri::command]
@@ -121,7 +146,10 @@ fn save_user_show_completed(
     show_completed: bool,
 ) -> Result<bool, String> {
     let conn = open_app_db(&app)?;
-    save_show_completed(&conn, &require_user_id(&conn)?, view, show_completed)
+    after_write(
+        &app,
+        save_show_completed(&conn, &require_user_id(&conn)?, view, show_completed),
+    )
 }
 
 #[tauri::command]
@@ -136,7 +164,10 @@ fn save_user_last_task_category(
     category_id: Option<String>,
 ) -> Result<Option<String>, String> {
     let conn = open_app_db(&app)?;
-    save_last_task_category(&conn, &require_user_id(&conn)?, category_id.as_deref())
+    after_write(
+        &app,
+        save_last_task_category(&conn, &require_user_id(&conn)?, category_id.as_deref()),
+    )
 }
 
 #[tauri::command]
@@ -148,7 +179,10 @@ fn get_user_last_task_priority(app: tauri::AppHandle) -> Result<Option<String>, 
 #[tauri::command]
 fn save_user_last_task_priority(app: tauri::AppHandle, priority: String) -> Result<String, String> {
     let conn = open_app_db(&app)?;
-    save_last_task_priority(&conn, &require_user_id(&conn)?, &priority)
+    after_write(
+        &app,
+        save_last_task_priority(&conn, &require_user_id(&conn)?, &priority),
+    )
 }
 
 #[tauri::command]
@@ -160,20 +194,25 @@ fn list_user_categories(app: tauri::AppHandle) -> Result<Vec<Category>, String> 
 #[tauri::command]
 fn save_user_category(app: tauri::AppHandle, input: CategoryInput) -> Result<Category, String> {
     let conn = open_app_db(&app)?;
-    save_category(&conn, &require_user_id(&conn)?, input)
+    after_write(&app, save_category(&conn, &require_user_id(&conn)?, input))
 }
 
 #[tauri::command]
 fn remove_user_category(app: tauri::AppHandle, category_id: String) -> Result<(), String> {
     let conn = open_app_db(&app)?;
-    delete_category(&conn, &require_user_id(&conn)?, &category_id)
+    after_write(
+        &app,
+        delete_category(&conn, &require_user_id(&conn)?, &category_id),
+    )
 }
 
 #[tauri::command]
 fn list_user_tasks(app: tauri::AppHandle, query: TaskQuery) -> Result<Vec<Task>, String> {
     let conn = open_app_db(&app)?;
     let owner_id = require_user_id(&conn)?;
-    reschedule_overdue_tasks(&conn, &owner_id, &today_string())?;
+    if reschedule_overdue_tasks(&conn, &owner_id, &today_string())? > 0 {
+        sync::schedule(&app);
+    }
     let mut tasks = list_tasks(&conn, &owner_id)?;
     let search = query.search.unwrap_or_default().trim().to_lowercase();
     tasks.retain(|task| {
@@ -199,13 +238,13 @@ fn list_user_tasks(app: tauri::AppHandle, query: TaskQuery) -> Result<Vec<Task>,
 #[tauri::command]
 fn save_user_task(app: tauri::AppHandle, input: TaskInput) -> Result<Task, String> {
     let conn = open_app_db(&app)?;
-    save_task(&conn, &require_user_id(&conn)?, input)
+    after_write(&app, save_task(&conn, &require_user_id(&conn)?, input))
 }
 
 #[tauri::command]
 fn remove_user_task(app: tauri::AppHandle, task_id: String) -> Result<(), String> {
     let conn = open_app_db(&app)?;
-    delete_task(&conn, &require_user_id(&conn)?, &task_id)
+    after_write(&app, delete_task(&conn, &require_user_id(&conn)?, &task_id))
 }
 
 #[tauri::command]
@@ -223,7 +262,10 @@ fn sync_user_task_children(
     input: TaskChildrenInput,
 ) -> Result<Vec<Task>, String> {
     let conn = open_app_db(&app)?;
-    sync_task_children(&conn, &require_user_id(&conn)?, input)
+    after_write(
+        &app,
+        sync_task_children(&conn, &require_user_id(&conn)?, input),
+    )
 }
 
 #[tauri::command]
@@ -234,12 +276,15 @@ fn set_user_task_status(
     failure_reason: Option<String>,
 ) -> Result<Task, String> {
     let conn = open_app_db(&app)?;
-    set_task_status(
-        &conn,
-        &require_user_id(&conn)?,
-        &task_id,
-        &status,
-        failure_reason.as_deref(),
+    after_write(
+        &app,
+        set_task_status(
+            &conn,
+            &require_user_id(&conn)?,
+            &task_id,
+            &status,
+            failure_reason.as_deref(),
+        ),
     )
 }
 
@@ -258,7 +303,10 @@ fn complete_user_task_with_children(
     task_id: String,
 ) -> Result<Task, String> {
     let conn = open_app_db(&app)?;
-    complete_task_with_children(&conn, &require_user_id(&conn)?, &task_id)
+    after_write(
+        &app,
+        complete_task_with_children(&conn, &require_user_id(&conn)?, &task_id),
+    )
 }
 
 #[tauri::command]
@@ -268,7 +316,10 @@ fn reschedule_user_task(
     planned_date: Option<String>,
 ) -> Result<Task, String> {
     let conn = open_app_db(&app)?;
-    reschedule_task(&conn, &require_user_id(&conn)?, &task_id, planned_date)
+    after_write(
+        &app,
+        reschedule_task(&conn, &require_user_id(&conn)?, &task_id, planned_date),
+    )
 }
 
 #[tauri::command]
@@ -376,9 +427,10 @@ fn require_user_id(conn: &rusqlite::Connection) -> Result<String, String> {
 
 pub fn run() {
     tauri::Builder::default()
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(target_os = "macos")]
             macos_notifications::initialize();
+            sync::start(app.handle().clone());
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
@@ -386,6 +438,12 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            sync_get_status,
+            sync_register,
+            sync_login,
+            sync_bind,
+            sync_now,
+            sync_unbind,
             get_boot_state,
             create_account,
             login_user,

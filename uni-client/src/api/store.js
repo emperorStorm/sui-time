@@ -5,13 +5,16 @@ import { addDays, todayString } from '../utils/date.js'
 import { compareTasks, normalizeTask } from '../utils/task.js'
 import { syncTaskReminders } from './reminders.js'
 
+const isActive = item => item.deletedAt == null
+const tombstone = (item, now) => isActive(item) ? { ...item, deletedAt: now, updatedAt: now } : item
+
 export function listAnniversaries() {
-  return load().anniversaries.map(({ photos, coverIndex, ...summary }) => summary)
+  return load().anniversaries.filter(isActive).map(({ photos, coverIndex, ...summary }) => summary)
 }
 
 export function listAnniversaryRecords({ anniversaryId, startDate, endDate } = {}) {
   if (anniversaryId) getAnniversary(anniversaryId)
-  return load().anniversaryRecords.filter(record => (!anniversaryId || record.anniversaryId === anniversaryId)
+  return load().anniversaryRecords.filter(record => isActive(record) && (!anniversaryId || record.anniversaryId === anniversaryId)
     && (!startDate || record.date >= startDate) && (!endDate || record.date <= endDate))
     .sort((a, b) => b.date.localeCompare(a.date)).map(record => ({ ...record }))
 }
@@ -21,7 +24,7 @@ export function saveAnniversaryRecord(input) {
   const item = getAnniversary(input.anniversaryId)
   const records = [...data.anniversaryRecords]
   const index = records.findIndex(record => record.anniversaryId === input.anniversaryId && record.date === input.date)
-  const result = prepareAnniversaryRecord(item, input, index >= 0 ? records[index] : null)
+  const result = { ...prepareAnniversaryRecord(item, input, index >= 0 && isActive(records[index]) ? records[index] : null), deletedAt: null }
   if (index >= 0) records[index] = result
   else records.push(result)
   saveStorage({ ...data, anniversaryRecords: records }, { strict: true })
@@ -29,7 +32,7 @@ export function saveAnniversaryRecord(input) {
 }
 
 export function getAnniversary(id) {
-  const item = load().anniversaries.find(item => item.id === id)
+  const item = load().anniversaries.find(item => isActive(item) && item.id === id)
   if (!item) throw new Error('纪念日不存在')
   return { ...item, photos: [...item.photos] }
 }
@@ -38,7 +41,7 @@ export function saveAnniversary(input) {
   const normalized = normalizeAnniversary(input)
   const data = load()
   const items = [...data.anniversaries]
-  const index = normalized.id ? items.findIndex(item => item.id === normalized.id) : -1
+  const index = normalized.id ? items.findIndex(item => isActive(item) && item.id === normalized.id) : -1
   if (normalized.id && index < 0) throw new Error('纪念日不存在')
   const now = Date.now()
   const item = { ...normalized, photos: [...normalized.photos], id: normalized.id || `a${now}-${Math.random().toString(36).slice(2, 10)}`, createdAt: index >= 0 ? items[index].createdAt : now, updatedAt: now }
@@ -50,30 +53,31 @@ export function saveAnniversary(input) {
 
 export function removeAnniversary(id) {
   const data = load()
-  if (!data.anniversaries.some(item => item.id === id)) throw new Error('纪念日不存在')
-  saveStorage({ ...data, anniversaries: data.anniversaries.filter(item => item.id !== id), anniversaryRecords: data.anniversaryRecords.filter(record => record.anniversaryId !== id) }, { strict: true })
+  if (!data.anniversaries.some(item => isActive(item) && item.id === id)) throw new Error('纪念日不存在')
+  const now = Date.now()
+  saveStorage({ ...data, anniversaries: data.anniversaries.map(item => item.id === id ? tombstone(item, now) : item), anniversaryRecords: data.anniversaryRecords.map(record => record.anniversaryId === id ? tombstone(record, now) : record) }, { strict: true })
 }
 
 export function pinAnniversary(id, pinned) {
   const data = load()
-  if (!data.anniversaries.some(item => item.id === id)) throw new Error('纪念日不存在')
-  const items = data.anniversaries.map(item => item.id === id ? { ...item, pinned, updatedAt: Date.now() } : item)
+  if (!data.anniversaries.some(item => isActive(item) && item.id === id)) throw new Error('纪念日不存在')
+  const items = data.anniversaries.map(item => isActive(item) && item.id === id ? { ...item, pinned, updatedAt: Date.now() } : item)
   saveStorage({ ...data, anniversaries: items }, { strict: true })
 }
 
 export function getCategories() {
-  return load().categories
+  return load().categories.filter(isActive)
 }
 
 export function categoryById(id) {
-  return load().categories.find((item) => item.id === id) || null
+  return getCategories().find((item) => item.id === id) || null
 }
 
 export function saveCategory(category) {
   const data = load()
   const now = Date.now()
   const categories = [...data.categories]
-  const index = category.id ? categories.findIndex(item => item.id === category.id) : -1
+  const index = category.id ? categories.findIndex(item => isActive(item) && item.id === category.id) : -1
   if (category.id && index < 0) return category
   const saved = index >= 0
     ? { ...categories[index], ...category, updatedAt: now }
@@ -88,26 +92,27 @@ export function saveCategory(category) {
 export function reorderCategories(ids) {
   const data = load()
   const orders = new Map(ids.map((id, index) => [id, index]))
-  const categories = data.categories.map(item => orders.has(item.id) ? { ...item, sortOrder: orders.get(item.id) } : item)
+  const categories = data.categories.map(item => isActive(item) && orders.has(item.id) ? { ...item, sortOrder: orders.get(item.id) } : item)
     .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
   saveStorage({ ...data, categories }, { strict: true, message: '无法保存分类顺序，请重试' })
 }
 
 export function removeCategory(id) {
   const data = load()
-  const categories = data.categories.filter(item => item.id !== id)
-  const tasks = data.tasks.map(task => task.categoryId === id ? { ...task, categoryId: null } : task)
+  const now = Date.now()
+  const categories = data.categories.map(item => item.id === id ? tombstone(item, now) : item)
+  const tasks = data.tasks.map(task => isActive(task) && task.categoryId === id ? { ...task, categoryId: null } : task)
   saveStorage({ ...data, categories, tasks }, { strict: true, message: '无法删除分类，请重试' })
 }
 
 export function listTasks() {
-  return load().tasks
+  return load().tasks.filter(isActive)
 }
 
 export function findTask(id) {
   const occurrence = parseOccurrenceId(id)
   if (occurrence) return resolveTasksForDate(listTasks(), parseOverrides(findTask(occurrence.sourceId) || {})[occurrence.date]?.plannedDate || occurrence.date).find(task => task.id === id) || null
-  return load().tasks.find((item) => item.id === id) || null
+  return listTasks().find((item) => item.id === id) || null
 }
 
 // 草稿、父子状态与新建默认值同次严格落盘；返回 reminderPromise 供 UI 等待排程。
@@ -117,12 +122,12 @@ export function saveTask(input, children, options = {}) {
   if (options.status !== undefined && !['todo', 'done', 'failed'].includes(options.status)) throw new Error('事项状态无效')
   const occurrence = input.id ? parseOccurrenceId(input.id) : null
   const sourceId = occurrence?.sourceId || input.id
-  const existing = sourceId ? data.tasks.find(task => task.id === sourceId) : null
+  const existing = sourceId ? data.tasks.find(task => isActive(task) && task.id === sourceId) : null
   if (sourceId && !existing) throw new Error('事项不存在')
   const effective = occurrence ? findTask(input.id) : existing
   if (occurrence && !effective) throw new Error('当次事项不存在')
   const normalized = normalizeTask({ ...effective, ...input })
-  if (normalized.categoryId != null && !data.categories.some(category => category.id === normalized.categoryId)) throw new Error('分类不存在，请重新选择')
+  if (normalized.categoryId != null && !data.categories.some(category => isActive(category) && category.id === normalized.categoryId)) throw new Error('分类不存在，请重新选择')
   if (occurrence && !normalized.plannedDate) throw new Error('重复事项的当次日期不能为空')
   const id = sourceId || `t${now}-${Math.random().toString(36).slice(2, 8)}`
   let saved = { status: 'todo', createdAt: now, ...existing, ...normalized, id, updatedAt: now }
@@ -142,7 +147,7 @@ export function saveTask(input, children, options = {}) {
       if (child.status !== undefined && !['todo', 'done'].includes(child.status)) throw new Error('子事项状态无效')
       return child.title.trim()
     }).map((child, index) => {
-      const old = child.id ? data.tasks.find(task => task.id === child.id) : null
+      const old = child.id ? data.tasks.find(task => isActive(task) && task.id === child.id) : null
       if ((old && old.parentTaskId !== id) || (child.id && seen.has(child.id))) throw new Error('子事项数据无效')
       const childId = child.id || `child-${id}-${now}-${index}`
       seen.add(childId)
@@ -155,7 +160,9 @@ export function saveTask(input, children, options = {}) {
         sortOrder: index, updatedAt: now
       }
     })
-    tasks = tasks.filter(task => task.parentTaskId !== id).concat(next)
+    const childIds = new Set(next.map(child => child.id))
+    tasks = tasks.map(task => task.parentTaskId === id && !childIds.has(task.id) ? tombstone(task, now) : task)
+      .filter(task => !childIds.has(task.id)).concat(next)
     if (next.length && !saved.parentTaskId && saved.status !== 'failed' && parseRepeatRule(saved.repeatRule).kind === 'none') {
       const status = next.every(child => child.status === 'done') ? 'done' : saved.status === 'done' ? 'todo' : saved.status
       saved = { ...saved, ...taskStatusPatch(saved, status, now, true) }
@@ -193,26 +200,36 @@ function applyTaskStatus(tasks, source, occurrence, status, now) {
   }
   const cascade = !occurrence && !source.parentTaskId && parseRepeatRule(source.repeatRule).kind === 'none' && status !== 'failed'
   return tasks.map(task => task.id === source.id ? updated
-    : cascade && task.parentTaskId === source.id ? { ...task, ...taskStatusPatch(task, status, now) } : task)
+    : cascade && isActive(task) && task.parentTaskId === source.id ? { ...task, ...taskStatusPatch(task, status, now) } : task)
 }
 
 export function removeTask(id) {
   const data = load()
   const occurrence = parseOccurrenceId(id)
   if (occurrence) {
-    const source = data.tasks.find(task => task.id === occurrence.sourceId)
+    const source = data.tasks.find(task => isActive(task) && task.id === occurrence.sourceId)
     if (!source) throw new Error('事项不存在')
     const overrides = parseOverrides(source)
     overrides[occurrence.date] = { ...overrides[occurrence.date], deleted: true }
     saveTaskData({ ...data, tasks: data.tasks.map(task => task === source ? { ...task, occurrenceOverrides: JSON.stringify(overrides) } : task) })
-  } else saveTaskData({ ...data, tasks: data.tasks.filter(item => item.id !== id && item.parentTaskId !== id) })
+  } else {
+    const now = Date.now()
+    const removed = new Set([id])
+    // 兼容历史数据中的多层子事项，整棵子树同次落盘。
+    let size
+    do {
+      size = removed.size
+      for (const item of data.tasks) if (removed.has(item.parentTaskId)) removed.add(item.id)
+    } while (size !== removed.size)
+    saveTaskData({ ...data, tasks: data.tasks.map(item => removed.has(item.id) ? tombstone(item, now) : item) })
+  }
 }
 
 export function setTaskStatus(id, status) {
   const data = load()
   if (!['todo', 'done', 'failed'].includes(status)) throw new Error('事项状态无效')
   const occurrence = parseOccurrenceId(id)
-  const source = data.tasks.find(task => task.id === (occurrence?.sourceId || id))
+  const source = data.tasks.find(task => isActive(task) && task.id === (occurrence?.sourceId || id))
   if (!source) throw new Error('事项不存在')
   if (occurrence && !findTask(id)) throw new Error('当次事项不存在')
   const tasks = applyTaskStatus(data.tasks, source, occurrence, status, Date.now())
@@ -220,7 +237,7 @@ export function setTaskStatus(id, status) {
 }
 
 export function listChildren(parentId) {
-  return load().tasks.filter((item) => item.parentTaskId === (parseOccurrenceId(parentId)?.sourceId || parentId)).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+  return listTasks().filter((item) => item.parentTaskId === (parseOccurrenceId(parentId)?.sourceId || parentId)).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
 }
 
 function isVisible(task, view) {
@@ -271,7 +288,7 @@ export function getNewTaskDefaults() {
   const data = load()
   const defaults = data.settings.newTaskDefaults
   const categoryId = defaults?.categoryId === null ? null
-    : data.categories.some(category => category.id === defaults?.categoryId) ? defaults.categoryId : data.categories[0]?.id ?? null
+    : data.categories.some(category => isActive(category) && category.id === defaults?.categoryId) ? defaults.categoryId : getCategories()[0]?.id ?? null
   const priority = ['urgent_important', 'important_not_urgent', 'urgent_not_important', 'not_urgent_not_important'].includes(defaults?.priority)
     ? defaults.priority : 'not_urgent_not_important'
   return { categoryId, priority }
@@ -303,5 +320,5 @@ export function restoreDemoData() {
 
 function saveTaskData(data) {
   saveStorage(data, { strict: true, message: '无法保存事项，请检查本机存储空间后重试' })
-  return syncTaskReminders(data.tasks)
+  return syncTaskReminders(listTasks())
 }

@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TAG: ${{ inputs.tag }}
+      VITE_SUI_TIME_SYNC_BASE_URL: https://laoshi.chat
       DCLOUD_APPKEY: ${{ secrets.DCLOUD_APPKEY }}
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

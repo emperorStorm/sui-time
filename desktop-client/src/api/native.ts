@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { Anniversary, AnniversaryInput, AnniversarySummary, AnniversaryRecord, AnniversaryRecordInput } from '../types'
 import { normalizeAnniversary, prepareAnniversaryRecord } from '../../../shared/anniversary.mjs'
 import { getVersion } from '@tauri-apps/api/app'
@@ -6,6 +7,56 @@ import { open, save } from '@tauri-apps/plugin-dialog'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type DownloadEvent, type Update } from '@tauri-apps/plugin-updater'
 import type { BootState, Category, CategoryInput, HolidayDay, Priority, ShowCompletedByView, Task, TaskChildrenInput, TaskInput, TaskQuery, TaskStatus, TaskView, UserSession } from '../types'
+
+export interface SyncStatus {
+  configured: boolean
+  bound: boolean
+  username: string
+  remoteEmpty: boolean | null
+  lastSyncAt: number | null
+  pendingCount: number
+  needsReauth: boolean
+  syncing: boolean
+  error: string | null
+}
+
+export type SyncBindStrategy = 'upload' | 'merge' | 'remote'
+export type SyncAccountInput = { username: string; password: string }
+
+export async function getSyncStatus(): Promise<SyncStatus> {
+  if (isTauriRuntime()) return invoke('sync_get_status')
+  return { configured: false, bound: false, username: '', remoteEmpty: null, lastSyncAt: null, pendingCount: 0, needsReauth: false, syncing: false, error: null }
+}
+
+export async function registerSyncAccount(input: SyncAccountInput): Promise<SyncStatus> {
+  if (!isTauriRuntime()) throw new Error('账号与同步仅在桌面客户端中可用')
+  return invoke('sync_register', { input })
+}
+
+export async function loginSyncAccount(input: SyncAccountInput): Promise<SyncStatus> {
+  if (!isTauriRuntime()) throw new Error('账号与同步仅在桌面客户端中可用')
+  return invoke('sync_login', { input })
+}
+
+export async function bindSync(strategy: SyncBindStrategy): Promise<SyncStatus> {
+  if (!isTauriRuntime()) throw new Error('账号与同步仅在桌面客户端中可用')
+  return invoke('sync_bind', { strategy })
+}
+
+export async function nowSync(): Promise<SyncStatus> {
+  if (!isTauriRuntime()) throw new Error('账号与同步仅在桌面客户端中可用')
+  return invoke('sync_now')
+}
+
+export async function unbindSync(): Promise<SyncStatus> {
+  if (!isTauriRuntime()) throw new Error('账号与同步仅在桌面客户端中可用')
+  return invoke('sync_unbind')
+}
+
+export async function onSyncState(callback: (status: SyncStatus) => void): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return () => {}
+  return listen<SyncStatus>('sync:state', event => callback(event.payload))
+}
 
 export type ReminderPermission = 'not_determined' | 'granted' | 'denied' | 'unsupported' | 'error'
 

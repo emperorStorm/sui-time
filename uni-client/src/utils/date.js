@@ -51,3 +51,26 @@ export function shiftMonth(anchor, amount) {
   date.setMonth(date.getMonth() + amount, 1)
   return iso(date)
 }
+
+// 返回以周一为起始的 7 天周日期，与月历的周起始保持一致
+export function weekDates(anchor) {
+  const date = parseDate(anchor)
+  date.setDate(date.getDate() - (date.getDay() + 6) % 7)
+  return Array.from({ length: 7 }, (_, index) => {
+    const result = new Date(date)
+    result.setDate(result.getDate() + index)
+    return iso(result)
+  })
+}
+
+export function weekTitle(dates) {
+  const start = parseDate(dates[0])
+  const end = parseDate(dates[6])
+  const startYear = start.getFullYear()
+  const endYear = end.getFullYear()
+  const startMonth = start.getMonth() + 1
+  const endMonth = end.getMonth() + 1
+  if (startYear !== endYear) return `${startYear}年${startMonth}月${start.getDate()}日 – ${endYear}年${endMonth}月${end.getDate()}日`
+  if (startMonth !== endMonth) return `${startYear}年${startMonth}月${start.getDate()}日 – ${endMonth}月${end.getDate()}日`
+  return `${startYear}年${startMonth}月${start.getDate()}日 – ${end.getDate()}日`
+}
