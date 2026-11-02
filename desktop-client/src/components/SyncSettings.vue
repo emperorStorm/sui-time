@@ -19,7 +19,7 @@
           <p v-if="status.error" class="form-error sync-error" role="alert">失败原因：{{ status.error }}</p>
           <form v-if="!status.username || status.needsReauth || !status.bound" class="sync-auth" @submit.prevent="authenticate">
             <h3>{{ status.needsReauth ? '重新登录服务器账号' : '服务器账号' }}</h3>
-            <fieldset :disabled="busy"><div class="sync-fields"><label class="field"><span>服务器账号</span><input v-model.trim="username" name="sync-username" autocomplete="username" maxlength="128" required placeholder="输入服务器账号" /></label><label class="field"><span>密码</span><input v-model="password" name="sync-password" type="password" :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'" required maxlength="1024" placeholder="输入服务器账号密码" /></label></div>
+            <fieldset :disabled="busy"><div class="sync-fields"><label class="field"><span>服务器账号</span><input v-model.trim="username" name="sync-username" autocomplete="username" maxlength="128" required placeholder="输入服务器账号" /></label><label class="field"><span>密码</span><span class="password-control"><input v-model="password" name="sync-password" :type="passwordVisible ? 'text' : 'password'" :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'" required maxlength="1024" placeholder="输入服务器账号密码" /><button class="password-toggle" type="button" :aria-label="passwordVisible ? '隐藏密码' : '显示密码'" :aria-pressed="passwordVisible" :title="passwordVisible ? '隐藏密码' : '显示密码'" @click="passwordVisible = !passwordVisible"><EyeOff v-if="passwordVisible" :size="17" aria-hidden="true" /><Eye v-else :size="17" aria-hidden="true" /></button></span></label></div>
               <div class="sync-actions"><button class="primary-button" type="submit">{{ submitting ? '正在处理…' : authMode === 'register' ? '注册服务器账号' : '登录服务器账号' }}</button><button v-if="!status.needsReauth" class="quiet-button" type="button" @click="authMode = authMode === 'login' ? 'register' : 'login'">{{ authMode === 'login' ? '改为注册账号' : '已有账号，去登录' }}</button></div>
             </fieldset>
           </form>
@@ -43,13 +43,14 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { CloudOff, RefreshCw } from 'lucide-vue-next'
+import { CloudOff, Eye, EyeOff, RefreshCw } from 'lucide-vue-next'
 import { bindSync, getSyncStatus, loginSyncAccount, nowSync, registerSyncAccount, unbindSync, type SyncBindStrategy, type SyncStatus } from '../api/native'
 
 const props = defineProps<{ status: SyncStatus | null }>()
 const emit = defineEmits<{ state: [status: SyncStatus] }>()
 const username = ref(props.status?.username || '')
 const password = ref('')
+const passwordVisible = ref(false)
 const authMode = ref<'login' | 'register'>('login')
 const strategy = ref<SyncBindStrategy>('merge')
 const replaceConfirmed = ref(false)
@@ -127,6 +128,11 @@ void refreshStatus()
 .sync-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .sync-fields .field { min-width: 0; }
 .sync-fields input { width: 100%; }
+.password-control { display: flex; align-items: center; gap: 6px; }
+.password-control input { min-width: 0; flex: 1; }
+.password-toggle { display: grid; width: 40px; height: 40px; flex: 0 0 40px; padding: 0; place-items: center; color: var(--ui-muted); background: #fff; border: 1px solid var(--ui-line); border-radius: 6px; cursor: pointer; }
+.password-toggle:hover { color: var(--ui-ink); border-color: #b8c9de; }
+.password-toggle:focus-visible { outline: 2px solid var(--ui-primary, #4d82d5); outline-offset: 2px; }
 .sync-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 18px; }
 .sync-binding legend { font-weight: 600; margin-bottom: 16px; font-size: 15px; }
 .sync-strategy { display: flex; gap: 12px; align-items: start; margin-bottom: 18px; cursor: pointer; }

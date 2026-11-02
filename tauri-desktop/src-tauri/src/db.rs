@@ -1586,6 +1586,11 @@ fn validate_task_options(input: &TaskInput) -> Result<(), String> {
     {
         return Err("优先级无效".to_string());
     }
+    if input.schedule_kind != "all_day"
+        && (input.planned_date.is_none() || input.planned_time.is_none())
+    {
+        return Err("定时事项需要设置日期和时间".to_string());
+    }
     if input.schedule_kind == "range"
         && (input.planned_time.is_none()
             || input.planned_end_time.is_none()
@@ -2703,6 +2708,23 @@ mod tests {
         input.planned_end_time = Some("19:00".to_string());
         assert!(validate_task_options(&input).is_ok());
         input.priority = "invalid".to_string();
+        assert!(validate_task_options(&input).is_err());
+    }
+
+    #[test]
+    fn timed_tasks_require_date_and_time_but_all_day_tasks_do_not() {
+        let mut input = task_input("全天事项", None, None, r#"{"kind":"none"}"#, None);
+        assert!(validate_task_options(&input).is_ok());
+        input.schedule_kind = "point".to_string();
+        assert!(validate_task_options(&input).is_err());
+        input.planned_date = Some("2026-07-23".to_string());
+        assert!(validate_task_options(&input).is_err());
+        input.planned_time = Some("09:00".to_string());
+        assert!(validate_task_options(&input).is_ok());
+        input.schedule_kind = "range".to_string();
+        input.planned_end_time = Some("10:00".to_string());
+        assert!(validate_task_options(&input).is_ok());
+        input.planned_date = None;
         assert!(validate_task_options(&input).is_err());
     }
 

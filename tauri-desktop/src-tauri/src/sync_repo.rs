@@ -246,51 +246,74 @@ fn read_category_change(
     .map_err(|error| error.to_string())
 }
 
+fn validate_task_schedule(data: &Value, id: &str) -> Result<(), String> {
+    let kind = text(data, "scheduleKind").unwrap_or_else(|| "all_day".to_string());
+    let has_date = text(data, "plannedDate").is_some_and(|value| !value.trim().is_empty());
+    let has_time = text(data, "plannedTime").is_some_and(|value| !value.trim().is_empty());
+    let has_end_time = text(data, "plannedEndTime").is_some_and(|value| !value.trim().is_empty());
+    let title = text(data, "title").unwrap_or_else(|| id.to_string());
+    match kind.as_str() {
+        "all_day" => Ok(()),
+        "point" if has_date && has_time => Ok(()),
+        "range" if has_date && has_time && has_end_time => Ok(()),
+        "point" => Err(format!("事项“{title}”缺少日期或时间，请编辑后重试")),
+        "range" => Err(format!("事项“{title}”缺少日期或时间段，请编辑后重试")),
+        _ => Err(format!("事项“{title}”的时间类型无效，请编辑后重试")),
+    }
+}
+
 fn read_task_change(
     conn: &Connection,
     owner: &str,
     id: &str,
     device_id: &str,
 ) -> Result<Option<SyncChange>, String> {
-    conn.query_row(
-        "SELECT title, category_id, planned_date, planned_time, planned_end_time, schedule_kind,
-                priority, repeat_rule, occurrence_overrides, reminder_offsets, sort_order,
-                parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at, deleted_at, device_id
-         FROM tasks WHERE owner_id = ?1 AND id = ?2",
-        params![owner, id],
-        |row| {
-            let offsets: String = row.get(9)?;
-            let updated_at: i64 = row.get(17)?;
-            Ok(SyncChange {
-                entity: ENTITY_TASK.to_string(),
-                id: id.to_string(),
-                updated_at,
-                deleted_at: row.get(18)?,
-                device_id: row_device_id(row, 19, device_id)?,
-                data: json!({
-                    "title": row.get::<_, String>(0)?,
-                    "categoryId": row.get::<_, Option<String>>(1)?,
-                    "plannedDate": row.get::<_, Option<String>>(2)?,
-                    "plannedTime": row.get::<_, Option<String>>(3)?,
-                    "plannedEndTime": row.get::<_, Option<String>>(4)?,
-                    "scheduleKind": row.get::<_, String>(5)?,
-                    "priority": row.get::<_, String>(6)?,
-                    "repeatRule": row.get::<_, String>(7)?,
-                    "occurrenceOverrides": row.get::<_, String>(8)?,
-                    "reminderOffsets": serde_json::from_str::<Value>(&offsets).unwrap_or(json!([])),
-                    "sortOrder": row.get::<_, i64>(10)?,
-                    "parentTaskId": row.get::<_, Option<String>>(11)?,
-                    "status": row.get::<_, String>(12)?,
-                    "failureReason": row.get::<_, Option<String>>(13)?,
-                    "notes": row.get::<_, String>(14)?,
-                    "createdAt": row.get::<_, i64>(15)?,
-                    "completedAt": row.get::<_, Option<i64>>(16)?,
-                }),
-            })
-        },
-    )
-    .optional()
-    .map_err(|error| error.to_string())
+    let change = conn
+        .query_row(
+            "SELECT title, category_id, planned_date, planned_time, planned_end_time, schedule_kind,
+                    priority, repeat_rule, occurrence_overrides, reminder_offsets, sort_order,
+                    parent_task_id, status, failure_reason, notes, created_at, completed_at, updated_at, deleted_at, device_id
+             FROM tasks WHERE owner_id = ?1 AND id = ?2",
+            params![owner, id],
+            |row| {
+                let offsets: String = row.get(9)?;
+                let updated_at: i64 = row.get(17)?;
+                Ok(SyncChange {
+                    entity: ENTITY_TASK.to_string(),
+                    id: id.to_string(),
+                    updated_at,
+                    deleted_at: row.get(18)?,
+                    device_id: row_device_id(row, 19, device_id)?,
+                    data: json!({
+                        "title": row.get::<_, String>(0)?,
+                        "categoryId": row.get::<_, Option<String>>(1)?,
+                        "plannedDate": row.get::<_, Option<String>>(2)?,
+                        "plannedTime": row.get::<_, Option<String>>(3)?,
+                        "plannedEndTime": row.get::<_, Option<String>>(4)?,
+                        "scheduleKind": row.get::<_, String>(5)?,
+                        "priority": row.get::<_, String>(6)?,
+                        "repeatRule": row.get::<_, String>(7)?,
+                        "occurrenceOverrides": row.get::<_, String>(8)?,
+                        "reminderOffsets": serde_json::from_str::<Value>(&offsets).unwrap_or(json!([])),
+                        "sortOrder": row.get::<_, i64>(10)?,
+                        "parentTaskId": row.get::<_, Option<String>>(11)?,
+                        "status": row.get::<_, String>(12)?,
+                        "failureReason": row.get::<_, Option<String>>(13)?,
+                        "notes": row.get::<_, String>(14)?,
+                        "createdAt": row.get::<_, i64>(15)?,
+                        "completedAt": row.get::<_, Option<i64>>(16)?,
+                    }),
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if let Some(change) = &change {
+        if change.deleted_at.is_none() {
+            validate_task_schedule(&change.data, &change.id)?;
+        }
+    }
+    Ok(change)
 }
 
 fn read_anniversary_change(
@@ -763,6 +786,9 @@ fn apply_category(conn: &Connection, owner: &str, change: &SyncChange) -> Result
 
 fn apply_task(conn: &Connection, owner: &str, change: &SyncChange) -> Result<bool, String> {
     let data = &change.data;
+    if change.deleted_at.is_none() {
+        validate_task_schedule(data, &change.id)?;
+    }
     let category_id = text(data, "categoryId");
     let parent_task_id = text(data, "parentTaskId");
     if parent_task_id.as_deref() == Some(change.id.as_str()) {
