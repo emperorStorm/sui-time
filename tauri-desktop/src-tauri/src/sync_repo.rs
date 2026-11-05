@@ -246,22 +246,6 @@ fn read_category_change(
     .map_err(|error| error.to_string())
 }
 
-fn validate_task_schedule(data: &Value, id: &str) -> Result<(), String> {
-    let kind = text(data, "scheduleKind").unwrap_or_else(|| "all_day".to_string());
-    let has_date = text(data, "plannedDate").is_some_and(|value| !value.trim().is_empty());
-    let has_time = text(data, "plannedTime").is_some_and(|value| !value.trim().is_empty());
-    let has_end_time = text(data, "plannedEndTime").is_some_and(|value| !value.trim().is_empty());
-    let title = text(data, "title").unwrap_or_else(|| id.to_string());
-    match kind.as_str() {
-        "all_day" => Ok(()),
-        "point" if has_date && has_time => Ok(()),
-        "range" if has_date && has_time && has_end_time => Ok(()),
-        "point" => Err(format!("事项“{title}”缺少日期或时间，请编辑后重试")),
-        "range" => Err(format!("事项“{title}”缺少日期或时间段，请编辑后重试")),
-        _ => Err(format!("事项“{title}”的时间类型无效，请编辑后重试")),
-    }
-}
-
 fn read_task_change(
     conn: &Connection,
     owner: &str,
@@ -308,11 +292,6 @@ fn read_task_change(
         )
         .optional()
         .map_err(|error| error.to_string())?;
-    if let Some(change) = &change {
-        if change.deleted_at.is_none() {
-            validate_task_schedule(&change.data, &change.id)?;
-        }
-    }
     Ok(change)
 }
 
@@ -786,9 +765,6 @@ fn apply_category(conn: &Connection, owner: &str, change: &SyncChange) -> Result
 
 fn apply_task(conn: &Connection, owner: &str, change: &SyncChange) -> Result<bool, String> {
     let data = &change.data;
-    if change.deleted_at.is_none() {
-        validate_task_schedule(data, &change.id)?;
-    }
     let category_id = text(data, "categoryId");
     let parent_task_id = text(data, "parentTaskId");
     if parent_task_id.as_deref() == Some(change.id.as_str()) {
@@ -1118,6 +1094,37 @@ mod tests {
             "ann@2026-01-01",
             json!({"anniversaryId": "ann", "date": "2026-01-01"}),
         )
+    }
+
+    #[test]
+    fn incomplete_task_schedule_round_trips_without_changes() {
+        let conn = database();
+        for (id, data) in [
+            (
+                "point",
+                json!({"title":"报销提醒","scheduleKind":"point","plannedDate":null,"plannedTime":"09:00","plannedEndTime":null}),
+            ),
+            (
+                "range",
+                json!({"title":"历史事项","scheduleKind":"range","plannedDate":"2026-01-01","plannedTime":null,"plannedEndTime":null}),
+            ),
+        ] {
+            let tx = conn.unchecked_transaction().unwrap();
+            apply_changes(&tx, "owner", &[change(ENTITY_TASK, id, data.clone())]).unwrap();
+            tx.commit().unwrap();
+            let saved = read_task_change(&conn, "owner", id, "local")
+                .unwrap()
+                .unwrap();
+            for key in [
+                "title",
+                "scheduleKind",
+                "plannedDate",
+                "plannedTime",
+                "plannedEndTime",
+            ] {
+                assert_eq!(saved.data[key], data[key], "{id}: {key}");
+            }
+        }
     }
 
     #[test]
