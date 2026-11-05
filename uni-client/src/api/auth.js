@@ -19,7 +19,8 @@ export function request(path, { method = 'GET', data, auth = readAuth() } = {}) 
       success(response) {
         if (response.statusCode >= 200 && response.statusCode < 300) return resolve(response.data)
         const body = response.data || {}
-        const error = new Error(body.error?.message || body.message || `同步请求失败（${response.statusCode}）`)
+        const unsupported = path.startsWith('/api/v1/sui-time/sync/init/') && response.statusCode === 404 && !body.error?.code && !body.code
+        const error = new Error(unsupported ? '同步服务不支持首次上传恢复，请先升级同步服务' : body.error?.message || body.message || `同步请求失败（${response.statusCode}）`)
         error.status = response.statusCode
         error.code = body.error?.code || body.code
         reject(error)
@@ -31,7 +32,8 @@ export function request(path, { method = 'GET', data, auth = readAuth() } = {}) 
 
 export async function authenticate(mode, username, password, deviceId) {
   if (!['login', 'register'].includes(mode)) throw new Error('账号操作无效')
-  if (!/^[\p{L}\p{N}_.-]{3,32}$/u.test(username.trim())) throw new Error('用户名需为 3-32 位字母、数字、下划线、点或短横线')
+  const usernameLength = Array.from(username.trim()).length
+  if (usernameLength < 3 || usernameLength > 32) throw new Error('用户名需为 3-32 位字母、数字、下划线、点或短横线')
   if (password.length < 8 || password.length > 72) throw new Error('密码长度需为 8-72 位')
   const result = await request(`/api/v1/auth/${mode}`, {
     method: 'POST', auth: null,

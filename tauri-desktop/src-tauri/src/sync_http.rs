@@ -90,10 +90,13 @@ pub async fn request<T: DeserializeOwned>(
         return serde_json::from_value(Value::Null)
             .map_err(|_| "同步响应格式无效".to_string().into());
     }
-    let value: Value = response
-        .json()
-        .await
-        .map_err(|_| "同步服务响应格式无效".to_string())?;
+    let value: Value = response.json().await.map_err(|_| {
+        if status.as_u16() == 404 && path.starts_with("/init/") {
+            "同步服务不支持首次上传恢复，请先升级同步服务".to_string()
+        } else {
+            "同步服务响应格式无效".to_string()
+        }
+    })?;
     if !status.is_success() {
         let error = value
             .get("error")

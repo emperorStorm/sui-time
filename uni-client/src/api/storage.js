@@ -49,6 +49,8 @@ function normalizeData(raw, origin = 'user') {
     remoteUserId: sourceMeta.remoteUserId ?? null,
     remoteUsername: sourceMeta.remoteUsername ?? null,
     outbox: sourceMeta.outbox ?? {},
+    initialUpload: sourceMeta.initialUpload ?? null,
+    initialMerge: sourceMeta.initialMerge ?? null,
     dataOrigin: sourceMeta.dataOrigin ?? origin
   }
   if (typeof syncMeta.deviceId !== 'string' || !syncMeta.deviceId.trim()
@@ -57,6 +59,18 @@ function normalizeData(raw, origin = 'user') {
     || ![null, 'string'].includes(syncMeta.remoteUserId === null ? null : typeof syncMeta.remoteUserId)
     || ![null, 'string'].includes(syncMeta.remoteUsername === null ? null : typeof syncMeta.remoteUsername)
     || !['seed', 'user'].includes(syncMeta.dataOrigin)
+    || (syncMeta.initialUpload !== null && (!isObject(syncMeta.initialUpload)
+      || typeof syncMeta.initialUpload.sessionId !== 'string' || !syncMeta.initialUpload.sessionId
+      || typeof syncMeta.initialUpload.userId !== 'string' || !syncMeta.initialUpload.userId
+      || typeof syncMeta.initialUpload.username !== 'string' || !syncMeta.initialUpload.username
+      || syncMeta.initialUpload.deviceId !== syncMeta.deviceId
+      || !Array.isArray(syncMeta.initialUpload.batches)
+      || syncMeta.initialUpload.batches.some(batch => !Array.isArray(batch))))
+    || (syncMeta.initialMerge !== null && (!isObject(syncMeta.initialMerge)
+      || typeof syncMeta.initialMerge.userId !== 'string' || !syncMeta.initialMerge.userId
+      || typeof syncMeta.initialMerge.username !== 'string' || !syncMeta.initialMerge.username
+      || syncMeta.initialMerge.deviceId !== syncMeta.deviceId
+      || syncMeta.remoteUserId !== null || syncMeta.initialUpload !== null || syncMeta.cursor !== 0))
     || !isObject(syncMeta.outbox)
     || Object.entries(syncMeta.outbox).some(([entity, entries]) => ![...Object.values(entityCollections), 'setting'].includes(entity)
       || !isObject(entries) || Object.entries(entries).some(([id, version]) => !id || !Number.isSafeInteger(version) || version <= 0))) {

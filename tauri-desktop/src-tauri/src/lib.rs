@@ -8,7 +8,10 @@ mod sync_http;
 mod sync_merge;
 mod sync_repo;
 
-use sync::{sync_bind, sync_get_status, sync_login, sync_now, sync_register, sync_unbind};
+use sync::{
+    sync_bind, sync_cancel_initialization, sync_get_status, sync_login, sync_now, sync_register,
+    sync_unbind,
+};
 
 fn after_write<T>(app: &tauri::AppHandle, result: Result<T, String>) -> Result<T, String> {
     if result.is_ok() {
@@ -442,6 +445,7 @@ pub fn run() {
             sync_register,
             sync_login,
             sync_bind,
+            sync_cancel_initialization,
             sync_now,
             sync_unbind,
             get_boot_state,

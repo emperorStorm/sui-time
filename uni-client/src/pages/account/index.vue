@@ -3,8 +3,10 @@
     <view class="topbar"><view class="topbar-action" aria-label="返回" @click="back">‹</view><text class="topbar-title">账号与同步</text><view class="topbar-action" /></view>
     <view class="shell account-body">
       <view class="panel account-card">
-        <text class="account-title">{{ meta.remoteUserId ? meta.remoteUsername : '让时光记录随身同行' }}</text>
+        <text class="account-title">{{ meta.remoteUserId ? meta.remoteUsername : pendingInitial ? pendingInitial.username : '让时光记录随身同行' }}</text>
         <text class="account-hint">本机数据离线可用，绑定账号后同步到其他设备。</text>
+        <text v-if="meta.initialUpload" class="account-hint">首次上传尚未完成，绑定未成功。请使用原账号继续；期间的本机修改会保留。</text>
+        <text v-if="meta.initialMerge" class="account-hint">首次合并尚未完成，绑定未成功。部分数据可能已上传，请使用原账号继续；期间的本机修改会保留。</text>
         <text v-if="meta.remoteUserId" class="account-hint">{{ syncLabel }} · 待同步 {{ pendingCount }} 条</text>
         <text v-if="meta.lastSyncAt" class="account-hint">上次同步：{{ new Date(meta.lastSyncAt).toLocaleString() }}</text>
         <text v-if="!configured" class="account-hint">未配置同步服务，请安装已配置服务地址的客户端；现有数据继续保存在本机。</text>
@@ -12,20 +14,23 @@
       </view>
 
       <view v-if="!meta.remoteUserId || state.status === 'needsReauth' || reauth" class="panel account-card">
-        <view v-if="!meta.remoteUserId" class="account-tabs"><button :class="{ selected: mode === 'login' }" :disabled="busy" @click="mode = 'login'">登录</button><button :class="{ selected: mode === 'register' }" :disabled="busy" @click="mode = 'register'">注册</button></view>
-        <text v-else class="account-title">登录已过期，请重新验证</text>
+        <view v-if="!meta.remoteUserId && !pendingInitial" class="account-tabs"><button :class="{ selected: mode === 'login' }" :disabled="busy" @click="mode = 'login'">登录</button><button :class="{ selected: mode === 'register' }" :disabled="busy" @click="mode = 'register'">注册</button></view>
+        <text v-else class="account-title">{{ meta.initialUpload ? '重新登录以继续首次上传' : meta.initialMerge ? '重新登录以继续首次合并' : '登录已过期，请重新验证' }}</text>
         <text class="field-label">用户名</text>
-        <input v-model="username" class="account-input" :disabled="busy || !!meta.remoteUserId" maxlength="32" placeholder="3–32 位字母、数字或 _ . -" aria-label="用户名" />
+        <input v-model="username" class="account-input" :disabled="busy || !!meta.remoteUserId || !!pendingInitial" maxlength="32" placeholder="3–32 位字母、数字或 _ . -" aria-label="用户名" />
         <text class="field-label">密码</text>
         <input v-model="password" class="account-input" :disabled="busy" :password="true" maxlength="72" placeholder="8–72 位密码" aria-label="密码" />
-        <template v-if="!meta.remoteUserId">
+        <template v-if="!meta.remoteUserId && !pendingInitial">
           <text class="field-label">首次绑定的数据处理方式</text>
-          <text v-if="meta.dataOrigin === 'seed'" class="seed-notice">当前为演示数据，默认以云端为准；演示事项不会自动上传。</text>
+          <text v-if="meta.dataOrigin === 'seed'" class="seed-notice">当前为演示数据，默认以云端为准；选择上传或合并时，演示事项也会上传。</text>
           <view v-for="option in strategies" :key="option.value" :class="['strategy', { chosen: strategy === option.value }]" role="radio" :aria-checked="strategy === option.value" @click="!busy && (strategy = option.value)">
             <text class="strategy-title">{{ strategy === option.value ? '●' : '○' }} {{ option.label }}</text><text class="account-hint">{{ option.hint }}</text>
           </view>
         </template>
-        <button class="primary" :loading="busy" :disabled="busy || !ready || !configured" @click="submit">{{ meta.remoteUserId ? '重新登录并同步' : mode === 'register' ? '注册并绑定' : '登录并绑定' }}</button>
+        <button class="primary" :loading="busy" :disabled="busy || !ready || !configured" @click="submit">{{ meta.initialUpload ? '重新登录并继续上传' : meta.initialMerge ? '重新登录并继续合并' : meta.remoteUserId ? '重新登录并同步' : mode === 'register' ? '注册并绑定' : '登录并绑定' }}</button>
+        <button v-if="pendingInitial && !reauth && state.status !== 'needsReauth'" class="primary" :loading="busy" :disabled="busy || !ready || !configured" @click="manualSync">{{ meta.initialUpload ? '继续首次上传' : '继续首次合并' }}</button>
+        <button v-if="meta.initialUpload" class="unbind" :disabled="busy || !ready || !configured" @click="cancelUpload">取消首次上传，保留本机数据</button>
+        <text v-if="meta.initialUpload" class="account-hint">会话过期或云端已有数据时可取消；若云端已完成初始化，须继续上传以完成绑定。取消需登录原账号并连接服务。</text>
       </view>
 
       <view v-if="meta.remoteUserId" class="panel account-card">
@@ -44,7 +49,7 @@ import { load } from '../../api/storage.js'
 import { SYNC_BASE_URL } from '../../utils/sync-config.js'
 import { readAuth } from '../../api/auth.js'
 const configured = Boolean(SYNC_BASE_URL)
-import { bindAccount, syncNow, unbindAccount, syncEngine } from '../../api/sync.js'
+import { bindAccount, syncNow, unbindAccount, cancelInitialUpload, syncEngine } from '../../api/sync.js'
 
 const mode = ref('login')
 const username = ref('')
@@ -54,9 +59,11 @@ const meta = ref({})
 const ready = ref(false)
 const error = ref('')
 const working = ref(false)
+const confirming = ref(false)
 const state = ref(syncEngine.getState())
 const reauth = ref(false)
-const busy = computed(() => working.value || state.value.status === 'syncing')
+const pendingInitial = computed(() => meta.value.initialUpload || meta.value.initialMerge)
+const busy = computed(() => working.value || confirming.value || state.value.status === 'syncing')
 const pendingCount = computed(() => Object.values(meta.value.outbox || {}).reduce((count, entries) => count + Object.keys(entries).length, 0))
 const syncLabel = computed(() => ({ idle: '同步已就绪', syncing: '正在同步', needsReauth: '需要重新登录', error: '同步失败，可重试', unbound: '尚未绑定' }[state.value.status] || '尚未同步'))
 const strategies = [
@@ -68,8 +75,8 @@ function refresh() {
   try {
     meta.value = load().syncMeta || {}
     ready.value = true
-    if (meta.value.remoteUserId) username.value = meta.value.remoteUsername || ''
-    reauth.value = !!meta.value.remoteUserId && !readAuth()?.token
+    if (meta.value.remoteUserId || pendingInitial.value) username.value = meta.value.remoteUsername || pendingInitial.value?.username || ''
+    reauth.value = !!(meta.value.remoteUserId || pendingInitial.value) && !readAuth()?.token
   } catch (cause) { ready.value = false; error.value = cause.message || String(cause) }
 }
 const unsubscribe = syncEngine.subscribe(value => { state.value = value; refresh() })
@@ -88,10 +95,33 @@ async function perform(action) {
 }
 async function submit() {
   if (busy.value || !ready.value) return
-  if (!meta.value.remoteUserId && strategy.value === 'remote' && !await confirm('以云端为准', '完整下载后将替换本机事项、分类、纪念日和设置。云端为空时将清空本机记录，是否继续？')) return
-  await perform(() => bindAccount({ mode: meta.value.remoteUserId ? 'login' : mode.value, username: username.value, password: password.value, strategy: strategy.value }))
+  const boundId = meta.value.remoteUserId || pendingInitial.value?.userId || null
+  const selectedStrategy = strategy.value
+  if (!boundId) {
+    confirming.value = true
+    let accepted
+    try {
+      if (selectedStrategy === 'remote') {
+        accepted = await confirm('以云端为准', '完整下载后将替换本机事项、分类、纪念日和设置。云端为空时将清空本机记录，是否继续？')
+      } else {
+        const demo = meta.value.dataOrigin === 'seed' ? '当前为演示数据，演示事项也会上传。' : ''
+        accepted = await confirm(selectedStrategy === 'upload' ? '上传本机数据' : '合并本机与云端', `将上传本机事项、分类、纪念日和设置（含个人资料）。${demo}不会因数据来源自动删除本机记录；合并时同一记录按服务端版本处理。是否继续？`)
+      }
+    } finally { confirming.value = false }
+    if (!accepted || (meta.value.remoteUserId || pendingInitial.value?.userId || null) !== boundId) return
+  }
+  await perform(() => bindAccount({ mode: boundId ? 'login' : mode.value, username: username.value, password: password.value, strategy: selectedStrategy }))
 }
 function manualSync() { return perform(syncNow) }
+async function cancelUpload() {
+  if (busy.value || !ready.value || !meta.value.initialUpload) return
+  const { sessionId, userId } = meta.value.initialUpload
+  confirming.value = true
+  let accepted
+  try { accepted = await confirm('取消首次上传', '将确认并取消云端初始化，本机事项、设置和待同步记录都会保留。若云端已完成初始化，必须继续完成绑定。是否取消？') }
+  finally { confirming.value = false }
+  if (accepted) await perform(() => cancelInitialUpload({ sessionId, userId }))
+}
 async function disconnect() {
   if (await confirm('解绑账号', '停止此设备的账号同步并清除登录凭证，本机数据会保留。')) await perform(unbindAccount)
 }

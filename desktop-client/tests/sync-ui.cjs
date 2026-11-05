@@ -98,6 +98,7 @@ getSyncStatus = async () => window.__syncMock.read();
 registerSyncAccount = async input => window.__syncMock.action('register', input);
 loginSyncAccount = async input => window.__syncMock.action('login', input);
 bindSync = async strategy => window.__syncMock.action('bind', strategy);
+cancelSyncInitialization = async () => window.__syncMock.action('cancelInit');
 nowSync = async () => window.__syncMock.action('now');
 unbindSync = async () => window.__syncMock.action('unbind');
 onSyncState = async callback => { window.__syncMock.callback = callback; return () => { window.__syncMock.stopped++; window.__syncMock.callback = null; }; };
@@ -115,7 +116,8 @@ listTasks = async (...args) => { window.__syncMock.reads++; return originalListT
           this.calls.push({ name, input })
           if (name === 'login' && this.failLogin) throw new Error('用户名或密码错误')
           if (name === 'login' || name === 'register') Object.assign(this.state, { username: input.username, remoteEmpty: false, needsReauth: false, error: null })
-          if (name === 'bind') Object.assign(this.state, { bound: true, lastSyncAt: Date.now(), pendingCount: 0, error: null })
+          if (name === 'bind') Object.assign(this.state, { bound: true, initializing: false, lastSyncAt: Date.now(), pendingCount: 0, error: null })
+          if (name === 'cancelInit') Object.assign(this.state, { initializing: false, error: null })
           if (name === 'now') {
             this.emit({ syncing: true })
             await new Promise(resolve => setTimeout(resolve, 80))
@@ -146,6 +148,20 @@ listTasks = async (...args) => { window.__syncMock.reads++; return originalListT
     await page.getByRole('button', { name: '登录服务器账号', exact: true }).click()
     await page.getByText('远端已有数据', { exact: true }).waitFor()
     assert.equal(await page.locator('input[name="sync-password"]').inputValue(), '')
+    await page.evaluate(() => window.__syncMock.emit({ initializing: true }))
+    await page.getByText('首次上传进行中，可继续重试', { exact: true }).waitFor()
+    assert.equal(await page.locator('.sync-strategy input').count(), 0)
+    await page.getByRole('button', { name: '取消首次上传', exact: true }).click()
+    await page.getByRole('button', { name: '返回', exact: true }).click()
+    assert.equal(await page.evaluate(() => window.__syncMock.calls.some(call => call.name === 'cancelInit')), false)
+    await page.getByRole('button', { name: '取消首次上传', exact: true }).click()
+    await page.getByRole('button', { name: '确认取消首次上传', exact: true }).click()
+    assert.equal(await page.locator('.sync-strategy input').count(), 3)
+    await page.evaluate(() => window.__syncMock.emit({ initializing: true }))
+    await page.getByRole('button', { name: '继续首次上传', exact: true }).click()
+    await page.getByText('已绑定本机数据', { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__syncMock.calls.at(-1).input), 'upload')
+    await page.evaluate(() => { window.__syncMock.calls = window.__syncMock.calls.filter(call => call.name !== 'bind'); window.__syncMock.emit({ initializing: false, bound: false }) })
     assert.equal(await page.locator('.sync-strategy input').count(), 3)
     await page.getByRole('radio', { name: '使用远端替换本机', exact: false }).check()
     assert.equal(await page.getByRole('button', { name: '确认绑定', exact: true }).isDisabled(), true)

@@ -76,6 +76,40 @@ pub fn push_batches<'a>(
     Ok(batches)
 }
 
+pub fn initialization_batches<'a>(
+    changes: &'a [SyncChange],
+    device_id: &str,
+    session_id: &str,
+) -> Result<Vec<&'a [SyncChange]>, String> {
+    let overhead = serde_json::to_vec(&serde_json::json!({
+        "sessionId": session_id, "deviceId": device_id, "index": u64::MAX, "changes": []
+    }))
+    .map_err(|error| error.to_string())?
+    .len();
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut bytes = overhead;
+    for (index, change) in changes.iter().enumerate() {
+        let size = serde_json::to_vec(change)
+            .map_err(|error| error.to_string())?
+            .len()
+            + 1;
+        if overhead + size > 8 * 1024 * 1024 {
+            return Err("单条数据超过上传上限，请减少照片后重试".into());
+        }
+        if index - start == MAX_PUSH_CHANGES || bytes + size > 8 * 1024 * 1024 {
+            batches.push(&changes[start..index]);
+            start = index;
+            bytes = overhead;
+        }
+        bytes += size;
+    }
+    if start < changes.len() {
+        batches.push(&changes[start..]);
+    }
+    Ok(batches)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,6 +161,29 @@ mod tests {
                 ENTITY_SETTING
             ]
         );
+    }
+
+    #[test]
+    fn initialization_batches_are_stable_and_respect_the_request_limit() {
+        let changes: Vec<SyncChange> = (0..451)
+            .map(|index| change(ENTITY_TASK, &index.to_string()))
+            .collect();
+        let batches = initialization_batches(&changes, "device", "session").unwrap();
+        assert_eq!(
+            batches.iter().map(|batch| batch.len()).collect::<Vec<_>>(),
+            vec![200, 200, 51]
+        );
+        assert!(initialization_batches(&[], "device", "session")
+            .unwrap()
+            .is_empty());
+        for (index, batch) in batches.iter().enumerate() {
+            let body =
+                json!({"sessionId":"session", "deviceId":"device", "index":index, "changes":batch});
+            assert!(serde_json::to_vec(&body).unwrap().len() <= 8 * 1024 * 1024);
+        }
+        let mut large = change(ENTITY_TASK, "large");
+        large.data = json!({"text": "x".repeat(8 * 1024 * 1024)});
+        assert!(initialization_batches(&[large], "device", "session").is_err());
     }
 
     #[test]

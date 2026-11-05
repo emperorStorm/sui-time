@@ -14,7 +14,7 @@
             <div><dt>远端数据</dt><dd>{{ status.remoteEmpty === null ? '尚未确认' : status.remoteEmpty ? '远端为空' : '远端已有数据' }}</dd></div>
             <div><dt>上次同步</dt><dd>{{ lastSyncLabel }}</dd></div>
             <div><dt>待同步变更</dt><dd>{{ status.pendingCount }} 项</dd></div>
-            <div><dt>当前状态</dt><dd role="status">{{ status.syncing ? '正在同步…' : status.needsReauth ? '登录已失效，请重新登录' : status.error ? '同步失败' : status.bound ? '已就绪' : '等待绑定' }}</dd></div>
+            <div><dt>当前状态</dt><dd role="status">{{ status.syncing ? '正在同步…' : status.needsReauth ? '登录已失效，请重新登录' : status.error ? '同步失败' : status.initializing ? '首次上传进行中，可继续重试' : status.bound ? '已就绪' : '等待绑定' }}</dd></div>
           </dl>
           <p v-if="status.error" class="form-error sync-error" role="alert">失败原因：{{ status.error }}</p>
           <form v-if="!status.username || status.needsReauth || !status.bound" class="sync-auth" @submit.prevent="authenticate">
@@ -25,11 +25,15 @@
           </form>
           <form v-if="status.username && !status.bound && !status.needsReauth" class="sync-binding" @submit.prevent="bindAccount">
             <fieldset :disabled="busy"><legend>首次绑定方式</legend>
-              <label class="sync-strategy"><input v-model="strategy" type="radio" value="upload" /><span><strong>上传本机数据</strong><small>以本机数据初始化远端；适合远端为空时使用。</small></span></label>
-              <label class="sync-strategy"><input v-model="strategy" type="radio" value="merge" /><span><strong>合并本机与远端</strong><small>合并两端数据，保留双方记录。</small></span></label>
-              <label class="sync-strategy"><input v-model="strategy" type="radio" value="remote" /><span><strong>使用远端替换本机</strong><small>本机现有数据将被远端数据替换，请先导出备份。</small></span></label>
-              <label v-if="strategy === 'remote'" class="sync-confirm"><input v-model="replaceConfirmed" type="checkbox" />我确认使用远端数据替换本机，接受本机现有数据被覆盖{{ status.remoteEmpty ? '（远端为空，本机数据将被清空）' : '' }}。</label>
-              <button class="primary-button" type="submit" :disabled="strategy === 'remote' && !replaceConfirmed">{{ submitting ? '正在绑定…' : '确认绑定' }}</button>
+              <p v-if="status.initializing">首次上传已开始，重试将继续之前的本机数据快照；期间的新修改会保留在待同步队列中。</p>
+              <template v-else>
+                <label class="sync-strategy"><input v-model="strategy" type="radio" value="upload" /><span><strong>上传本机数据</strong><small>以本机数据初始化远端；适合远端为空时使用。</small></span></label>
+                <label class="sync-strategy"><input v-model="strategy" type="radio" value="merge" /><span><strong>合并本机与远端</strong><small>合并两端数据，保留双方记录。</small></span></label>
+                <label class="sync-strategy"><input v-model="strategy" type="radio" value="remote" /><span><strong>使用远端替换本机</strong><small>本机现有数据将被远端数据替换，请先导出备份。</small></span></label>
+                <label v-if="strategy === 'remote'" class="sync-confirm"><input v-model="replaceConfirmed" type="checkbox" />我确认使用远端数据替换本机，接受本机现有数据被覆盖{{ status.remoteEmpty ? '（远端为空，本机数据将被清空）' : '' }}。</label>
+              </template>
+              <div class="sync-actions"><button class="primary-button" type="submit" :disabled="!status.initializing && strategy === 'remote' && !replaceConfirmed">{{ submitting ? '正在绑定…' : status.initializing ? '继续首次上传' : '确认绑定' }}</button><button v-if="status.initializing" class="quiet-button" type="button" @click="cancelConfirmed = true">取消首次上传</button></div>
+              <div v-if="status.initializing && cancelConfirmed" class="sync-unbind" role="group" aria-label="确认取消首次上传"><p>取消仅移除云端未发布的暂存数据，本机数据保留；若云端已经完成，请继续首次上传。</p><div class="sync-actions"><button class="quiet-button" type="button" @click="cancelConfirmed = false">返回</button><button class="quiet-button danger-text" type="button" @click="perform(cancelSyncInitialization)">确认取消首次上传</button></div></div>
             </fieldset>
           </form>
           <div v-if="status.bound" class="sync-actions"><button class="primary-button" type="button" :disabled="busy || status.needsReauth" @click="perform(nowSync)"><RefreshCw :size="17" :class="{ spinning: status.syncing }" />{{ status.syncing ? '正在同步…' : '立即同步' }}</button><button class="quiet-button danger-text" type="button" :disabled="busy" @click="unbindConfirmed = true">解除绑定</button></div>
@@ -44,7 +48,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { CloudOff, Eye, EyeOff, RefreshCw } from 'lucide-vue-next'
-import { bindSync, getSyncStatus, loginSyncAccount, nowSync, registerSyncAccount, unbindSync, type SyncBindStrategy, type SyncStatus } from '../api/native'
+import { bindSync, cancelSyncInitialization, getSyncStatus, loginSyncAccount, nowSync, registerSyncAccount, unbindSync, type SyncBindStrategy, type SyncStatus } from '../api/native'
 
 const props = defineProps<{ status: SyncStatus | null }>()
 const emit = defineEmits<{ state: [status: SyncStatus] }>()
@@ -55,6 +59,7 @@ const authMode = ref<'login' | 'register'>('login')
 const strategy = ref<SyncBindStrategy>('merge')
 const replaceConfirmed = ref(false)
 const unbindConfirmed = ref(false)
+const cancelConfirmed = ref(false)
 const submitting = ref(false)
 const loading = ref(false)
 const operationError = ref('')
@@ -87,6 +92,7 @@ async function perform(action: () => Promise<SyncStatus>) {
     const result = await action()
     emit('state', result)
     unbindConfirmed.value = false
+    cancelConfirmed.value = false
     replaceConfirmed.value = false
     successMessage.value = result.error ? '' : '操作已完成'
   } catch (error) {
@@ -105,8 +111,8 @@ async function authenticate() {
 }
 
 async function bindAccount() {
-  if (strategy.value === 'remote' && !replaceConfirmed.value) return
-  await perform(() => bindSync(strategy.value))
+  if (!props.status?.initializing && strategy.value === 'remote' && !replaceConfirmed.value) return
+  await perform(() => bindSync(props.status?.initializing ? 'upload' : strategy.value))
 }
 
 void refreshStatus()

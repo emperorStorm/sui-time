@@ -35,9 +35,19 @@ pub struct SyncAccount {
     pub last_sync_at: Option<i64>,
     #[serde(default)]
     pub bound: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initialization: Option<SyncInitialization>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncInitialization {
+    pub session_id: String,
+    pub changes: Vec<SyncChange>,
+    pub pending: Vec<(String, String, i64)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncChange {
     pub entity: String,
@@ -110,6 +120,61 @@ pub fn clear_outbox_entry(
         params![owner_id, entity, entity_id],
     )
     .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub fn changed_outbox_keys(
+    conn: &Connection,
+    owner_id: &str,
+    device_id: &str,
+    changes: &[SyncChange],
+    pending: &[(String, String, i64)],
+) -> Result<std::collections::HashSet<(String, String)>, String> {
+    let originals: std::collections::HashMap<_, _> = changes
+        .iter()
+        .map(|change| ((change.entity.as_str(), change.id.as_str()), change))
+        .collect();
+    let versions: std::collections::HashMap<_, _> = pending
+        .iter()
+        .map(|(entity, id, version)| ((entity.as_str(), id.as_str()), *version))
+        .collect();
+    let mut protected = std::collections::HashSet::new();
+    for (entity, id, updated) in pending_entries(conn, owner_id)? {
+        let key = (entity.as_str(), id.as_str());
+        let original = originals.get(&key).copied();
+        let current = read_change(conn, owner_id, &entity, &id, device_id, updated)?;
+        if versions.get(&key) != Some(&updated)
+            || original.is_none()
+            || original != current.as_ref()
+        {
+            protected.insert((entity, id));
+        }
+    }
+    Ok(protected)
+}
+
+pub fn clear_confirmed_outbox(
+    conn: &Connection,
+    owner_id: &str,
+    device_id: &str,
+    changes: &[SyncChange],
+    pending: &[(String, String, i64)],
+) -> Result<(), String> {
+    require_transaction(conn)?;
+    let originals: std::collections::HashMap<_, _> = changes
+        .iter()
+        .map(|change| ((change.entity.as_str(), change.id.as_str()), change))
+        .collect();
+    for (entity, id, updated) in pending {
+        let original = originals.get(&(entity.as_str(), id.as_str())).copied();
+        let current = read_change(conn, owner_id, entity, id, device_id, *updated)?;
+        if original.is_some() && original == current.as_ref() {
+            conn.execute(
+                "DELETE FROM sync_outbox WHERE owner_id=?1 AND entity=?2 AND entity_id=?3 AND updated_at=?4",
+                params![owner_id, entity, id, updated],
+            ).map_err(|error| error.to_string())?;
+        }
+    }
     Ok(())
 }
 
@@ -1094,6 +1159,73 @@ mod tests {
             "ann@2026-01-01",
             json!({"anniversaryId": "ann", "date": "2026-01-01"}),
         )
+    }
+
+    #[test]
+    fn initialization_snapshot_preserves_same_version_edits_and_survives_reload() {
+        let conn = database();
+        conn.execute(
+            "UPDATE users SET show_completed_all = 1 WHERE id = 'owner'",
+            [],
+        )
+        .unwrap();
+        enqueue_outbox(&conn, "owner", ENTITY_SETTING, SETTING_SHOW_TASKS, 200).unwrap();
+        enqueue_outbox(&conn, "owner", ENTITY_SETTING, SETTING_SHOW_WEEK, 201).unwrap();
+        let snapshot = SyncInitialization {
+            session_id: "session".into(),
+            changes: read_all_changes(&conn, "owner", "local").unwrap(),
+            pending: pending_entries(&conn, "owner").unwrap(),
+        };
+        let account = SyncAccount {
+            server_user_id: "remote-user".into(),
+            initialization: Some(snapshot),
+            ..Default::default()
+        };
+        save_account(&conn, "owner", &account).unwrap();
+        let loaded = read_account(&conn, "owner")
+            .unwrap()
+            .unwrap()
+            .initialization
+            .unwrap();
+        assert_eq!(loaded.session_id, "session");
+        assert_eq!(loaded.changes, account.initialization.unwrap().changes);
+        conn.execute(
+            "UPDATE users SET show_completed_all = 0 WHERE id = 'owner'",
+            [],
+        )
+        .unwrap();
+        enqueue_outbox(&conn, "owner", ENTITY_SETTING, SETTING_SHOW_MONTH, 202).unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        let protected =
+            changed_outbox_keys(&tx, "owner", "local", &loaded.changes, &loaded.pending).unwrap();
+        assert!(protected.contains(&(ENTITY_SETTING.into(), SETTING_SHOW_TASKS.into())));
+        assert!(protected.contains(&(ENTITY_SETTING.into(), SETTING_SHOW_MONTH.into())));
+        assert!(!protected.contains(&(ENTITY_SETTING.into(), SETTING_SHOW_WEEK.into())));
+        let mut remote = vec![change(
+            ENTITY_SETTING,
+            SETTING_SHOW_TASKS,
+            json!({"value": true}),
+        )];
+        remote[0].updated_at = 201;
+        remote.retain(|item| !protected.contains(&(item.entity.clone(), item.id.clone())));
+        apply_changes(&tx, "owner", &remote).unwrap();
+        clear_confirmed_outbox(&tx, "owner", "local", &loaded.changes, &loaded.pending).unwrap();
+        tx.commit().unwrap();
+        let value: i64 = conn
+            .query_row(
+                "SELECT show_completed_all FROM users WHERE id = 'owner'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, 0);
+        assert_eq!(
+            pending_entries(&conn, "owner").unwrap(),
+            vec![
+                (ENTITY_SETTING.into(), SETTING_SHOW_TASKS.into(), 200),
+                (ENTITY_SETTING.into(), SETTING_SHOW_MONTH.into(), 202),
+            ]
+        );
     }
 
     #[test]

@@ -17,6 +17,7 @@ export interface SyncStatus {
   pendingCount: number
   needsReauth: boolean
   syncing: boolean
+  initializing: boolean
   error: string | null
 }
 
@@ -25,7 +26,7 @@ export type SyncAccountInput = { username: string; password: string }
 
 export async function getSyncStatus(): Promise<SyncStatus> {
   if (isTauriRuntime()) return invoke('sync_get_status')
-  return { configured: false, bound: false, username: '', remoteEmpty: null, lastSyncAt: null, pendingCount: 0, needsReauth: false, syncing: false, error: null }
+  return { configured: false, bound: false, username: '', remoteEmpty: null, lastSyncAt: null, pendingCount: 0, needsReauth: false, syncing: false, initializing: false, error: null }
 }
 
 export async function registerSyncAccount(input: SyncAccountInput): Promise<SyncStatus> {
@@ -41,6 +42,11 @@ export async function loginSyncAccount(input: SyncAccountInput): Promise<SyncSta
 export async function bindSync(strategy: SyncBindStrategy): Promise<SyncStatus> {
   if (!isTauriRuntime()) throw new Error('账号与同步仅在桌面客户端中可用')
   return invoke('sync_bind', { strategy })
+}
+
+export async function cancelSyncInitialization(): Promise<SyncStatus> {
+  if (!isTauriRuntime()) throw new Error('账号与同步仅在桌面客户端中可用')
+  return invoke('sync_cancel_initialization')
 }
 
 export async function nowSync(): Promise<SyncStatus> {
