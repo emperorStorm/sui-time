@@ -48,7 +48,12 @@ export function checkUpdate() {
   if (checkPromise) return checkPromise
   if (['downloading', 'installing', 'waiting'].includes(state.status)) return Promise.resolve(state)
   const current = installedVersion()
-  publish({ status: 'checking', currentVersion: current.version, currentCode: current.code, message: '' })
+  const cached = downloaded?.path && downloaded.version &&
+    (downloaded.code ? current.code < downloaded.code : compareVersions(current.version, downloaded.version) < 0) ? downloaded : null
+  const checkFailed = message => publish(cached && downloaded === cached
+    ? { status: 'ready', latestVersion: cached.version, latestCode: cached.code, downloadUrl: cached.url, checkError: true, message: `检查更新失败：${message}。已下载的安装包仍可安装。` }
+    : { status: 'error', checkError: true, message })
+  publish({ status: 'checking', currentVersion: current.version, currentCode: current.code, message: '', checkError: false })
   checkPromise = new Promise(resolve => {
     // #ifdef APP-PLUS
     if (typeof plus !== 'undefined' && plus.os?.name === 'Android') {
@@ -60,15 +65,15 @@ export function checkUpdate() {
             const manifest = validateUpdateManifest(response.data)
             const newer = manifest.versionCode !== undefined ? Number(manifest.versionCode) > current.code : compareVersions(manifest.version, current.version) > 0
             resolve(publish(newer ? { status: 'found', latestVersion: manifest.version, latestCode: Number(manifest.versionCode || 0), notes: manifest.notes || '修复已知问题，优化使用体验。', downloadUrl: manifest.url } : { status: 'latest' }))
-          } catch (error) { resolve(publish({ status: 'error', message: error.message || String(error) })) }
+          } catch (error) { resolve(checkFailed(error.message || String(error))) }
         },
-        fail: () => resolve(publish({ status: 'error', message: '无法连接更新服务，请检查网络后重试' }))
+        fail: () => resolve(checkFailed('无法连接更新服务，请检查网络后重试'))
       })
       return
     }
     // #endif
     resolve(publish({ status: 'latest' }))
-  }).catch(error => publish({ status: 'error', message: error.message || String(error) })).finally(() => { checkPromise = null })
+  }).catch(error => checkFailed(error.message || String(error))).finally(() => { checkPromise = null })
   return checkPromise
 }
 

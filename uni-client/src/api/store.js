@@ -4,6 +4,7 @@ import { occursOn, parseOccurrenceId, parseOverrides, parseRepeatRule, resolveTa
 import { addDays, todayString } from '../utils/date.js'
 import { compareTasks, normalizeTask } from '../utils/task.js'
 import { syncTaskReminders } from './reminders.js'
+import { cloneData, sameData } from './sync-outbox.js'
 
 const isActive = item => item.deletedAt == null
 const tombstone = (item, now) => isActive(item) ? { ...item, deletedAt: now, updatedAt: now } : item
@@ -19,16 +20,27 @@ export function listAnniversaryRecords({ anniversaryId, startDate, endDate } = {
     .sort((a, b) => b.date.localeCompare(a.date)).map(record => ({ ...record }))
 }
 
-export function saveAnniversaryRecord(input) {
+export function getAnniversaryRecordSnapshot(anniversaryId, date, displayedRecord) {
+  if (displayedRecord) return cloneData(displayedRecord)
+  // 界面不显示墓碑，但编辑期间仍需检测墓碑被替换或更新。
+  const current = load().anniversaryRecords.find(record => record.anniversaryId === anniversaryId && record.date === date)
+  return current && !isActive(current) ? cloneData(current) : null
+}
+
+export function saveAnniversaryRecord(input, options) {
   const data = load()
-  const item = getAnniversary(input.anniversaryId)
   const records = [...data.anniversaryRecords]
   const index = records.findIndex(record => record.anniversaryId === input.anniversaryId && record.date === input.date)
+  if (options && Object.hasOwn(options, 'expectedSnapshot') && !sameData(index >= 0 ? records[index] : null, options.expectedSnapshot)) {
+    throw new Error('纪念记录已在其他位置更改，请保留草稿并关闭后重新打开')
+  }
+  const item = data.anniversaries.find(item => isActive(item) && item.id === input.anniversaryId)
+  if (!item) throw new Error('纪念日不存在')
   const result = { ...prepareAnniversaryRecord(item, input, index >= 0 && isActive(records[index]) ? records[index] : null), deletedAt: null }
   if (index >= 0) records[index] = result
   else records.push(result)
   saveStorage({ ...data, anniversaryRecords: records }, { strict: true })
-  return result
+  return cloneData(load().anniversaryRecords.find(record => record.anniversaryId === input.anniversaryId && record.date === input.date))
 }
 
 export function getAnniversary(id) {
@@ -37,18 +49,21 @@ export function getAnniversary(id) {
   return { ...item, photos: [...item.photos] }
 }
 
-export function saveAnniversary(input) {
+export function saveAnniversary(input, options) {
   const normalized = normalizeAnniversary(input)
   const data = load()
   const items = [...data.anniversaries]
   const index = normalized.id ? items.findIndex(item => isActive(item) && item.id === normalized.id) : -1
+  if (normalized.id && options && Object.hasOwn(options, 'expectedSnapshot') && !sameData(index >= 0 ? items[index] : null, options.expectedSnapshot)) {
+    throw new Error('纪念日已在其他位置更改，请保留草稿并关闭后重新打开')
+  }
   if (normalized.id && index < 0) throw new Error('纪念日不存在')
   const now = Date.now()
   const item = { ...normalized, photos: [...normalized.photos], id: normalized.id || `a${now}-${Math.random().toString(36).slice(2, 10)}`, createdAt: index >= 0 ? items[index].createdAt : now, updatedAt: now }
   if (index >= 0) items[index] = item
   else items.push(item)
   saveStorage({ ...data, anniversaries: items }, { strict: true })
-  return item
+  return cloneData(load().anniversaries.find(saved => saved.id === item.id))
 }
 
 export function removeAnniversary(id) {
@@ -109,10 +124,54 @@ export function listTasks() {
   return load().tasks.filter(isActive)
 }
 
-export function findTask(id) {
+function findTaskInData(data, id) {
   const occurrence = parseOccurrenceId(id)
-  if (occurrence) return resolveTasksForDate(listTasks(), parseOverrides(findTask(occurrence.sourceId) || {})[occurrence.date]?.plannedDate || occurrence.date).find(task => task.id === id) || null
-  return listTasks().find((item) => item.id === id) || null
+  const tasks = data.tasks.filter(isActive)
+  if (occurrence) {
+    const source = tasks.find(task => task.id === occurrence.sourceId)
+    if (!source) return null
+    return resolveTasksForDate([source], parseOverrides(source)[occurrence.date]?.plannedDate || occurrence.date).find(task => task.id === id) || null
+  }
+  return tasks.find(item => item.id === id) || null
+}
+
+export function findTask(id) {
+  return findTaskInData(load(), id)
+}
+
+function taskSnapshot(data, id) {
+  const occurrence = parseOccurrenceId(id)
+  const source = data.tasks.find(task => isActive(task) && task.id === (occurrence?.sourceId || id))
+  if (!source) return null
+  if (occurrence) {
+    const overrides = parseOverrides(source)
+    const date = overrides[occurrence.date]?.plannedDate || occurrence.date
+    if (!resolveTasksForDate([source], date).some(task => task.id === id)) return null
+    // 其他实例只改变 overrides 和记录元数据，不影响当次草稿。
+    const { occurrenceOverrides, updatedAt, deviceId, ...base } = source
+    return cloneData({ id, source: base, hasOverride: Object.hasOwn(overrides, occurrence.date), override: overrides[occurrence.date] ?? null })
+  }
+  const ids = new Set([id])
+  let size
+  do {
+    size = ids.size
+    for (const task of data.tasks) if (isActive(task) && ids.has(task.parentTaskId)) ids.add(task.id)
+  } while (size !== ids.size)
+  return cloneData({ id, source, children: data.tasks.filter(task => isActive(task) && task.id !== id && ids.has(task.id)).sort((a, b) => a.id.localeCompare(b.id)) })
+}
+
+export function getTaskSnapshot(id) {
+  return taskSnapshot(load(), id)
+}
+
+function checkTaskSnapshot(data, id, options) {
+  if (!Object.hasOwn(options, 'expectedSnapshot')) return
+  const current = taskSnapshot(data, id)
+  if (!current || !sameData(current, options.expectedSnapshot)) {
+    const error = new Error('事项已在其他位置更改或删除，请保留草稿，放弃后关闭并重新打开')
+    error.code = 'TASK_CONFLICT'
+    throw error
+  }
 }
 
 // 草稿、父子状态与新建默认值同次严格落盘；返回 reminderPromise 供 UI 等待排程。
@@ -121,6 +180,7 @@ export function saveTask(input, children, options = {}) {
   const now = Date.now()
   if (options.status !== undefined && !['todo', 'done', 'failed'].includes(options.status)) throw new Error('事项状态无效')
   const occurrence = input.id ? parseOccurrenceId(input.id) : null
+  if (input.id) checkTaskSnapshot(data, input.id, options)
   const sourceId = occurrence?.sourceId || input.id
   const existing = sourceId ? data.tasks.find(task => isActive(task) && task.id === sourceId) : null
   if (sourceId && !existing) throw new Error('事项不存在')
@@ -175,8 +235,11 @@ export function saveTask(input, children, options = {}) {
   const settings = options.rememberDefaults === true && !occurrence && !normalized.parentTaskId
     && (previous?.categoryId !== defaults.categoryId || previous?.priority !== defaults.priority)
     ? { ...data.settings, newTaskDefaults: { ...previous, ...defaults } } : data.settings
-  const reminderPromise = saveTaskData({ ...data, tasks, settings })
-  const result = { ...(occurrence ? findTask(input.id) : tasks.find(task => task.id === id)) }
+  const written = { ...data, tasks, settings }
+  const reminderPromise = saveTaskData(written)
+  const resultId = occurrence ? input.id : id
+  const result = { ...(occurrence ? findTaskInData(written, resultId) : tasks.find(task => task.id === id)) }
+  Object.defineProperty(result, 'taskSnapshot', { value: taskSnapshot(written, resultId) })
   Object.defineProperty(result, 'reminderPromise', { value: reminderPromise })
   return result
 }
@@ -203,8 +266,9 @@ function applyTaskStatus(tasks, source, occurrence, status, now) {
     : cascade && isActive(task) && task.parentTaskId === source.id ? { ...task, ...taskStatusPatch(task, status, now) } : task)
 }
 
-export function removeTask(id) {
+export function removeTask(id, options = {}) {
   const data = load()
+  checkTaskSnapshot(data, id, options)
   const occurrence = parseOccurrenceId(id)
   if (occurrence) {
     const source = data.tasks.find(task => isActive(task) && task.id === occurrence.sourceId)

@@ -1,22 +1,18 @@
 <template>
   <view class="page tasks-page">
     <view class="topbar">
-      <view class="topbar-menu" @click="onMenu">
-        <text class="menu-icon">≡</text>
-        <view v-if="ready && todoCount" class="menu-badge"><text>{{ todoCount > 99 ? '99+' : todoCount }}</text></view>
-      </view>
-      <view class="topbar-title">本周事项 <text class="title-arrow">▾</text></view>
-      <view class="topbar-action" @click="onMore"><text>···</text></view>
+      <view class="topbar-title">事项</view>
+      <view v-if="ready" class="task-summary" role="status" :aria-label="`待办 ${todoCount} 项`"><text>待办</text><text>{{ todoCount > 99 ? '99+' : todoCount }}</text></view>
     </view>
 
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="load">重试读取</button></view>
     <template v-else-if="ready">
     <scroll-view class="filter-bar" scroll-x>
-      <view :class="['filter-chip', 'chip-all', filter === 'all' ? 'active' : '']" @click="filter = 'all'"><text>全部</text></view>
-      <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', 'chip-cat', filter === cat.id ? 'active' : '']" :style="{ background: cat.color, '--chip-color': cat.color }" @click="filter = cat.id">
+      <view :class="['filter-chip', 'chip-all', filter === 'all' ? 'active' : '']" role="button" tabindex="0" :aria-pressed="filter === 'all'" @click="filter = 'all'" @keydown.enter.prevent="filter = 'all'" @keydown.space.prevent="filter = 'all'"><text>全部</text></view>
+      <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', 'chip-cat', filter === cat.id ? 'active' : '']" :style="{ background: cat.color, '--chip-color': cat.color }" role="button" tabindex="0" :aria-pressed="filter === cat.id" @click="filter = cat.id" @keydown.enter.prevent="filter = cat.id" @keydown.space.prevent="filter = cat.id">
         <text>{{ cat.name }}</text>
       </view>
-      <view class="filter-chip chip-add" @click="manageVisible = true"><text>＋</text></view>
+      <view class="filter-chip chip-add" role="button" tabindex="0" aria-label="管理分类" @click="manageVisible = true" @keydown.enter.prevent="manageVisible = true" @keydown.space.prevent="manageVisible = true"><text>＋</text></view>
     </scroll-view>
 
     <view class="search-tools">
@@ -30,10 +26,10 @@
       </view>
     </view>
 
-    <scroll-view class="task-scroll" scroll-y>
+    <scroll-view class="task-scroll" scroll-y refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh">
       <view v-if="groups.length" class="shell">
         <view v-for="group in groups" :key="group.label" class="task-group panel">
-          <view class="group-header" @click="toggleGroup(group.label)">
+          <view class="group-header" role="button" tabindex="0" :aria-expanded="!isCollapsed(group.label)" @click="toggleGroup(group.label)" @keydown.enter.prevent="toggleGroup(group.label)" @keydown.space.prevent="toggleGroup(group.label)">
             <text class="group-label">{{ group.label }}</text>
             <view class="group-right">
               <text class="group-count">{{ group.items.length }}</text>
@@ -41,10 +37,10 @@
             </view>
           </view>
           <template v-if="!isCollapsed(group.label)">
-            <view v-for="task in group.items" :key="task.id" class="task-item" @click="openEdit(task)" @longpress="openQuickAdjust(task)">
-              <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="checkStyle(task)" @click.stop="toggle(task)" @longpress.stop>
-                <text v-if="task.status === 'done'">✓</text>
-              </view>
+            <view v-for="task in group.items" :key="task.id" class="task-item" role="button" tabindex="0" :aria-label="`编辑事项 ${task.title}`" @click="openEdit(task)" @longpress="openQuickAdjust(task)" @keydown.enter.prevent="openEdit(task)" @keydown.space.prevent="openEdit(task)">
+              <button class="task-check-target" role="button" tabindex="0" :aria-label="`${task.status === 'done' ? '恢复待办' : '完成事项'} ${task.title}`" @click.stop="toggle(task)" @longpress.stop @keydown.enter.stop.prevent="toggle(task)" @keydown.space.stop.prevent="toggle(task)">
+                <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="checkStyle(task)"><text v-if="task.status === 'done'">✓</text></view>
+              </button>
               <view class="task-main">
                 <text :class="['task-title', task.status === 'done' ? 'is-done' : '']"><text class="task-priority">{{ taskMark(task) }}</text>{{ task.title }}</text>
                 <text class="task-meta">{{ metaOf(task) }}</text>
@@ -60,12 +56,12 @@
       </view>
     </scroll-view>
 
-    <view class="fab" @click="openEdit(null)"><text>＋</text></view>
+    <button class="fab" role="button" tabindex="0" aria-label="新增事项" @click="openEdit(null)" @keydown.enter.prevent="openEdit(null)" @keydown.space.prevent="openEdit(null)">＋</button>
 
-    <TaskEditSheet ref="taskSheet" :visible="sheetVisible" :task="editingTask" @close="closeSheet" @saved="reload" />
     <QuickAdjustSheet ref="adjustSheet" :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
     <CategoryManageSheet ref="categorySheet" :visible="manageVisible" @close="manageVisible = false" @changed="onCategoriesChanged" />
     </template>
+    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :task="editingTask" @close="closeSheet" @saved="reload" />
   </view>
 </template>
 
@@ -81,6 +77,9 @@ import { occursOn } from '../../utils/occurrence'
 import { compareTasks, matchesTaskFilter, taskMark, validateTaskDateRange } from '../../utils/task'
 import { shortDate, weekday, todayString } from '../../utils/date'
 import { toast } from '../../utils/platform'
+import { usePullSync } from '../../utils/pull-sync.js'
+
+const { refreshing, refresh } = usePullSync(load)
 
 const categories = ref([])
 const ready = ref(false)
@@ -131,7 +130,7 @@ function clearFilters() {
   clearDates()
 }
 
-const todoCount = computed(() => allTasks.value.filter((task) => !task.parentTaskId && task.status !== 'done').length)
+const todoCount = computed(() => allTasks.value.filter(task => !task.parentTaskId && (task.status || 'todo') === 'todo').length)
 
 function onCategoriesChanged() {
   load()
@@ -281,13 +280,6 @@ function reload() {
   load()
 }
 
-function onMenu() {
-  toast('菜单功能敬请期待')
-}
-
-function onMore() {
-  toast('更多功能敬请期待')
-}
 </script>
 
 <style scoped>
@@ -310,6 +302,7 @@ function onMore() {
 .filter-bar, .task-scroll { width: 100%; box-sizing: border-box; }
 .task-priority { display: inline-block; min-width: 44rpx; margin-right: 8rpx; color: #97a6b9; font-size: 23rpx; }
 .tasks-page {
+  height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -319,64 +312,28 @@ function onMore() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28rpx;
-}
-
-.topbar-menu {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 72rpx;
-  height: 72rpx;
-}
-
-.menu-icon {
-  color: #3d4a58;
-  font-size: 44rpx;
-  font-weight: 600;
-}
-
-.menu-badge {
-  position: absolute;
-  top: 6rpx;
-  right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32rpx;
-  height: 32rpx;
-  padding: 0 8rpx;
-  border-radius: 999rpx;
-  background: #f5533f;
-  color: #fff;
-  font-size: 20rpx;
-  font-weight: 600;
+  padding-left: 28rpx;
+  padding-right: 28rpx;
 }
 
 .topbar-title {
   flex: 1;
-  color: #26282d;
+  color: var(--ink);
   font-size: 34rpx;
   font-weight: 600;
-  text-align: center;
 }
 
-.title-arrow {
-  color: #8a96a3;
-  font-size: 28rpx;
-}
-
-.topbar-action {
+.task-summary {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 72rpx;
-  height: 72rpx;
-  color: #3d4a58;
-  font-size: 36rpx;
+  gap: 10rpx;
+  padding: 12rpx 20rpx;
+  border-radius: 999rpx;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 23rpx;
   font-weight: 600;
-  letter-spacing: 2rpx;
+  font-variant-numeric: tabular-nums;
 }
 
 .filter-bar {
@@ -437,6 +394,7 @@ function onMore() {
 
 .task-scroll {
   flex: 1;
+  height: 0;
   min-height: 0;
   padding: 28rpx 28rpx 40rpx;
 }
@@ -495,6 +453,20 @@ function onMore() {
 .task-item:active {
   background: #f6f9fc;
 }
+
+.task-check-target {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 96rpx;
+  width: 96rpx;
+  min-height: 96rpx;
+  margin: -16rpx;
+  padding: 0;
+  background: transparent;
+}
+.task-check-target::after { border: 0; }
+.task-item:focus-visible, .group-header:focus-visible, .filter-chip:focus-visible, .task-check-target:focus-visible, .fab:focus-visible { outline: 4rpx solid #79a9d7; outline-offset: -4rpx; }
 
 .task-check {
   display: flex;
@@ -561,6 +533,9 @@ function onMore() {
   justify-content: center;
   width: 112rpx;
   height: 112rpx;
+  margin: 0;
+  padding: 0;
+  line-height: 112rpx;
   border-radius: 50%;
   background: #4aa7f8;
   color: #fff;
@@ -569,6 +544,7 @@ function onMore() {
   box-shadow: 0 12rpx 28rpx rgba(48, 147, 231, 0.32);
 }
 
+.fab::after { border: 0; }
 .fab:active {
   transform: scale(0.94);
 }

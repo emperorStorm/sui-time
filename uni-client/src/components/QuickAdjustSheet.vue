@@ -20,14 +20,14 @@
           <view class="option-grid">
             <view :class="['option-chip', draft.categoryId === null ? 'active' : '']" @click="draft.categoryId = null"><text>未分类</text></view>
             <view v-for="cat in categories" :key="cat.id" :class="['option-chip', draft.categoryId === cat.id ? 'active' : '']" :style="draft.categoryId === cat.id ? { borderColor: cat.color, background: cat.color, color: '#fff' } : {}" @click="draft.categoryId = cat.id">
-              <text>{{ cat.icon }} {{ cat.name }}</text>
+              <text>{{ cat.name }}</text>
             </view>
           </view>
           <text v-if="error" class="adjust-error">{{ error }}</text>
         </view>
         <view class="adjust-footer">
-          <button class="adjust-cancel" @click="requestClose">取消</button>
-          <button class="adjust-save" :disabled="busy" @click="save">{{ busy ? '保存中' : '保存' }}</button>
+          <button class="adjust-cancel" :disabled="busy || confirming" @click="requestClose">取消</button>
+          <button class="adjust-save" :disabled="busy || confirming" @click="save">{{ busy ? '保存中' : '保存' }}</button>
         </view>
       </view>
     </view>
@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { findTask, saveTask } from '../api/store'
 import { parseOccurrenceId, parseRepeatRule } from '../utils/occurrence'
 import { toast } from '../utils/platform'
@@ -50,8 +50,11 @@ const emit = defineEmits(['close', 'saved'])
 
 const current = ref(null)
 const busy = ref(false)
+const confirming = ref(false)
 const error = ref('')
 const openedAt = ref(0)
+let generation = 0
+let closed = false
 const draft = reactive({ plannedDate: '', categoryId: null })
 const initial = { plannedDate: '', categoryId: null }
 
@@ -61,6 +64,9 @@ const isRepeatSource = computed(() => !occurrence.value && Boolean(current.value
 watch(
   () => props.visible,
   (visible) => {
+    generation++
+    confirming.value = false
+    closed = false
     if (!visible) return
     busy.value = false
     error.value = ''
@@ -74,6 +80,7 @@ watch(
     draft.categoryId = initial.categoryId
   }
 )
+onBeforeUnmount(() => { generation++ })
 
 function changed() {
   return draft.plannedDate !== initial.plannedDate || draft.categoryId !== initial.categoryId
@@ -85,15 +92,35 @@ function onBackdrop() {
   requestClose()
 }
 
-function requestClose() {
-  if (busy.value) return false
+async function requestClose() {
+  if (!props.visible || busy.value || confirming.value || closed) return false
+  const session = generation
+  const snapshot = JSON.stringify(draft)
+  if (changed()) {
+    confirming.value = true
+    try {
+      const result = await new Promise((resolve, reject) => uni.showModal({
+        title: '放弃未保存的调整？',
+        content: '关闭后，本次日期和分类的调整将不会保存。',
+        confirmText: '放弃',
+        success: resolve,
+        fail: reject
+      }))
+      if (!result.confirm || session !== generation || !props.visible || JSON.stringify(draft) !== snapshot) return false
+    } catch {
+      if (session === generation) error.value = '确认窗口无法打开，请重试'
+      return false
+    } finally { if (session === generation) confirming.value = false }
+  }
+  if (session !== generation || !props.visible) return false
+  closed = true
   emit('close')
   return true
 }
 
 async function save() {
-  if (busy.value || !current.value) return
-  if (!changed()) { emit('close'); return }
+  if (busy.value || confirming.value || closed || !current.value) return
+  if (!changed()) { closed = true; emit('close'); return }
   busy.value = true
   error.value = ''
   try {
@@ -103,6 +130,7 @@ async function save() {
       categoryId: draft.categoryId
     })
     busy.value = false
+    closed = true
     emit('saved', saved)
     emit('close')
     void notifyReminder(saved)
@@ -142,7 +170,7 @@ defineExpose({ requestClose })
   overflow: hidden;
   border-radius: 32rpx 32rpx 0 0;
   background: var(--panel);
-  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -12rpx 48rpx rgba(34, 74, 115, 0.12);
 }
 
 .adjust-header {
@@ -262,13 +290,16 @@ defineExpose({ requestClose })
 }
 
 .adjust-cancel {
-  background: #f4f7fa;
-  color: #6b7580;
+  border-radius: 16rpx;
+  background: #eef4fa;
+  color: #526b84;
 }
 
 .adjust-save {
-  background: #7299d5;
+  border-radius: 16rpx;
+  background: var(--blue);
   color: #fff;
+  font-weight: 600;
 }
 
 .sheet-enter-active,

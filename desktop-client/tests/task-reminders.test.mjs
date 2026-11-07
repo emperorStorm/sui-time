@@ -68,6 +68,88 @@ function fixture(overrides = {}) {
   }
 }
 
+const recurrence = loadModule(occurrenceSource, {})
+
+test('重复次数按实际匹配的源日期计数', () => {
+  const vectors = [
+    ['2026-01-01', { kind: 'weekly', interval: 3, count: 2 }, ['2026-01-01', '2026-01-08'], ['2026-01-15', '2026-01-02']],
+    ['2026-01-31', { kind: 'monthly', interval: 3, count: 2 }, ['2026-01-31', '2026-03-31'], ['2026-02-28', '2026-05-31']],
+    ['2024-02-29', { kind: 'yearly', count: 2 }, ['2024-02-29', '2028-02-29'], ['2025-02-28', '2032-02-29']],
+    ['2096-02-29', { kind: 'yearly', count: 2 }, ['2096-02-29', '2104-02-29'], ['2100-02-28', '2108-02-29']],
+    ['2026-01-03', { kind: 'workdays', count: 2 }, ['2026-01-05', '2026-01-06'], ['2026-01-03', '2026-01-07']],
+    ['2026-01-01', { kind: 'weekly_slots', weekdays: [1, 4, 4], slots: [{ day: 4, time: '09:00' }, { day: 4, time: '17:00' }], interval: 2, count: 2 }, ['2026-01-01', '2026-01-05'], ['2026-01-08']],
+    ['2026-01-30', { kind: 'monthly_slots', monthDays: [1, 29, 31, 31], count: 4 }, ['2026-01-31', '2026-02-01', '2026-03-01', '2026-03-29'], ['2026-01-30', '2026-03-31']],
+    ['2026-01-01', { kind: 'memory', count: 2 }, ['2026-01-02', '2026-01-04'], ['2026-01-01', '2026-01-08']],
+    ['2026-01-01', { kind: 'memory', count: 5 }, ['2026-01-02', '2026-01-04', '2026-01-08', '2026-01-15', '2026-01-30'], ['2026-01-03', '2026-01-31']],
+    ['2026-01-01', { kind: 'memory', count: 9 }, ['2026-01-30'], ['2026-01-31']],
+    ['2023-12-29', { kind: 'monthly_slots', monthDays: [29], count: 3 }, ['2024-01-29', '2024-02-29'], ['2024-03-29']],
+    ['2026-01-01', { kind: 'weekly_slots', count: 2 }, ['2026-01-01', '2026-01-08'], ['2026-01-15']],
+    ['2026-01-31', { kind: 'monthly_slots', count: 2 }, ['2026-01-31', '2026-03-31'], ['2026-05-31']],
+    ...['daily', 'every_days', 'custom'].map(kind => ['2026-01-01', { kind, interval: 2, count: 2 }, ['2026-01-01', '2026-01-03'], ['2026-01-02', '2026-01-05']]),
+    ['2026-01-01', { kind: 'weekly', count: 1 }, ['2026-01-01'], ['2025-12-25', '2026-01-08']],
+    ...[undefined, 0, -2].map(count => ['2026-01-01', { kind: 'weekly', count }, ['2026-01-15'], []])
+  ]
+  for (const [plannedDate, rule, yes, no] of vectors) {
+    const item = task({ plannedDate, repeatRule: JSON.stringify({ ...rule, endMode: 'count' }) })
+    for (const date of yes) assert.equal(recurrence.occursOn(item, date), true, `${JSON.stringify(rule)} ${date}`)
+    for (const date of no) assert.equal(recurrence.occursOn(item, date), false, `${JSON.stringify(rule)} ${date}`)
+  }
+})
+
+test('周期计数与逐日匹配的参考结果一致', () => {
+  const rules = [
+    { kind: 'daily', interval: 3 }, { kind: 'weekly' }, { kind: 'workdays' },
+    { kind: 'weekly_slots', weekdays: [0, 2, 6] }, { kind: 'monthly' },
+    { kind: 'monthly_slots', monthDays: [1, 28, 29, 30, 31] }, { kind: 'yearly' }, { kind: 'memory' }
+  ]
+  for (const rule of rules) {
+    const item = task({ plannedDate: '2024-02-29', repeatRule: JSON.stringify(rule) })
+    let count = 0
+    for (let day = Date.UTC(2024, 1, 29); day <= Date.UTC(2029, 2, 1); day += 86400000) {
+      const date = new Date(day).toISOString().slice(0, 10)
+      if (!recurrence.occursOn(item, date)) continue
+      count++
+      for (const limit of [1, 2, 10, 100]) {
+        const limited = { ...item, repeatRule: JSON.stringify({ ...rule, endMode: 'count', count: limit }) }
+        assert.equal(recurrence.occursOn(limited, date), count <= limit, `${rule.kind} ${date} ${limit}`)
+      }
+    }
+  }
+})
+
+test('夏令时跨越按日历日期而非本地毫秒计数', () => {
+  const previous = process.env.TZ
+  try {
+    for (const zone of ['America/New_York', 'Australia/Sydney']) {
+      process.env.TZ = zone
+      for (const [start, second, third] of [['2026-03-07', '2026-03-08', '2026-03-09'], ['2026-10-03', '2026-10-04', '2026-10-05'], ['2026-10-31', '2026-11-01', '2026-11-02']]) {
+        const item = task({ plannedDate: start, repeatRule: JSON.stringify({ kind: 'daily', endMode: 'count', count: 2 }) })
+        assert.equal(recurrence.occursOn(item, second), true, `${zone} ${second}`)
+        assert.equal(recurrence.occursOn(item, third), false, `${zone} ${third}`)
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  }
+})
+
+test('移动、删除和终态不改变源次数，终态覆盖仍可显示', () => {
+  const item = task({ id: 'repeat', plannedDate: '2026-01-01', repeatRule: JSON.stringify({ kind: 'weekly', endMode: 'count', count: 3 }), occurrenceOverrides: JSON.stringify({
+    '2026-01-01': { deleted: true },
+    '2026-01-08': { plannedDate: '2026-01-09' },
+    '2026-01-15': { status: 'done' },
+    '2026-01-22': { status: 'failed' }
+  }) })
+  assert.equal(recurrence.tasksForDate([item], '2026-01-01').length, 0)
+  assert.equal(recurrence.tasksForDate([item], '2026-01-08').length, 0)
+  assert.equal(recurrence.tasksForDate([item], '2026-01-09')[0].id, 'repeat@2026-01-08')
+  assert.equal(recurrence.tasksForDate([item], '2026-01-15')[0].status, 'done')
+  assert.equal(recurrence.occursOn(item, '2026-01-22'), false)
+  assert.equal(recurrence.tasksForDate([item], '2026-01-22')[0].status, 'failed')
+  assert.equal(recurrence.tasksForDate([item], '2026-01-29').length, 0)
+})
+
 test('同步读取期间再次保存，只排程最新时间及提醒规则', async () => {
   const reading = deferred()
   let reads = 0

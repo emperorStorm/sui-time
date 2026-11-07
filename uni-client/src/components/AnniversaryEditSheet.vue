@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { anniversaryThemes, anniversaryTypes, chooseAnniversaryPhoto, localToday } from '../utils/anniversary'
 import { saveAnniversary } from '../api/store'
 
@@ -28,35 +28,77 @@ const draft = reactive({ id: undefined, kind: 'anniversary', title: '', date: lo
 const saving = ref(false)
 const importing = ref(false)
 const error = ref('')
-watch(() => props.visible, visible => {
-  if (!visible) return
-  const item = props.item
+let baseline = ''
+let entitySnapshot = null
+let generation = 0
+let pendingClose = false
+let closed = false
+const snapshot = () => JSON.stringify({ ...draft, photos: [...draft.photos] })
+function beginSession(item) {
+  generation++
+  pendingClose = false
+  closed = false
+  importing.value = false
   Object.assign(draft, { id: item?.id, kind: item?.kind || 'anniversary', title: item?.title || '', date: item?.date || localToday(), notes: item?.notes || '', pinned: item?.pinned || false, theme: item?.theme || 'sky', photos: [...(item?.photos || [])], coverIndex: item?.coverIndex || 0 })
+  baseline = snapshot()
+  entitySnapshot = item ? JSON.parse(JSON.stringify(item)) : null
   error.value = ''
-}, { immediate: true })
+}
+watch(() => props.visible, visible => {
+  if (visible) beginSession(props.item)
+  else { generation++; pendingClose = false; closed = false; importing.value = false }
+}, { immediate: true, flush: 'sync' })
+watch(() => props.item?.id, id => {
+  if (props.visible && id && id !== draft.id) beginSession(props.item)
+}, { flush: 'sync' })
+onBeforeUnmount(() => { generation++ })
 
-function close() { if (!saving.value && !importing.value) emit('close') }
+async function close() {
+  if (!props.visible || saving.value || importing.value || pendingClose || closed) return false
+  const session = generation
+  const current = snapshot()
+  if (current !== baseline) {
+    pendingClose = true
+    try {
+      const result = await new Promise((resolve, reject) => uni.showModal({ title: '放弃未保存的修改？', content: '关闭后，本次修改将不会保存。', confirmText: '放弃', success: resolve, fail: reject }))
+      if (!result?.confirm || session !== generation || !props.visible || snapshot() !== current) return false
+    } catch (cause) {
+      if (session === generation) error.value = '确认窗口无法打开，请重试'
+      return false
+    } finally { if (session === generation) pendingClose = false }
+  }
+  if (session !== generation || !props.visible) return false
+  closed = true
+  emit('close')
+  return true
+}
 function submit() {
-  if (saving.value || importing.value) return
+  if (!props.visible || saving.value || importing.value || pendingClose || closed) return
   saving.value = true
   error.value = ''
-  try { const item = saveAnniversary({ ...draft, photos: [...draft.photos] }); emit('saved', item) }
+  try {
+    const item = saveAnniversary({ ...draft, photos: [...draft.photos] }, draft.id ? { expectedSnapshot: entitySnapshot } : undefined)
+    entitySnapshot = JSON.parse(JSON.stringify(item))
+    baseline = snapshot()
+    emit('saved', item)
+  }
   catch (cause) { error.value = cause.message || String(cause) }
   finally { saving.value = false }
 }
 
 async function importPhoto(index) {
-  if (importing.value) return
+  if (!props.visible || importing.value || pendingClose || closed) return
+  const session = generation
   importing.value = true
   error.value = ''
   try {
     const photo = await chooseAnniversaryPhoto()
-    if (!props.visible) return
+    if (session !== generation || !props.visible) return
     if (index !== undefined) draft.photos[index] = photo
     else if (draft.photos.length < 4) draft.photos.push(photo)
   } catch (cause) {
-    if (!String(cause.errMsg || '').includes('cancel')) error.value = cause.message || cause.errMsg || '无法导入照片，请重试'
-  } finally { importing.value = false }
+    if (session === generation && !String(cause?.errMsg || '').includes('cancel')) error.value = cause?.message || cause?.errMsg || '无法导入照片，请重试'
+  } finally { if (session === generation) importing.value = false }
 }
 function removePhoto(index) { if (importing.value) return; draft.photos.splice(index, 1); if (draft.coverIndex === index) draft.coverIndex = 0; else if (draft.coverIndex > index) draft.coverIndex-- }
 defineExpose({ close })
@@ -71,4 +113,10 @@ defineExpose({ close })
 .sheet-themes { display: flex; gap: 16rpx; }.sheet-themes button { flex: 1; margin: 0; font-size: 24rpx; line-height: 80rpx; }.sheet-themes .active { outline: 3rpx solid #65aceb; outline-offset: 3rpx; }.anniversary-theme-sky { background: linear-gradient(140deg, #e6f0fc, #d4e8f0); color: #395b7e; }.anniversary-theme-warm { background: linear-gradient(140deg, #fff0df, #f7dee3); color: #8c5b58; }.anniversary-theme-night { background: linear-gradient(140deg, #273951, #192636); color: #e1eaf6; }
 .sheet-photos { display: flex; gap: 16rpx; flex-wrap: wrap; }.draft-photo { position: relative; width: 144rpx; }.draft-photo image { width: 144rpx; height: 128rpx; border-radius: 12rpx; }.draft-photo > button { margin: 0; background: transparent; font-size: 22rpx; line-height: 52rpx; padding: 0; color: #9aa3b0; }.draft-photo > button.active { color: #2996f6; }.draft-photo > .photo-remove { position: absolute; top: 4rpx; right: 4rpx; width: 36rpx; line-height: 36rpx; border-radius: 50%; background: #0008; color: #fff; font-size: 30rpx; }.photo-add { margin: 0; width: 144rpx; height: 128rpx; display: flex; align-items: center; justify-content: center; background: #f4f7fa; color: #91a0b0; font-size: 22rpx; padding: 0; border: 2rpx dashed #d6dfeb; }
 .sheet-pin { margin: 30rpx 28rpx; display: flex; justify-content: space-between; align-items: center; font-size: 27rpx; color: #737f8d; }.sheet-error { display: block; padding: 0 28rpx 30rpx; color: #dd656f; font-size: 25rpx; line-height: 1.7; }
+.anniversary-sheet { box-sizing: border-box; max-height: 90vh; background: #fff; box-shadow: 0 -12rpx 48rpx #244b7520; }
+.sheet-heading { background: #f8fbff; color: #314f6e; border-color: #e8eff6; }
+.sheet-heading button { min-width: 88rpx; line-height: 72rpx; color: #617d99; }
+.sheet-field input, .date-value, .sheet-field textarea { background: #f2f7fc; color: #334f6b; }
+.sheet-types button, .sheet-themes button { min-width: 0; }
+.sheet-error { overflow-wrap: anywhere; }
 </style>

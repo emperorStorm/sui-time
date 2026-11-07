@@ -39,7 +39,7 @@ import AnniversaryRecordModal from './AnniversaryRecordModal.vue'
 import { anniversaryRecordOccurrence } from '../../../shared/anniversary.mjs'
 import { anniversaryCalendar, anniversaryState, anniversaryThemes, anniversaryTypes, compressAnniversaryPhoto, localToday, orderedAnniversaries } from '../utils/anniversary'
 
-const props = defineProps<{ initialId?: string }>()
+const props = defineProps<{ initialId?: string; refreshRevision?: number }>()
 const history = ref<AnniversaryRecord[]>([])
 const activeRecord = ref<AnniversaryOccurrence | null>(null)
 const items = ref<AnniversarySummary[]>([])
@@ -64,6 +64,7 @@ let refreshRequest = 0
 let photoIndex: number | undefined
 let dayTimer: number | undefined
 let disposed = false
+let syncRefreshDeferred = false
 const orderedItems = computed(() => orderedAnniversaries(items.value, today.value))
 const visibleItems = computed(() => {
   const keyword = search.value.trim().toLowerCase()
@@ -84,13 +85,17 @@ async function selectItem(id: string) {
   } catch (cause) { if (!disposed && request === selectionRequest) error.value = String(cause) }
 }
 
-async function refresh(preferredId = selected.value?.id) {
+async function refresh(preferredId = selected.value?.id, deferWhileEditing = false) {
   const request = ++refreshRequest
   loading.value = true
   error.value = ''
   try {
     const result = await listAnniversaries()
     if (disposed || request !== refreshRequest) return
+    if (deferWhileEditing && (editing.value || activeRecord.value || preview.value || busy.value || saving.value || importing.value)) {
+      syncRefreshDeferred = true
+      return
+    }
     items.value = result
     const next = visibleItems.value.find(item => item.id === preferredId) || visibleItems.value[0]
     if (next) await selectItem(next.id)
@@ -157,6 +162,13 @@ function refreshDay() {
   dayTimer = window.setTimeout(refreshDay, midnight.getTime() - Date.now() + 100)
 }
 function onKeydown(event: KeyboardEvent) { if (event.key === 'Escape') { if (preview.value) preview.value = ''; else closeEditor() } }
+function refreshAfterSync() {
+  if (!syncRefreshDeferred || editing.value || activeRecord.value || preview.value || busy.value || saving.value || importing.value) return
+  syncRefreshDeferred = false
+  void refresh(selected.value?.id, true)
+}
+watch(() => props.refreshRevision, () => { syncRefreshDeferred = true; refreshAfterSync() })
+watch([editing, activeRecord, preview, busy, saving, importing], refreshAfterSync)
 watch(visibleItems, list => { if (loading.value) return; if (!list.some(item => item.id === selected.value?.id)) { if (list[0]) void selectItem(list[0].id); else { selectionRequest++; selected.value = null } } })
 function recordSaved(record: AnniversaryRecord) { history.value = [...history.value.filter(item => item.date !== record.date), record].sort((a, b) => b.date.localeCompare(a.date)) }
 onMounted(() => { void refresh(props.initialId); refreshDay(); window.addEventListener('focus', refreshDay); document.addEventListener('visibilitychange', refreshDay); document.addEventListener('keydown', onKeydown) })

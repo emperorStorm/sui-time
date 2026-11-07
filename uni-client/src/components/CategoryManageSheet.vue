@@ -2,7 +2,7 @@
   <transition name="page">
     <view v-if="visible" class="manage-page">
       <view class="manage-topbar">
-        <view class="topbar-back" @click="requestClose"><text>‹</text></view>
+        <button class="topbar-back" aria-label="返回" @click="requestClose">‹</button>
         <view class="topbar-center">
           <text class="topbar-title">分类管理</text>
           <text class="topbar-sub">长按拖动排序</text>
@@ -12,12 +12,13 @@
 
       <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="reload">重试读取</button></view>
       <template v-else>
-      <scroll-view class="manage-scroll" scroll-y>
+      <scroll-view class="manage-scroll" scroll-y @scroll="onDragScroll">
         <view
           v-for="(cat, index) in list"
           :key="cat.id"
           :class="['cat-row', dragIndex === index ? 'dragging' : '']"
           @click="startEdit(cat)"
+          @touchstart="onTouchStart(index, $event)"
           @longpress="onDragStart(index)"
           @touchmove="onDragMove"
           @touchend="onDragEnd"
@@ -26,22 +27,26 @@
           <image class="cat-icon" :src="iconSrc(cat)" mode="aspectFit" />
           <text class="cat-name">{{ cat.name }}</text>
           <text class="cat-count">{{ taskCount(cat.id) }}</text>
+          <view class="cat-order" @click.stop @touchstart.stop>
+            <button role="button" :tabindex="index === 0 || submitting ? -1 : 0" :aria-label="`上移${cat.name}`" :disabled="index === 0 || submitting" @click.stop="moveCategory(index, -1)" @keydown.enter.stop.prevent="moveCategory(index, -1)" @keydown.space.stop.prevent="moveCategory(index, -1)">↑</button>
+            <button role="button" :tabindex="index === list.length - 1 || submitting ? -1 : 0" :aria-label="`下移${cat.name}`" :disabled="index === list.length - 1 || submitting" @click.stop="moveCategory(index, 1)" @keydown.enter.stop.prevent="moveCategory(index, 1)" @keydown.space.stop.prevent="moveCategory(index, 1)">↓</button>
+          </view>
         </view>
         <view v-if="!list.length" class="cat-empty"><text>还没有分类，点击下方添加</text></view>
       </scroll-view>
 
       <view class="manage-footer">
-        <view class="add-btn" @click="startEdit(null)"><text>＋ 添加</text></view>
+        <button class="add-btn" @click="startEdit(null)">＋ 添加分类</button>
       </view>
 
       <!-- 编辑/新增弹层 -->
       <transition name="sheet">
-        <view v-if="editing" class="sheet-layer" @click="editing = false">
+        <view v-if="editing" class="sheet-layer" @click="closeEdit">
           <view class="sheet edit-sheet" @click.stop>
             <view class="sheet-header">
-              <view class="sheet-cancel" @click="editing = false">取消</view>
+              <button class="sheet-cancel" :disabled="submitting || confirmingClose" @click="closeEdit">取消</button>
               <text class="sheet-title">{{ draft.id ? '编辑分类' : '新增分类' }}</text>
-              <view class="sheet-save" @click="save">保存</view>
+              <button class="sheet-save" :disabled="submitting || confirmingClose" @click="save">保存</button>
             </view>
             <scroll-view class="sheet-body" scroll-y>
               <input class="cat-name-input" v-model="draft.name" placeholder="分类名称" maxlength="12" />
@@ -66,7 +71,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { getCurrentInstance, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { getCategories, saveCategory, removeCategory, reorderCategories, listTasks } from '../api/store'
 import { toast } from '../utils/platform'
 
@@ -81,8 +86,16 @@ const loadError = ref('')
 const taskCounts = ref({})
 const submitting = ref(false)
 const editing = ref(false)
+const confirmingClose = ref(false)
+let editGeneration = 0
+let editBaseline = ''
 const draft = reactive({ id: '', name: '', color: '#2996f6', icon: 'monitor' })
 const dragIndex = ref(-1)
+const instance = getCurrentInstance()
+const drag = {
+  token: 0, revision: 0, pending: false, ending: false, touching: false,
+  touchIndex: -1, startY: 0, y: 0, moved: false, snapshot: [], blockClick: false, clickTimer: null
+}
 
 const palette = ['#2996f6', '#7299d5', '#12bd75', '#ff8545', '#f6b93b', '#a567e6', '#e65f7b', '#5bc8c8', '#8a96a3']
 const iconNames = ['monitor', 'bookmark', 'flower', 'star', 'heart', 'bolt', 'dot', 'triangle', 'diamond', 'music', 'sun', 'sparkle']
@@ -90,11 +103,13 @@ const iconNames = ['monitor', 'bookmark', 'flower', 'star', 'heart', 'bolt', 'do
 watch(
   () => props.visible,
   (visible) => {
-    dragIndex.value = -1
+    editGeneration++
+    confirmingClose.value = false
+    cancelDrag()
     editing.value = false
     if (visible) reload()
   },
-  { immediate: true }
+  { immediate: true, flush: 'sync' }
 )
 
 function reload() {
@@ -113,10 +128,35 @@ function reload() {
 }
 
 function requestClose() {
-  if (submitting.value) return
+  if (submitting.value || confirmingClose.value) return
   if (dragIndex.value >= 0) cancelDrag()
-  if (editing.value) { editing.value = false; return }
+  if (editing.value) { void closeEdit(); return }
   emit('close')
+}
+
+async function closeEdit() {
+  if (!editing.value || submitting.value || confirmingClose.value) return false
+  const session = editGeneration
+  const current = JSON.stringify(draft)
+  if (current !== editBaseline) {
+    confirmingClose.value = true
+    try {
+      const result = await new Promise((resolve, reject) => uni.showModal({
+        title: '放弃未保存的分类修改？',
+        content: '关闭后，本次修改将不会保存。',
+        confirmText: '放弃',
+        success: resolve,
+        fail: reject
+      }))
+      if (!result.confirm || session !== editGeneration || !editing.value || JSON.stringify(draft) !== current) return false
+    } catch {
+      if (session === editGeneration) toast('确认窗口无法打开，请重试')
+      return false
+    } finally { if (session === editGeneration) confirmingClose.value = false }
+  }
+  if (session !== editGeneration || !editing.value) return false
+  editing.value = false
+  return true
 }
 defineExpose({ requestClose })
 
@@ -126,7 +166,8 @@ function iconSrc(cat) {
 
 function iconSrcFor(icon, color) {
   const name = iconNames.includes(icon) ? icon : 'dot'
-  const hex = (color || '#8a96a3').replace('#', '')
+  const normalized = typeof color === 'string' ? color.toLowerCase() : ''
+  const hex = (palette.includes(normalized) ? normalized : '#8a96a3').slice(1)
   return `/static/category/${name}-${hex}.png`
 }
 
@@ -135,15 +176,17 @@ function taskCount(categoryId) {
 }
 
 function startEdit(cat) {
-  if (submitting.value || dragIndex.value >= 0 || loadError.value) return
-  editing.value = true
+  if (submitting.value || confirmingClose.value || dragIndex.value >= 0 || drag.blockClick || loadError.value) return
+  editGeneration++
   Object.assign(draft, cat
     ? { id: cat.id, name: cat.name, color: cat.color, icon: cat.icon }
     : { id: '', name: '', color: palette[list.value.length % palette.length], icon: iconNames[list.value.length % iconNames.length] })
+  editBaseline = JSON.stringify(draft)
+  editing.value = true
 }
 
 function save() {
-  if (submitting.value) return
+  if (submitting.value || confirmingClose.value) return
   const name = draft.name.trim()
   if (!name) { toast('请填写分类名称'); return }
   submitting.value = true
@@ -158,7 +201,7 @@ function save() {
 }
 
 function confirmRemove() {
-  if (submitting.value) return
+  if (submitting.value || confirmingClose.value) return
   submitting.value = true
   const id = draft.id
   uni.showModal({
@@ -180,37 +223,161 @@ function confirmRemove() {
 }
 
 // 拖动排序
+function moveCategory(index, offset) {
+  const target = index + offset
+  if (submitting.value || editing.value || loadError.value || dragIndex.value >= 0 || target < 0 || target >= list.value.length) return
+  const ids = list.value.map(cat => cat.id)
+  ;[ids[index], ids[target]] = [ids[target], ids[index]]
+  submitting.value = true
+  try {
+    reorderCategories(ids)
+    if (reload()) emit('changed')
+  } catch (error) { toast(error.message || String(error)); reload() }
+  finally { submitting.value = false }
+}
+
+function onTouchStart(index, event) {
+  if (event.touches?.length !== 1) { cancelDrag(); return }
+  if (dragIndex.value >= 0) return
+  const y = event.touches[0].clientY
+  if (!Number.isFinite(y)) return
+  drag.touching = true
+  drag.touchIndex = index
+  drag.startY = y
+  drag.y = y
+  drag.moved = false
+}
+
 function onDragStart(index) {
-  if (submitting.value || editing.value || loadError.value) return
+  if (submitting.value || editing.value || loadError.value || dragIndex.value >= 0 ||
+      !drag.touching || drag.touchIndex !== index || drag.moved) return
+  if (typeof uni === 'undefined' || typeof uni.createSelectorQuery !== 'function') {
+    toast('无法获取分类位置，请重试')
+    return
+  }
+  drag.token++
+  drag.snapshot = [...list.value]
+  drag.ending = false
+  drag.blockClick = true
+  clearTimeout(drag.clickTimer)
   dragIndex.value = index
 }
 
 function onDragMove(event) {
+  if (!drag.touching || drag.ending) return
+  if (event.touches?.length !== 1) { cancelDrag(); return }
+  const y = event.touches[0].clientY
+  if (!Number.isFinite(y)) return
+  drag.y = y
+  if (Math.abs(y - drag.startY) > 12) drag.moved = true
   if (dragIndex.value < 0) return
-  const touch = event.touches?.[0]
-  if (!touch) return
-  const y = touch.clientY - 160 // 减去 topbar 高度
-  const targetIndex = Math.max(0, Math.min(list.value.length - 1, Math.floor(y / 56)))
-  if (targetIndex !== dragIndex.value) {
-    const moved = list.value.splice(dragIndex.value, 1)[0]
-    list.value.splice(targetIndex, 0, moved)
-    dragIndex.value = targetIndex
-  }
+  event.preventDefault?.()
+  queueDragMeasurement()
 }
 
-function onDragEnd() {
-  if (dragIndex.value < 0) return
-  dragIndex.value = -1
+function onDragScroll() {
+  if (dragIndex.value >= 0) queueDragMeasurement()
+  else if (drag.touching) drag.moved = true
+}
+
+function queueDragMeasurement() {
+  drag.revision++
+  if (drag.pending) return
+  drag.pending = true
+  const token = drag.token
+  nextTick(() => {
+    if (token !== drag.token) return
+    const revision = drag.revision
+    try {
+      const query = uni.createSelectorQuery().in(instance?.proxy)
+      query.select('.manage-scroll').boundingClientRect()
+      query.selectAll('.cat-row').boundingClientRect()
+      query.exec((result) => {
+        if (token !== drag.token) return
+        drag.pending = false
+        if (revision !== drag.revision) { queueDragMeasurement(); return }
+        const [viewport, rows] = result || []
+        if (!viewport || !Number.isFinite(viewport.top) || !Number.isFinite(viewport.bottom) ||
+            !Array.isArray(rows) || rows.length !== list.value.length ||
+            rows.some(row => !row || !Number.isFinite(row.top) || !Number.isFinite(row.bottom))) {
+          cancelDrag()
+          toast('无法获取分类位置，请重试')
+          return
+        }
+        // 只比较滚动区域内可见行，坐标与 touch.clientY 同为视口坐标。
+        const y = Math.max(viewport.top, Math.min(viewport.bottom, drag.y))
+        let target = -1
+        let distance = Infinity
+        rows.forEach((row, index) => {
+          if (row.bottom <= viewport.top || row.top >= viewport.bottom) return
+          const nextDistance = Math.abs(y - (row.top + row.bottom) / 2)
+          if (nextDistance < distance) { target = index; distance = nextDistance }
+        })
+        if (target >= 0 && target !== dragIndex.value) {
+          const moved = list.value.splice(dragIndex.value, 1)[0]
+          list.value.splice(target, 0, moved)
+          dragIndex.value = target
+        }
+        if (drag.ending) commitDrag()
+      })
+    } catch (error) {
+      if (token !== drag.token) return
+      cancelDrag()
+      toast('无法获取分类位置，请重试')
+    }
+  })
+}
+
+function onDragEnd(event) {
+  if (event.touches?.length) { cancelDrag(); return }
+  drag.touching = false
+  if (dragIndex.value < 0 || drag.ending) return
+  const y = event.changedTouches?.[0]?.clientY
+  if (Number.isFinite(y) && y !== drag.y) {
+    drag.y = y
+    queueDragMeasurement()
+  }
+  drag.ending = true
+  if (!drag.pending) commitDrag()
+}
+
+function commitDrag() {
+  const snapshot = drag.snapshot
+  stopDrag()
   try {
     reorderCategories(list.value.map((cat) => cat.id))
     if (reload()) emit('changed')
-  } catch (error) { toast(error.message || String(error)); reload() }
+  } catch (error) {
+    list.value = snapshot
+    toast(error.message || String(error))
+    reload()
+  }
 }
 
 function cancelDrag() {
-  dragIndex.value = -1
-  reload()
+  if (dragIndex.value >= 0) list.value = drag.snapshot
+  stopDrag()
 }
+
+function stopDrag() {
+  drag.token++
+  drag.pending = false
+  drag.ending = false
+  drag.touching = false
+  drag.touchIndex = -1
+  drag.snapshot = []
+  dragIndex.value = -1
+  if (drag.blockClick) {
+    clearTimeout(drag.clickTimer)
+    drag.clickTimer = setTimeout(() => { drag.blockClick = false }, 600)
+  }
+}
+
+onBeforeUnmount(() => {
+  editGeneration++
+  cancelDrag()
+  clearTimeout(drag.clickTimer)
+})
 </script>
 
 <style scoped>
@@ -239,7 +406,7 @@ function cancelDrag() {
   align-items: center;
   justify-content: space-between;
   padding: 0 28rpx;
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--top-safe-area);
   background: var(--panel);
   border-bottom: 2rpx solid var(--line);
   flex: 0 0 auto;
@@ -251,9 +418,14 @@ function cancelDrag() {
   justify-content: center;
   width: 72rpx;
   height: 96rpx;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  line-height: 96rpx;
   color: #3d4a58;
   font-size: 56rpx;
 }
+.topbar-back::after { border: 0; }
 
 .topbar-center {
   flex: 1;
@@ -313,9 +485,15 @@ function cancelDrag() {
 }
 
 .cat-count {
-  color: #b3b9c0;
-  font-size: 30rpx;
+  color: var(--muted);
+  font-size: 26rpx;
 }
+
+.cat-order { display: flex; flex-shrink: 0; gap: 4rpx; }
+.cat-order button { width: 104rpx; min-height: 104rpx; margin: 0; padding: 0; border-radius: 14rpx; background: #eaf3fc; color: var(--blue); font-size: 30rpx; line-height: 104rpx; }
+.cat-order button::after { border: 0; }
+.cat-order button:focus-visible { outline: 4rpx solid #79a9d7; outline-offset: -4rpx; }
+.cat-order button[disabled] { color: #9baabd; background: #f2f5f8; }
 
 .cat-empty {
   padding: 120rpx 0;
@@ -335,11 +513,16 @@ function cancelDrag() {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 28rpx 0;
-  color: #3d4a58;
-  font-size: 32rpx;
-  font-weight: 500;
+  width: 100%;
+  margin: 0;
+  padding: 24rpx 0;
+  border-radius: 16rpx;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 30rpx;
+  font-weight: 600;
 }
+.add-btn::after { border: 0; }
 
 /* 编辑弹层 */
 .sheet-enter-active,
@@ -392,6 +575,8 @@ function cancelDrag() {
   flex: 0 0 auto;
 }
 
+.sheet-header button { margin: 0; padding: 0; background: transparent; line-height: 72rpx; }
+.sheet-header button::after { border: 0; }
 .sheet-title {
   font-size: 32rpx;
   font-weight: 600;

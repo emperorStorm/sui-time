@@ -12,7 +12,10 @@ export function getCachedHolidayCalendar(years) {
 export async function refreshHolidayCalendar(years, force = true) {
   const uniqueYears = [...new Set(years.filter((year) => Number.isInteger(year) && year >= 2000 && year <= 2100))]
   const results = await Promise.all(uniqueYears.map((year) => loadHolidayYear(year, force)))
-  return holidayDateMap(results.flatMap((days) => days || []))
+  return {
+    days: holidayDateMap(results.flatMap(days => days || [])),
+    availableYears: uniqueYears.filter((year, index) => results[index] !== null)
+  }
 }
 
 function readHolidayCache() {

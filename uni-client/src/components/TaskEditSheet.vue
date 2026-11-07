@@ -1,30 +1,30 @@
 <template>
   <transition name="sheet">
-    <view v-if="visible" class="sheet-layer" @click="requestClose">
-      <view class="sheet" @click.stop>
-      <view class="sheet-header">
-        <view v-if="draft.id" class="sheet-delete" @click="remove">删除</view>
-        <view v-else class="sheet-delete spacer" />
+    <view v-if="visible" class="sheet-layer" :style="{ backgroundColor: `rgba(30, 44, 61, ${0.45 * (1 - Math.min(sheetOffset / 400, 1))})` }" @click="requestClose">
+      <view :class="['sheet', { 'is-swiping': swipe.active }]" :style="{ '--sheet-offset': `${sheetOffset}px` }" @click.stop @touchmove="moveSheetSwipe" @touchend="endSheetSwipe" @touchcancel="cancelSheetSwipe">
+      <view class="sheet-header" @touchstart="startSheetSwipe">
+        <view class="sheet-grab" aria-hidden="true" />
+        <view class="header-actions"><button class="sheet-close" aria-label="关闭" @touchstart.stop @click="requestClose">×</button><view v-if="draft.id" class="sheet-delete" @touchstart.stop @click="remove">删除</view></view>
         <text class="sheet-title">{{ draft.id ? '编辑事项' : '新建事项' }}</text>
-        <view class="sheet-save" @click="save">{{ saving ? '保存中' : '保存' }}</view>
+        <view class="sheet-save" @touchstart.stop @click="save">{{ saving ? '保存中' : '保存' }}</view>
       </view>
-      <scroll-view :class="['sheet-body', { 'is-busy': actionBusy }]" scroll-y :scroll-into-view="scrollTarget" :scroll-top="dragScrollTop" :scroll-with-animation="false" @scroll="onSubtaskScroll">
-        <input class="title-input" v-model="draft.title" placeholder="输入事项名称" :maxlength="Math.max(120, draft.title.length)" @blur="flushDraft()" />
+      <scroll-view :class="['sheet-body', { 'is-busy': actionBusy }]" scroll-y :scroll-into-view="scrollTarget" :scroll-top="dragScrollTop" :scroll-with-animation="false" @scroll="onSubtaskScroll" @touchstart="startSheetSwipe($event, true)">
+        <input @touchstart.stop class="title-input" v-model="draft.title" placeholder="输入事项名称" :maxlength="Math.max(120, draft.title.length)" @blur="flushDraft()" />
         <view class="sheet-row">
           <text class="row-label">◷ 日期</text>
-          <picker mode="date" :value="draft.plannedDate || ''" @change="onDateChange">
+          <picker @touchstart.stop mode="date" :value="draft.plannedDate || ''" @change="onDateChange">
             <view class="row-value">{{ draft.plannedDate || '未设置' }} ›</view>
           </picker>
         </view>
-        <view class="option-grid time-types"><button v-for="[value, label] in [['all_day', '全天'], ['point', '时间点'], ['range', '时间段']]" :key="value" :class="['option-chip', { active: draft.scheduleKind === value }]" @click="setTime({ scheduleKind: value })">{{ label }}</button></view>
-        <view v-if="draft.scheduleKind !== 'all_day'" class="sheet-row"><text class="row-label">开始时间</text><picker mode="time" :value="draft.plannedTime || '09:00'" @change="setTime({ plannedTime: $event.detail.value })"><view class="row-value">{{ draft.plannedTime || '请选择' }} ›</view></picker></view>
-        <view v-if="draft.scheduleKind === 'range'" class="sheet-row"><text class="row-label">结束时间</text><picker mode="time" :value="draft.plannedEndTime || '10:00'" @change="setTime({ plannedEndTime: $event.detail.value })"><view class="row-value">{{ draft.plannedEndTime || '请选择' }} ›</view></picker></view>
-        <button class="clear-time" @click="setTime({ plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day' })">清除日期与时间</button>
-        <template v-if="canRemind"><view class="sheet-row"><text class="row-label">♧ 是否提醒</text><switch :checked="draft.reminderOffsets.length > 0" color="#2996f6" @change="draft.reminderOffsets = $event.detail.value ? [0] : []" /></view><view v-if="draft.reminderOffsets.length" class="option-grid"><button v-for="[value, label] in reminderOptions" :key="value" :class="['option-chip', { active: draft.reminderOffsets.includes(value) }]" @click="toggleOffset(value)">{{ label }}</button></view><text class="permission-hint">{{ permissionMessage }}</text><view v-if="permissions.supported" class="permission-actions"><button v-if="!permissions.notifications" @click="allowNotifications">允许系统通知</button><button v-if="!permissions.exactAlarm" @click="androidSettings('alarm')">允许准时提醒</button><button @click="androidSettings('notifications')">通知设置</button><button v-if="permissions.notifications" @click="testReminder">测试通知</button></view></template>
+        <view @touchstart.stop class="option-grid time-types"><button v-for="[value, label] in [['all_day', '全天'], ['point', '时间点'], ['range', '时间段']]" :key="value" :class="['option-chip', { active: draft.scheduleKind === value }]" @click="setTime({ scheduleKind: value })">{{ label }}</button></view>
+        <view v-if="draft.scheduleKind !== 'all_day'" class="sheet-row"><text class="row-label">开始时间</text><picker @touchstart.stop mode="time" :value="draft.plannedTime || '09:00'" @change="setTime({ plannedTime: $event.detail.value })"><view class="row-value">{{ draft.plannedTime || '请选择' }} ›</view></picker></view>
+        <view v-if="draft.scheduleKind === 'range'" class="sheet-row"><text class="row-label">结束时间</text><picker @touchstart.stop mode="time" :value="draft.plannedEndTime || '10:00'" @change="setTime({ plannedEndTime: $event.detail.value })"><view class="row-value">{{ draft.plannedEndTime || '请选择' }} ›</view></picker></view>
+        <button @touchstart.stop class="clear-time" @click="setTime({ plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day' })">清除日期与时间</button>
+        <template v-if="canRemind"><view class="sheet-row"><text class="row-label">♧ 是否提醒</text><switch @touchstart.stop :checked="draft.reminderOffsets.length > 0" color="#2996f6" @change="draft.reminderOffsets = $event.detail.value ? [0] : []" /></view><view v-if="draft.reminderOffsets.length" @touchstart.stop class="option-grid"><button v-for="[value, label] in reminderOptions" :key="value" :class="['option-chip', { active: draft.reminderOffsets.includes(value) }]" @click="toggleOffset(value)">{{ label }}</button></view><text class="permission-hint">{{ permissionMessage }}</text><view v-if="permissions.supported" @touchstart.stop class="permission-actions"><button v-if="!permissions.notifications" @click="allowNotifications">允许系统通知</button><button v-if="!permissions.exactAlarm" @click="androidSettings('alarm')">允许准时提醒</button><button @click="androidSettings('notifications')">通知设置</button><button v-if="permissions.notifications" @click="testReminder">测试通知</button></view></template>
         <view class="sheet-row">
           <text class="row-label">⌁ 重复</text>
         </view>
-        <view class="option-grid">
+        <view @touchstart.stop class="option-grid">
           <view v-for="kind in repeatKinds" :key="kind" :class="['option-chip', draft.repeatKind === kind ? 'active' : '']" @click="!occurrence && (draft.repeatKind = kind)">
             <text>{{ repeatLabel(kind) }}</text>
           </view>
@@ -32,7 +32,7 @@
         <view class="sheet-row">
           <text class="row-label">⚑ 优先级</text>
         </view>
-        <view class="option-grid">
+        <view @touchstart.stop class="option-grid">
           <view v-for="[value, label] in priorities" :key="value" :class="['option-chip', draft.priority === value ? 'active' : '']" @click="draft.priority = value">
             <text>{{ label }}</text>
           </view>
@@ -40,28 +40,29 @@
         <view class="sheet-row">
           <text class="row-label">▦ 分类</text>
         </view>
-        <view class="option-grid">
+        <view @touchstart.stop class="option-grid">
           <view :class="['option-chip', draft.categoryId === null ? 'active' : '']" @click="draft.categoryId = null"><text>未分类</text></view>
           <view v-for="cat in categories" :key="cat.id" :class="['option-chip', draft.categoryId === cat.id ? 'active' : '']" :style="draft.categoryId === cat.id ? { borderColor: cat.color, background: cat.color, color: '#fff' } : {}" @click="draft.categoryId = cat.id">
-            <text>{{ cat.icon }} {{ cat.name }}</text>
+            <text>{{ cat.name }}</text>
           </view>
         </view>
         <template v-if="!occurrence">
-          <view class="subtask-add" @click="addSubtask()"><text>＋ 添加子事项</text></view>
+          <view @touchstart.stop class="subtask-add" @click="addSubtask()"><text>＋ 添加子事项</text></view>
           <view v-for="(subtask, index) in draft.subtasks" :key="subtask.id" :id="`subtask-${subtask.id}`" :class="['subtask-row', { 'is-dragging': dragIndex === index }]">
             <view class="subtask-drag" :class="{ active: dragIndex === index }" role="button" aria-label="长按拖动排序" @touchstart="recordSubtaskTouch" @longpress="startSubtaskDrag(index)" @touchmove.stop="moveSubtaskDrag" @touchend="landSubtaskDrag" @touchcancel="cancelSubtaskDrag">⋮⋮</view>
-            <button v-if="draft.repeatKind === 'none'" :class="['subtask-check', { done: subtask.status === 'done' }]" :aria-label="subtask.status === 'done' ? '恢复子事项' : '完成子事项'" @click="toggleSubtask(subtask)">{{ subtask.status === 'done' ? '✓' : '○' }}</button>
-            <input v-model="subtask.title" :focus="focusedChild === subtask.id" @focus="focusedChild = subtask.id" @blur="flushDraft()" @confirm="addSubtask(index + 1)" placeholder="子事项" :maxlength="Math.max(120, subtask.title.length)" confirm-type="next" />
-            <view class="subtask-order"><button :disabled="index === 0" aria-label="上移子事项" @click="moveSubtask(index, -1)">↑</button><button :disabled="index === draft.subtasks.length - 1" aria-label="下移子事项" @click="moveSubtask(index, 1)">↓</button></view>
-            <button class="subtask-remove" aria-label="删除子事项" @click="removeSubtask(index)">×</button>
+            <button @touchstart.stop v-if="draft.repeatKind === 'none'" :class="['subtask-check', { done: subtask.status === 'done' }]" :aria-label="subtask.status === 'done' ? '恢复子事项' : '完成子事项'" @click="toggleSubtask(subtask)">{{ subtask.status === 'done' ? '✓' : '○' }}</button>
+            <input @touchstart.stop v-model="subtask.title" :focus="focusedChild === subtask.id" @focus="focusedChild = subtask.id" @blur="flushDraft()" @confirm="addSubtask(index + 1)" placeholder="子事项" :maxlength="Math.max(120, subtask.title.length)" confirm-type="next" />
+            <view @touchstart.stop class="subtask-order"><button :disabled="index === 0" aria-label="上移子事项" @click="moveSubtask(index, -1)">↑</button><button :disabled="index === draft.subtasks.length - 1" aria-label="下移子事项" @click="moveSubtask(index, 1)">↓</button></view>
+            <button @touchstart.stop class="subtask-remove" aria-label="删除子事项" @click="removeSubtask(index)">×</button>
           </view>
         </template>
         <text v-if="occurrence" class="permission-hint">正在编辑 {{ occurrence.date }} 的当次事项，重复规则和源子事项保持不变。</text>
-        <textarea class="note-area" v-model="draft.notes" auto-height :maxlength="Math.max(1000, draft.notes.length)" @blur="flushDraft()" placeholder="备注：记录一些细节，未来的自己会感谢你。" />
+        <textarea @touchstart.stop class="note-area" v-model="draft.notes" auto-height :maxlength="Math.max(1000, draft.notes.length)" @blur="flushDraft()" placeholder="备注：记录一些细节，未来的自己会感谢你。" />
       </scroll-view>
-      <view class="sheet-footer">
-        <view class="save-feedback" aria-live="polite"><text :class="{ 'save-error': error }">{{ error || reminderWarning || (saving ? '正在保存…' : dirty ? '有未保存的修改' : draft.id ? '已保存' : '填写后保存') }}</text><button v-if="error" @click="flushDraft(true)">重试</button></view>
-        <view v-if="draft.id && (occurrence || draft.repeatKind === 'none')" class="occurrence-status"><button :disabled="actionBusy" @click="changeStatus('todo')">恢复待办</button><button :disabled="actionBusy" @click="changeStatus('done')">{{ occurrence ? '完成本次' : '完成事项' }}</button><button :disabled="actionBusy" @click="changeStatus('failed')">标记失败</button></view>
+      <view v-if="swipe.blockClick" class="swipe-click-blocker" @touchstart.stop @click.stop.prevent />
+      <view class="sheet-footer" @touchstart="startSheetSwipe">
+        <view class="save-feedback" aria-live="polite"><text :class="{ 'save-error': error }">{{ error || reminderWarning || (saving ? '正在保存…' : dirty ? '有未保存的修改' : draft.id ? '已保存' : '填写后保存') }}</text><view v-if="error" class="save-error-actions"><button @touchstart.stop @click="flushDraft(true)">重试</button><button @touchstart.stop @click="discardAndClose">放弃并关闭</button></view></view>
+        <view v-if="draft.id && (occurrence || draft.repeatKind === 'none')" class="occurrence-status" @touchstart.stop><button :disabled="actionBusy" @click="changeStatus('todo')">恢复待办</button><button :disabled="actionBusy" @click="changeStatus('done')">{{ occurrence ? '完成本次' : '完成事项' }}</button><button :disabled="actionBusy" @click="changeStatus('failed')">标记失败</button></view>
       </view>
       </view>
     </view>
@@ -71,7 +72,7 @@
 <script setup>
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { onShow, onHide } from '@dcloudio/uni-app'
-import { getCategories, getNewTaskDefaults, saveTask, removeTask, findTask, listChildren } from '../api/store'
+import { getCategories, getNewTaskDefaults, saveTask, removeTask, findTask, listChildren, getTaskSnapshot } from '../api/store'
 import { parseOccurrenceId, parseRepeatRule, repeatLabel } from '../utils/occurrence'
 import { applyTaskTime, hasReminderTime, priorities, reminderOptions } from '../utils/task'
 import { todayString } from '../utils/date'
@@ -99,15 +100,23 @@ let initializing = false
 let revision = 0
 let generation = 0
 let newSession = false
+let expectedSnapshot = null
+let conflict = false
 let saveTimer
 let pendingSave = null
 let pendingGeneration = 0
+let pendingClose = null
+let reminderToken = 0
+let swipeBlockTimer
+let closeEmitted = false
+const sheetOffset = ref(0)
+const swipe = reactive({ tracking: false, active: false, startX: 0, startY: 0, lastY: 0, lastTime: 0, velocity: 0, blockClick: false })
 const focusedChild = ref('')
 const scrollTarget = ref('')
 const instance = getCurrentInstance()
 const dragIndex = ref(-1)
 const dragScrollTop = ref(0)
-const drag = { rows: [], bodyTop: 0, bodyBottom: 0, maxScroll: 0, startScrollTop: 0, startY: 0, y: 0, timer: null, token: 0, snapshot: [] }
+const drag = { rows: [], bodyTop: 0, bodyBottom: 0, maxScroll: 0, startScrollTop: 0, startY: 0, y: 0, timer: null, token: 0, snapshot: [], touching: false }
 const occurrence = computed(() => draft.id ? parseOccurrenceId(draft.id) : null)
 const canRemind = computed(() => hasReminderTime(draft))
 const permissionMessage = computed(() => !permissions.value.supported ? '仅安卓客户端支持系统提醒。' : permissions.value.error || (!permissions.value.notifications ? '已设置，需允许系统通知后才能送达。' : !permissions.value.exactAlarm ? '已设置，需允许精确闹钟后才能准时排程。' : '最多三个提醒；展示和声音受通知渠道、免打扰及省电设置影响。'))
@@ -134,8 +143,18 @@ watch(
   (visible) => {
     clearTimeout(saveTimer)
     generation++
+    pendingClose = null
+    closeEmitted = false
+    saving.value = false
+    actionBusy.value = false
+    swipe.tracking = false
+    swipe.active = false
     cancelSubtaskDrag()
+    dragScrollTop.value = 0
     if (!visible) return
+    sheetOffset.value = 0
+    clearTimeout(swipeBlockTimer)
+    swipe.blockClick = false
     initializing = true
     dirty.value = false
     revision = 0
@@ -144,6 +163,9 @@ watch(
     categories.value = getCategories()
     const source = props.task
     newSession = !source?.id
+    expectedSnapshot = source?.id ? getTaskSnapshot(source.id) : null
+    conflict = !!source?.id && !expectedSnapshot
+    if (conflict) error.value = '事项已在其他位置更改或删除，请关闭后重新打开'
     if (source && source.id) {
       const loaded = findTask(source.id)
       Object.assign(draft, {
@@ -206,6 +228,66 @@ function onDateChange(event) {
   setTime({ plannedDate: event.detail.value })
 }
 
+function startSheetSwipe(event, inBody = false) {
+  if (event.touches?.length !== 1) { cancelSheetSwipe(); return }
+  if (actionBusy.value || pendingClose || dragIndex.value >= 0 || drag.touching || (inBody && dragScrollTop.value > 0)) return
+  const touch = event.touches[0]
+  swipe.tracking = true
+  swipe.active = false
+  swipe.startX = touch.clientX
+  swipe.startY = swipe.lastY = touch.clientY
+  swipe.lastTime = Date.now()
+  swipe.velocity = 0
+}
+
+function moveSheetSwipe(event) {
+  if (!swipe.tracking) return
+  if (event.touches?.length !== 1) { cancelSheetSwipe(); return }
+  const touch = event.touches[0]
+  const dx = touch.clientX - swipe.startX
+  const dy = touch.clientY - swipe.startY
+  if (!swipe.active && (dy < -8 || Math.abs(dx) > Math.max(12, dy))) { cancelSheetSwipe(); return }
+  if (!swipe.active && dy > 8) { swipe.active = true; swipe.blockClick = true }
+  if (!swipe.active) return
+  event.preventDefault?.()
+  const now = Date.now()
+  const elapsed = now - swipe.lastTime
+  if (elapsed > 0) swipe.velocity = (touch.clientY - swipe.lastY) / elapsed
+  swipe.lastY = touch.clientY
+  swipe.lastTime = now
+  sheetOffset.value = Math.max(0, dy)
+}
+
+async function endSheetSwipe(event) {
+  if (!swipe.tracking) return
+  if (event.touches?.length) { cancelSheetSwipe(); return }
+  const active = swipe.active
+  const shouldClose = active && (sheetOffset.value >= 110 || (sheetOffset.value >= 35 && swipe.velocity >= 0.6 && Date.now() - swipe.lastTime < 120))
+  swipe.tracking = false
+  swipe.active = false
+  if (active) {
+    releaseSwipeBlock()
+    event.preventDefault?.()
+  }
+  if (shouldClose) {
+    const session = generation
+    const closed = await requestClose()
+    if (!closed && session === generation) sheetOffset.value = 0
+  } else sheetOffset.value = 0
+}
+
+function cancelSheetSwipe() {
+  if (swipe.active) releaseSwipeBlock()
+  swipe.tracking = false
+  swipe.active = false
+  sheetOffset.value = 0
+}
+
+function releaseSwipeBlock() {
+  clearTimeout(swipeBlockTimer)
+  swipeBlockTimer = setTimeout(() => { swipe.blockClick = false }, 600)
+}
+
 async function addSubtask(index = draft.subtasks.length) {
   const child = { id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, title: '', status: 'todo' }
   draft.subtasks.splice(index, 0, child)
@@ -238,6 +320,7 @@ function moveSubtaskTo(from, to) {
 function recordSubtaskTouch(event) {
   const touch = event.touches?.[0]
   if (!touch || dragIndex.value >= 0) return
+  drag.touching = true
   drag.startY = touch.clientY
   drag.y = touch.clientY
 }
@@ -311,6 +394,7 @@ function onSubtaskScroll(event) {
 }
 
 function landSubtaskDrag() {
+  drag.touching = false
   if (dragIndex.value < 0) return
   stopSubtaskDrag()
   void flushDraft()
@@ -325,6 +409,7 @@ function cancelSubtaskDrag() {
 }
 
 function stopSubtaskDrag() {
+  drag.touching = false
   drag.token++
   clearInterval(drag.timer)
   drag.timer = null
@@ -358,9 +443,15 @@ function taskInput() {
 }
 
 async function updateReminders(session, promise) {
-  const result = await promise
-  if (session !== generation) return
-  reminderWarning.value = result.error ? `事项已保存，提醒排程失败：${result.error}` : result.supported && canRemind.value && draft.reminderOffsets.length && (!result.notifications || !result.exactAlarm) ? '事项已保存，需开启通知和准时提醒权限' : ''
+  const token = ++reminderToken
+  const needsReminder = canRemind.value && draft.reminderOffsets.length > 0
+  let result
+  try { result = await promise }
+  catch (cause) { result = { error: cause?.message || String(cause) } }
+  if (token !== reminderToken) return
+  const warning = result?.error ? `事项已保存，提醒排程失败：${result.error}` : result?.supported && needsReminder && (!result.notifications || !result.exactAlarm) ? '事项已保存，需开启通知和准时提醒权限' : ''
+  if (session === generation && props.visible && !closeEmitted) reminderWarning.value = warning
+  else if (warning) toast(warning)
 }
 
 async function drainDraft(session) {
@@ -368,21 +459,28 @@ async function drainDraft(session) {
   try {
     while (props.visible && session === generation && dirty.value) {
       const version = revision
-      const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), { rememberDefaults: newSession })
+      const options = { rememberDefaults: newSession }
+      if (draft.id) options.expectedSnapshot = expectedSnapshot
+      const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), options)
+      expectedSnapshot = saved.taskSnapshot
+      conflict = false
       initializing = true
       draft.id = occurrence.value ? draft.id : saved.id
       initializing = false
       if (revision === version) dirty.value = false
       error.value = ''
       emit('saved', saved)
-      await updateReminders(session, saved.reminderPromise)
+      void updateReminders(session, saved.reminderPromise)
     }
     return session === generation
   } catch (cause) {
-    if (session === generation) error.value = cause.message || String(cause)
+    if (session === generation) {
+      conflict = cause.code === 'TASK_CONFLICT'
+      error.value = cause.message || String(cause)
+    }
     return false
   } finally {
-    saving.value = false
+    if (session === generation) saving.value = false
   }
 }
 
@@ -403,23 +501,86 @@ async function flushDraft(required = false) {
   if (!dirty.value) return true
   const session = generation
   pendingGeneration = session
-  pendingSave = drainDraft(session)
-  try { return await pendingSave }
-  finally { pendingSave = null }
+  const operation = drainDraft(session)
+  pendingSave = operation
+  try {
+    const result = await operation
+    if (pendingSave === operation) pendingSave = null
+    if (session !== generation || !result) return false
+    return dirty.value ? flushDraft(required) : true
+  } finally { if (pendingSave === operation) pendingSave = null }
 }
 
-async function requestClose() {
-  if (actionBusy.value) return false
-  cancelSubtaskDrag()
-  if (!draft.id && !dirty.value) { emit('close'); return true }
-  if (!await flushDraft(true)) return false
+function requestClose() {
+  if (actionBusy.value || closeEmitted) return Promise.resolve(false)
+  return finishClose()
+}
+
+async function confirmDiscard(session) {
+  const version = revision
+  const result = await new Promise(resolve => uni.showModal({
+    title: '放弃未保存的修改？',
+    content: '当前草稿将被丢弃，本机已保存的内容不会更改。确定放弃并关闭吗？',
+    success: resolve,
+    fail: () => resolve({ confirm: false })
+  }))
+  if (!result.confirm || session !== generation || revision !== version || !props.visible || closeEmitted) return false
+  clearTimeout(saveTimer)
+  dirty.value = false
+  closeEmitted = true
   emit('close')
   return true
 }
 
+function discardAndClose() {
+  if (actionBusy.value || closeEmitted) return Promise.resolve(false)
+  if (pendingClose) return pendingClose
+  const operation = confirmDiscard(generation)
+  pendingClose = operation
+  void operation.finally(() => { if (pendingClose === operation) pendingClose = null })
+  return operation
+}
+
+function finishClose() {
+  if (pendingClose) return pendingClose
+  const session = generation
+  const operation = (async () => {
+    cancelSubtaskDrag()
+    if (conflict) return confirmDiscard(session)
+    if ((draft.id || dirty.value) && !draft.title.trim()) {
+      const version = revision
+      const result = await new Promise(resolve => uni.showModal({
+        title: '放弃未保存的修改？',
+        content: '事项名称不能为空，当前修改无法保存。放弃修改并关闭吗？已保存的内容会保留。',
+        success: resolve,
+        fail: () => resolve({ confirm: false })
+      }))
+      if (session !== generation || revision !== version || !props.visible) return false
+      if (!result.confirm) { error.value = '请先填写事项名称'; return false }
+      dirty.value = false
+      closeEmitted = true
+      emit('close')
+      return true
+    }
+    if (draft.id || dirty.value) {
+      do {
+        if (!await flushDraft(true) || session !== generation || !props.visible) return false
+      } while (dirty.value)
+    }
+    if (session !== generation || !props.visible) return false
+    if (reminderWarning.value) toast(reminderWarning.value)
+    closeEmitted = true
+    emit('close')
+    return true
+  })()
+  pendingClose = operation
+  void operation.finally(() => { if (pendingClose === operation) pendingClose = null })
+  return operation
+}
+
 async function save() {
-  if (actionBusy.value) return
-  if (!draft.id && !dirty.value) { error.value = '请先填写事项名称'; return }
+  if (actionBusy.value || conflict) return
+  if (!draft.title.trim()) { error.value = '请先填写事项名称'; return }
   await requestClose()
 }
 
@@ -431,20 +592,21 @@ async function remove() {
   try {
     const result = await new Promise(resolve => uni.showModal({
       title: '删除事项',
-      content: occurrence.value ? '确定删除本次事项吗？' : '确定删除该事项及其子事项吗？',
+      content: (occurrence.value ? '确定删除本次事项吗？' : '确定删除该事项及其子事项吗？') + (dirty.value ? '未保存的草稿也将被放弃。' : ''),
       success: resolve,
       fail: () => resolve({ confirm: false })
     }))
     if (!result.confirm || session !== generation) return
     if (pendingSave) await pendingSave
     if (session !== generation) return
-    removeTask(draft.id)
+    removeTask(draft.id, { expectedSnapshot })
     dirty.value = false
     toast('已删除')
     emit('saved', null)
     emit('close')
-  } catch (cause) { error.value = cause.message || String(cause) }
-  finally { actionBusy.value = false }
+  } catch (cause) {
+    if (session === generation) { conflict = cause.code === 'TASK_CONFLICT'; error.value = cause.message || String(cause) }
+  } finally { if (session === generation) actionBusy.value = false }
 }
 
 function setTime(patch) {
@@ -471,23 +633,27 @@ async function changeStatus(status) {
   actionBusy.value = true
   const session = generation
   try {
-    if (!await flushDraft(true)) return
+    if (!await flushDraft(true) || session !== generation || !props.visible) return
     if (status === 'done' && !occurrence.value && draft.subtasks.filter(child => child.title.trim()).length >= 2) {
       const result = await new Promise(resolve => uni.showModal({ title: '完成全部子事项？', content: '确认后将同时完成该事项及全部子事项。', success: resolve, fail: () => resolve({ confirm: false }) }))
       if (!result.confirm || session !== generation) return
     }
-    const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), { status, rememberDefaults: newSession })
-    dirty.value = false
+    const version = revision
+    const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), { status, rememberDefaults: newSession, expectedSnapshot })
+    expectedSnapshot = saved.taskSnapshot
+    conflict = false
+    if (revision === version) dirty.value = false
     error.value = ''
     emit('saved', saved)
-    await updateReminders(session, saved.reminderPromise)
-    if (session === generation) emit('close')
-  } catch (cause) { error.value = cause.message || String(cause) }
-  finally { actionBusy.value = false }
+    void updateReminders(session, saved.reminderPromise)
+    if (session === generation) await finishClose()
+  } catch (cause) {
+    if (session === generation) { conflict = cause.code === 'TASK_CONFLICT'; error.value = cause.message || String(cause) }
+  } finally { if (session === generation) actionBusy.value = false }
 }
 
 function refreshPermissions() { if (props.visible) permissions.value = reminderState() }
-function saveOnHide() { if (props.visible) void flushDraft() }
+function saveOnHide() { cancelSheetSwipe(); if (props.visible) void flushDraft() }
 function saveOnVisibilityChange() {
   // #ifdef H5
   if (document.visibilityState === 'hidden') saveOnHide()
@@ -498,6 +664,7 @@ onHide(saveOnHide)
 uni.$on('reminder-permissions', refreshPermissions)
 onBeforeUnmount(() => {
   clearTimeout(saveTimer)
+  clearTimeout(swipeBlockTimer)
   stopSubtaskDrag()
   generation++
   uni.$off('reminder-permissions', refreshPermissions)
@@ -519,9 +686,10 @@ defineExpose({ requestClose, flushDraft })
 
 <style scoped>
 .sheet-body.is-busy { pointer-events: none; }
-.sheet-footer { flex: 0 0 auto; padding: 12rpx 32rpx; border-top: 2rpx solid var(--line); }
+.sheet-footer { flex: 0 0 auto; padding: 16rpx 32rpx 12rpx; border-top: 2rpx solid #e7eef7; background: #f8fbff; }
 .save-feedback { display: flex; align-items: center; justify-content: space-between; min-height: 36rpx; color: var(--muted); font-size: 23rpx; overflow-wrap: anywhere; }
 .save-feedback .save-error { margin: 0; }
+.save-error-actions { display: flex; flex-shrink: 0; }
 .save-feedback button { flex-shrink: 0; margin: 0 0 0 16rpx; padding: 0 20rpx; font-size: 24rpx; color: var(--blue); }
 .subtask-check { flex: 0 0 52rpx; width: 52rpx; margin: 0; padding: 0; background: transparent; color: var(--green); line-height: 64rpx; font-size: 34rpx; }
 .subtask-check.done { color: var(--green); }
@@ -537,7 +705,16 @@ defineExpose({ requestClose, flushDraft })
 .permission-hint, .save-error { display: block; font-size: 24rpx; line-height: 1.7; color: #929daa; margin: 12rpx 0 20rpx; }
 .save-error { color: var(--danger); }
 .permission-actions, .occurrence-status { display: flex; flex-wrap: wrap; gap: 12rpx; margin-bottom: 20rpx; }
-.permission-actions button, .occurrence-status button { font-size: 23rpx; color: var(--blue); background: #f1f7ff; padding: 4rpx 16rpx; }
+.permission-actions button, .occurrence-status button { flex: 1 1 auto; margin: 0; border-radius: 16rpx; font-size: 23rpx; color: #277ac4; background: #eaf4ff; padding: 8rpx 16rpx; }
+.occurrence-status button:nth-child(2) { background: #176ab7; color: #fff; font-weight: 600; }
+.occurrence-status button:nth-child(3) { background: #fff0ef; color: #9f4245; }
+.occurrence-status button::after { border: 0; }
+.occurrence-status button[disabled] { opacity: .45; }
+.save-feedback { color: #647b93; }
+.save-feedback .save-error { color: var(--danger); }
+.header-actions { display: flex; align-items: center; min-width: 144rpx; gap: 12rpx; }
+.sheet-close { width: 60rpx; height: 60rpx; margin: 0; padding: 0; border-radius: 50%; background: #eef5fc; color: #55728e; font-size: 40rpx; line-height: 56rpx; }
+.sheet-close::after { border: 0; }
 .sheet-enter-active,
 .sheet-leave-active {
   transition: opacity 0.28s ease;
@@ -578,16 +755,35 @@ defineExpose({ requestClose, flushDraft })
   border-radius: 32rpx 32rpx 0 0;
   background: var(--panel);
   padding-bottom: env(safe-area-inset-bottom);
+  transform: translateY(var(--sheet-offset, 0px));
+  transition: transform 0.28s ease;
+  box-shadow: 0 -12rpx 48rpx rgba(34, 74, 115, .12);
 }
 
+.sheet.is-swiping { transition: none; }
+.swipe-click-blocker { position: absolute; inset: 0; z-index: 10; }
+
 .sheet-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   min-height: 104rpx;
   padding: 0 24rpx;
-  border-bottom: 2rpx solid var(--line);
+  border-bottom: 2rpx solid #e7eef7;
+  background: #fbfdff;
   flex: 0 0 auto;
+}
+
+.sheet-grab {
+  position: absolute;
+  top: 8rpx;
+  left: 50%;
+  width: 64rpx;
+  height: 6rpx;
+  border-radius: 999rpx;
+  background: #bacbdb;
+  transform: translateX(-50%);
 }
 
 .sheet-title {
@@ -596,7 +792,7 @@ defineExpose({ requestClose, flushDraft })
 }
 
 .sheet-save {
-  min-width: 96rpx;
+  min-width: 144rpx;
   color: var(--blue);
   font-size: 30rpx;
   font-weight: 600;
@@ -604,7 +800,7 @@ defineExpose({ requestClose, flushDraft })
 }
 
 .sheet-delete {
-  min-width: 96rpx;
+  min-width: 64rpx;
   color: var(--danger);
   font-size: 28rpx;
 }
@@ -639,8 +835,9 @@ defineExpose({ requestClose, flushDraft })
 }
 
 .row-label {
-  color: #767b83;
+  color: #536b83;
   font-size: 28rpx;
+  font-weight: 600;
 }
 
 .row-value {
@@ -657,10 +854,10 @@ defineExpose({ requestClose, flushDraft })
 
 .option-chip {
   padding: 14rpx 28rpx;
-  border: 2rpx solid var(--line);
+  border: 2rpx solid #dce8f5;
   border-radius: 999rpx;
-  background: #fff;
-  color: #62666d;
+  background: #f7faff;
+  color: #526b84;
   font-size: 26rpx;
 }
 

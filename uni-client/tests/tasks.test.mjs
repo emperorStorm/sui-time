@@ -1,17 +1,168 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { applyTaskTime, normalizeTask, compareTasks, taskMark } from '../src/utils/task.js'
-import { resolveTasksForDate } from '../src/utils/occurrence.js'
+import { occursOn, resolveTasksForDate } from '../src/utils/occurrence.js'
 import { weekDates, weekTitle } from '../src/utils/date.js'
 import * as store from '../src/api/store.js'
 import { syncTaskReminders, reminderState } from '../src/api/reminders.js'
 import { load, save as saveStorage } from '../src/api/storage.js'
+import { refreshHolidayCalendar } from '../src/api/holiday.js'
+import { confirm } from '../src/utils/platform.js'
+import { readFile } from 'node:fs/promises'
+import vm from 'node:vm'
+import * as vue from 'vue'
 
 let disk = null
 let fail = false
 let writes = 0
 globalThis.uni = { getStorageSync: () => disk, setStorageSync: (_, value) => { writes++; if (fail) throw Error('存储失败'); disk = structuredClone(value) } }
 const task = (patch = {}) => ({ title: '测试事项', plannedDate: '2026-10-10', scheduleKind: 'all_day', status: 'todo', priority: 'not_urgent_not_important', ...patch })
+
+const recurrence = { occursOn, tasksForDate: resolveTasksForDate }
+
+test('确认窗口失败时返回明确错误，不让调用方永久等待', async () => {
+  const previous = globalThis.uni.showModal
+  try {
+    globalThis.uni.showModal = options => options.fail({ errMsg: 'unavailable' })
+    await assert.rejects(confirm('确认操作'), /确认窗口无法打开/)
+    globalThis.uni.showModal = options => options.success({ confirm: false })
+    assert.equal(await confirm('确认操作'), false)
+  } finally {
+    if (previous) globalThis.uni.showModal = previous
+    else delete globalThis.uni.showModal
+  }
+})
+
+test('节假日刷新区分有效空数据和无缓存的网络失败', async () => {
+  const previous = globalThis.uni
+  let cache = { '2026': [{ date: '2026-10-01', name: '旧标记', isOffDay: true }] }
+  let failRequest = false
+  globalThis.uni = {
+    getStorageSync: () => cache,
+    setStorageSync: (_, value) => { cache = value },
+    request: options => failRequest ? options.fail(new Error('离线')) : options.success({ statusCode: 200, data: { year: 2026, days: [] } })
+  }
+  try {
+    const refreshed = await refreshHolidayCalendar([2026])
+    assert.deepEqual(refreshed.availableYears, [2026])
+    assert.deepEqual(refreshed.days, {})
+    cache = {}
+    failRequest = true
+    const offline = await refreshHolidayCalendar([2027])
+    assert.deepEqual(offline.availableYears, [])
+    assert.deepEqual(offline.days, {})
+  } finally { globalThis.uni = previous }
+})
+
+test('前台恢复时报告提醒排程错误，并区分本机读取失败', async () => {
+  const source = (await readFile(new URL('../src/App.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+  const modals = []
+  const events = []
+  let readFailure = false
+  const context = vm.createContext({ uni: { $emit: event => events.push(event), showModal: options => modals.push(options), showToast() {} } })
+  const dependencies = {
+    vue: { onBeforeUnmount() {} },
+    '@dcloudio/uni-app': { onHide() {}, onLaunch() {}, onShow() {} },
+    './api/store': { listTasks: () => { if (readFailure) throw new Error('读取异常'); return [] } },
+    './api/reminders': { syncTaskReminders: async () => ({ error: '排程异常' }) },
+    './api/update': { resumeUpdateInstallation() {} },
+    './api/sync.js': { startAutoSync() {}, syncNow() {} }
+  }
+  const module = new vm.SourceTextModule(`${source}\nexport { refreshReminders };`, { context })
+  await module.link(specifier => new vm.SyntheticModule(Object.keys(dependencies[specifier]), function () {
+    for (const [key, value] of Object.entries(dependencies[specifier])) this.setExport(key, value)
+  }, { context }))
+  await module.evaluate()
+  await module.namespace.refreshReminders()
+  assert.equal(modals[0].title, '更新系统提醒失败')
+  assert.match(modals[0].content, /排程异常/)
+  assert.deepEqual(events, ['reminder-permissions'])
+  modals[0].success({ confirm: false })
+  readFailure = true
+  await module.namespace.refreshReminders()
+  assert.equal(modals[1].title, '读取本机事项失败')
+  assert.match(modals[1].content, /读取异常/)
+})
+
+test('重复次数按实际匹配的源日期计数', () => {
+  const vectors = [
+    ['2026-01-01', { kind: 'weekly', interval: 3, count: 2 }, ['2026-01-01', '2026-01-08'], ['2026-01-15', '2026-01-02']],
+    ['2026-01-31', { kind: 'monthly', interval: 3, count: 2 }, ['2026-01-31', '2026-03-31'], ['2026-02-28', '2026-05-31']],
+    ['2024-02-29', { kind: 'yearly', count: 2 }, ['2024-02-29', '2028-02-29'], ['2025-02-28', '2032-02-29']],
+    ['2096-02-29', { kind: 'yearly', count: 2 }, ['2096-02-29', '2104-02-29'], ['2100-02-28', '2108-02-29']],
+    ['2026-01-03', { kind: 'workdays', count: 2 }, ['2026-01-05', '2026-01-06'], ['2026-01-03', '2026-01-07']],
+    ['2026-01-01', { kind: 'weekly_slots', weekdays: [1, 4, 4], slots: [{ day: 4, time: '09:00' }, { day: 4, time: '17:00' }], interval: 2, count: 2 }, ['2026-01-01', '2026-01-05'], ['2026-01-08']],
+    ['2026-01-30', { kind: 'monthly_slots', monthDays: [1, 29, 31, 31], count: 4 }, ['2026-01-31', '2026-02-01', '2026-03-01', '2026-03-29'], ['2026-01-30', '2026-03-31']],
+    ['2026-01-01', { kind: 'memory', count: 2 }, ['2026-01-02', '2026-01-04'], ['2026-01-01', '2026-01-08']],
+    ['2026-01-01', { kind: 'memory', count: 5 }, ['2026-01-02', '2026-01-04', '2026-01-08', '2026-01-15', '2026-01-30'], ['2026-01-03', '2026-01-31']],
+    ['2026-01-01', { kind: 'memory', count: 9 }, ['2026-01-30'], ['2026-01-31']],
+    ['2023-12-29', { kind: 'monthly_slots', monthDays: [29], count: 3 }, ['2024-01-29', '2024-02-29'], ['2024-03-29']],
+    ['2026-01-01', { kind: 'weekly_slots', count: 2 }, ['2026-01-01', '2026-01-08'], ['2026-01-15']],
+    ['2026-01-31', { kind: 'monthly_slots', count: 2 }, ['2026-01-31', '2026-03-31'], ['2026-05-31']],
+    ...['daily', 'every_days', 'custom'].map(kind => ['2026-01-01', { kind, interval: 2, count: 2 }, ['2026-01-01', '2026-01-03'], ['2026-01-02', '2026-01-05']]),
+    ['2026-01-01', { kind: 'weekly', count: 1 }, ['2026-01-01'], ['2025-12-25', '2026-01-08']],
+    ...[undefined, 0, -2].map(count => ['2026-01-01', { kind: 'weekly', count }, ['2026-01-15'], []])
+  ]
+  for (const [plannedDate, rule, yes, no] of vectors) {
+    const item = task({ plannedDate, repeatRule: JSON.stringify({ ...rule, endMode: 'count' }) })
+    for (const date of yes) assert.equal(recurrence.occursOn(item, date), true, `${JSON.stringify(rule)} ${date}`)
+    for (const date of no) assert.equal(recurrence.occursOn(item, date), false, `${JSON.stringify(rule)} ${date}`)
+  }
+})
+
+test('周期计数与逐日匹配的参考结果一致', () => {
+  const rules = [
+    { kind: 'daily', interval: 3 }, { kind: 'weekly' }, { kind: 'workdays' },
+    { kind: 'weekly_slots', weekdays: [0, 2, 6] }, { kind: 'monthly' },
+    { kind: 'monthly_slots', monthDays: [1, 28, 29, 30, 31] }, { kind: 'yearly' }, { kind: 'memory' }
+  ]
+  for (const rule of rules) {
+    const item = task({ plannedDate: '2024-02-29', repeatRule: JSON.stringify(rule) })
+    let count = 0
+    for (let day = Date.UTC(2024, 1, 29); day <= Date.UTC(2029, 2, 1); day += 86400000) {
+      const date = new Date(day).toISOString().slice(0, 10)
+      if (!recurrence.occursOn(item, date)) continue
+      count++
+      for (const limit of [1, 2, 10, 100]) {
+        const limited = { ...item, repeatRule: JSON.stringify({ ...rule, endMode: 'count', count: limit }) }
+        assert.equal(recurrence.occursOn(limited, date), count <= limit, `${rule.kind} ${date} ${limit}`)
+      }
+    }
+  }
+})
+
+test('夏令时跨越按日历日期而非本地毫秒计数', () => {
+  const previous = process.env.TZ
+  try {
+    for (const zone of ['America/New_York', 'Australia/Sydney']) {
+      process.env.TZ = zone
+      for (const [start, second, third] of [['2026-03-07', '2026-03-08', '2026-03-09'], ['2026-10-03', '2026-10-04', '2026-10-05'], ['2026-10-31', '2026-11-01', '2026-11-02']]) {
+        const item = task({ plannedDate: start, repeatRule: JSON.stringify({ kind: 'daily', endMode: 'count', count: 2 }) })
+        assert.equal(recurrence.occursOn(item, second), true, `${zone} ${second}`)
+        assert.equal(recurrence.occursOn(item, third), false, `${zone} ${third}`)
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  }
+})
+
+test('移动、删除和终态不改变源次数，终态覆盖仍可显示', () => {
+  const item = task({ id: 'repeat', plannedDate: '2026-01-01', repeatRule: JSON.stringify({ kind: 'weekly', endMode: 'count', count: 3 }), occurrenceOverrides: JSON.stringify({
+    '2026-01-01': { deleted: true },
+    '2026-01-08': { plannedDate: '2026-01-09' },
+    '2026-01-15': { status: 'done' },
+    '2026-01-22': { status: 'failed' }
+  }) })
+  assert.equal(recurrence.tasksForDate([item], '2026-01-01').length, 0)
+  assert.equal(recurrence.tasksForDate([item], '2026-01-08').length, 0)
+  assert.equal(recurrence.tasksForDate([item], '2026-01-09')[0].id, 'repeat@2026-01-08')
+  assert.equal(recurrence.tasksForDate([item], '2026-01-15')[0].status, 'done')
+  assert.equal(recurrence.occursOn(item, '2026-01-22'), false)
+  assert.equal(recurrence.tasksForDate([item], '2026-01-22')[0].status, 'failed')
+  assert.equal(recurrence.tasksForDate([item], '2026-01-29').length, 0)
+})
 
 test('首次设时间、关闭后编辑、全天与重新设置时间', () => {
   const draft = task()
@@ -268,6 +419,51 @@ test('重复实例传子项不改源子项，编辑及状态只写当次覆盖�
   assert.deepEqual(store.listChildren(source.id), children)
 })
 
+test('事项快照比较真实落盘版本、全部相关子树及同时间戳内容', () => {
+  const parent = store.saveTask(task(), [{ title: '子项' }])
+  const child = store.listChildren(parent.id)[0]
+  const grandchild = store.saveTask(task({ title: '孙项', parentTaskId: child.id }))
+  const snapshot = store.getTaskSnapshot(parent.id)
+  const first = store.saveTask({ id: parent.id, notes: '第一轮' }, store.listChildren(parent.id), { expectedSnapshot: snapshot })
+  assert.deepEqual(first.taskSnapshot, store.getTaskSnapshot(parent.id))
+  const second = store.saveTask({ id: parent.id, notes: '第二轮' }, store.listChildren(parent.id), { expectedSnapshot: first.taskSnapshot })
+  assert.deepEqual(second.taskSnapshot, store.getTaskSnapshot(parent.id))
+  const data = load()
+  saveStorage({ ...data, tasks: data.tasks.map(item => item.id === grandchild.id ? { ...item, title: '云端孙项' } : item) }, { strict: true, remote: true })
+  const before = structuredClone(load())
+  assert.throws(() => store.removeTask(parent.id, { expectedSnapshot: second.taskSnapshot }), /更改或删除/)
+  assert.throws(() => store.saveTask({ id: parent.id, notes: '过期' }, store.listChildren(parent.id), { expectedSnapshot: second.taskSnapshot }), /更改或删除/)
+  assert.deepEqual(load(), before)
+  const current = store.getTaskSnapshot(parent.id)
+  const data2 = load()
+  saveStorage({ ...data2, tasks: data2.tasks.map(item => item.id === parent.id ? { ...item, notes: '同版本不同内容' } : item) }, { strict: true, remote: true })
+  assert.throws(() => store.saveTask({ id: parent.id }, undefined, { expectedSnapshot: current }), /更改或删除/)
+  const beforeDelete = store.getTaskSnapshot(parent.id)
+  const data3 = load()
+  saveStorage({ ...data3, tasks: data3.tasks.map(item => item.id === parent.id ? { ...item, deletedAt: 42 } : item) }, { strict: true, remote: true })
+  assert.throws(() => store.saveTask({ id: parent.id }, undefined, { expectedSnapshot: beforeDelete }), /更改或删除/)
+})
+
+test('重复当次比较当前实例及源字段，其他实例修改不造成冲突或丢失', () => {
+  const source = store.saveTask(task({ repeatRule: '{"kind":"daily"}' }))
+  const id = `${source.id}@2026-10-11`
+  const other = `${source.id}@2026-10-12`
+  let snapshot = store.getTaskSnapshot(id)
+  store.saveTask({ id: other, notes: '其他实例' })
+  const saved = store.saveTask({ id, notes: '当前实例' }, undefined, { expectedSnapshot: snapshot })
+  assert.equal(store.findTask(other).notes, '其他实例')
+  snapshot = saved.taskSnapshot
+  store.saveTask({ id, notes: '同实例外部修改' })
+  assert.throws(() => store.saveTask({ id, notes: '旧草稿' }, undefined, { expectedSnapshot: snapshot }), /更改或删除/)
+  assert.throws(() => store.removeTask(id, { expectedSnapshot: snapshot }), /更改或删除/)
+  snapshot = store.getTaskSnapshot(id)
+  store.saveTask({ id: source.id, title: '源被修改' })
+  assert.throws(() => store.saveTask({ id, notes: '旧草稿' }, undefined, { expectedSnapshot: snapshot }), /更改或删除/)
+  snapshot = store.getTaskSnapshot(id)
+  store.removeTask(id)
+  assert.throws(() => store.saveTask({ id, notes: '旧草稿' }, undefined, { expectedSnapshot: snapshot }), /更改或删除/)
+})
+
 test('从待办变完成不沿用旧的残留完成时间，连续保存完成态保留时间', () => {
   const parent = store.saveTask(task({ completedAt: 1 }), [{ title: '子事项' }])
   const child = store.listChildren(parent.id)[0]
@@ -445,4 +641,273 @@ test('快捷调整写入失败不污染缓存、磁盘且不触发提醒排程',
   assert.deepEqual(load(), before)
   assert.deepEqual(disk, diskBefore)
   assert.equal(calls.length, count)
+})
+
+async function anniversarySheet(name, { initialProps, storeApi } = {}) {
+  const source = (await readFile(new URL(`../src/components/${name}.vue`, import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+  const isEdit = name === 'AnniversaryEditSheet'
+  const props = vue.reactive(initialProps || (isEdit ? { visible: true, item: null } : { occurrence: { anniversaryId: 'a', date: '2026-01-01', notes: '', record: { notes: '原备注' } }, today: '2026-10-10' }))
+  const events = []
+  const modals = []
+  const navigation = []
+  const unmount = []
+  let failSave = false
+  let photoResolve
+  const context = vm.createContext({
+    defineProps: () => props, defineEmits: () => (...event) => events.push(event), defineExpose() {},
+    uni: { showModal: options => modals.push(options), navigateTo: options => navigation.push(options.url) }
+  })
+  const modules = {
+    vue: { ...vue, onBeforeUnmount: callback => unmount.push(callback) },
+    '../api/store': storeApi || {
+      getAnniversaryRecordSnapshot: (_id, _date, record) => record ? JSON.parse(JSON.stringify(record)) : null,
+      saveAnniversary: (input, _options) => { if (failSave) throw Error('写入失败'); return { ...input, id: 'saved' } },
+      saveAnniversaryRecord: (input, _options) => { if (failSave) throw Error('写入失败'); return { ...input, notes: input.notes.trim() } }
+    },
+    '../utils/anniversary': { anniversaryThemes: [], anniversaryTypes: [], localToday: () => '2026-10-10', anniversaryCalendar: () => ({}), chooseAnniversaryPhoto: () => new Promise(resolve => { photoResolve = resolve }) },
+    '../../../shared/anniversary.mjs': { anniversaryRecordOccurrence: record => record }
+  }
+  const exported = isEdit ? 'draft, close, submit, importPhoto, error' : 'notes, close, details, save, error'
+  const module = new vm.SourceTextModule(`${source}\nexport { ${exported} };`, { context })
+  await module.link(specifier => new vm.SyntheticModule(Object.keys(modules[specifier]), function () {
+    for (const [key, value] of Object.entries(modules[specifier])) this.setExport(key, value)
+  }, { context }))
+  await module.evaluate()
+  return { ...module.namespace, props, events, modals, navigation, unmount: () => unmount.forEach(callback => callback()), setFailure: value => { failSave = value }, releasePhoto: value => photoResolve(value) }
+}
+
+test('纪念日编辑取消和遮罩共享草稿确认，失败、保存及重复请求安全', async () => {
+  const ui = await anniversarySheet('AnniversaryEditSheet')
+  ui.draft.title = '保留输入'
+  const first = ui.close()
+  await ui.close()
+  assert.equal(ui.modals.length, 1)
+  ui.modals[0].success({ confirm: false })
+  assert.equal(await first, false)
+  assert.equal(ui.draft.title, '保留输入')
+  assert.equal(ui.events.length, 0)
+  const failed = ui.close()
+  ui.modals[1].fail(Error('窗口失败'))
+  assert.equal(await failed, false)
+  assert.match(ui.error.value, /重试/)
+  ui.setFailure(true)
+  ui.submit()
+  assert.match(ui.error.value, /写入失败/)
+  assert.equal(ui.draft.title, '保留输入')
+  ui.setFailure(false)
+  ui.submit()
+  assert.equal(ui.events[0][0], 'saved')
+  assert.equal(await ui.close(), true)
+  assert.equal(ui.modals.length, 2)
+  assert.equal(ui.events.at(-1)[0], 'close')
+  ui.unmount()
+})
+
+test('纪念记录关闭和详情须确认，保存更新基线，失败保留输入', async () => {
+  const ui = await anniversarySheet('AnniversaryRecordSheet')
+  ui.notes.value = '新的备注'
+  let leaving = ui.details()
+  await ui.close()
+  assert.equal(ui.modals.length, 1)
+  ui.modals[0].success({ confirm: false })
+  assert.equal(await leaving, false)
+  assert.equal(ui.notes.value, '新的备注')
+  assert.equal(ui.navigation.length, 0)
+  ui.setFailure(true)
+  ui.save(false)
+  assert.match(ui.error.value, /写入失败/)
+  leaving = ui.close()
+  ui.modals[1].success({ confirm: false })
+  await leaving
+  ui.setFailure(false)
+  ui.save(false)
+  assert.equal(await ui.details(), true)
+  assert.equal(ui.modals.length, 2)
+  assert.equal(ui.events.at(-1)[0], 'close')
+  assert.equal(ui.navigation[0], '/pages/anniversaries/detail?id=a')
+  ui.unmount()
+})
+
+test('确认放弃后才关闭或导航，旧会话与卸载后的确认不能影响新草稿', async () => {
+  const edit = await anniversarySheet('AnniversaryEditSheet')
+  edit.draft.photos.push('照片')
+  let pending = edit.close()
+  edit.props.visible = false
+  edit.props.visible = true
+  edit.draft.title = '新会话'
+  edit.modals[0].success({ confirm: true })
+  assert.equal(await pending, false)
+  assert.equal(edit.draft.title, '新会话')
+  assert.equal(edit.events.length, 0)
+  pending = edit.close()
+  edit.modals[1].success({ confirm: true })
+  assert.equal(await pending, true)
+  assert.equal(edit.events.at(-1)[0], 'close')
+  edit.unmount()
+
+  const switched = await anniversarySheet('AnniversaryEditSheet')
+  switched.draft.title = '旧条目'
+  pending = switched.close()
+  switched.props.item = { id: 'other', title: '另一条' }
+  switched.modals[0].success({ confirm: true })
+  assert.equal(await pending, false)
+  assert.equal(switched.draft.title, '另一条')
+  assert.equal(switched.events.length, 0)
+  switched.unmount()
+
+  const record = await anniversarySheet('AnniversaryRecordSheet')
+  record.notes.value = '旧草稿'
+  pending = record.details()
+  record.props.occurrence = { anniversaryId: 'b', date: '2026-01-02', record: { notes: '新草稿' } }
+  record.modals[0].success({ confirm: true })
+  assert.equal(await pending, false)
+  assert.equal(record.notes.value, '新草稿')
+  assert.equal(record.navigation.length, 0)
+  record.notes.value = '修改'
+  pending = record.details()
+  record.unmount()
+  record.modals[1].success({ confirm: true })
+  assert.equal(await pending, false)
+  assert.equal(record.events.length, 0)
+  assert.equal(record.navigation.length, 0)
+})
+
+test('照片导入与确认期间的后续编辑不会被旧操作丢弃', async () => {
+  const ui = await anniversarySheet('AnniversaryEditSheet')
+  const photo = ui.importPhoto()
+  ui.props.visible = false
+  ui.props.visible = true
+  ui.releasePhoto('旧照片')
+  await photo
+  assert.equal(ui.draft.photos.length, 0)
+  ui.draft.notes = '第一版'
+  const pending = ui.close()
+  ui.draft.notes = '第二版'
+  ui.modals[0].success({ confirm: true })
+  assert.equal(await pending, false)
+  assert.equal(ui.draft.notes, '第二版')
+  assert.equal(ui.events.length, 0)
+  ui.unmount()
+})
+
+test('纪念日编辑连续保存使用落盘基线，失败和异设备冲突保留草稿与照片', async () => {
+  const created = store.saveAnniversary({ kind: 'anniversary', title: '初始纪念日', date: '2000-01-01', notes: '', theme: 'sky', photos: [], coverIndex: 0 })
+  const ui = await anniversarySheet('AnniversaryEditSheet', { initialProps: { visible: true, item: store.getAnniversary(created.id) }, storeApi: store })
+  try {
+    ui.draft.title = '第一次'
+    ui.submit()
+    assert.equal(ui.events.length, 1)
+    assert.deepEqual(ui.events[0][1], store.getAnniversary(created.id))
+    ui.draft.notes = '第二次'
+    ui.submit()
+    assert.equal(ui.events.length, 2)
+    assert.equal(store.getAnniversary(created.id).notes, '第二次')
+    ui.draft.notes = '失败草稿'
+    const before = structuredClone(load())
+    const diskBefore = structuredClone(disk)
+    fail = true
+    ui.submit()
+    fail = false
+    assert.match(ui.error.value, /无法保存/)
+    assert.equal(ui.draft.notes, '失败草稿')
+    assert.deepEqual(load(), before)
+    assert.deepEqual(disk, diskBefore)
+    ui.submit()
+    assert.equal(ui.events.length, 3)
+    const current = store.getAnniversary(created.id)
+    const remote = { ...current, photos: ['云端照片'], deviceId: 'other-device' }
+    saveStorage({ ...load(), anniversaries: load().anniversaries.map(item => item.id === created.id ? remote : item) }, { strict: true, remote: true })
+    ui.props.item = structuredClone(remote)
+    ui.draft.title = '本地草稿'
+    ui.submit()
+    assert.match(ui.error.value, /更改.*重新打开/)
+    assert.equal(ui.events.length, 3)
+    assert.equal(ui.draft.title, '本地草稿')
+    assert.deepEqual(store.getAnniversary(created.id), remote)
+    assert.equal(disk.anniversaries.find(item => item.id === created.id).photos[0], '云端照片')
+    const sameVersion = { ...remote, title: '同版本不同内容' }
+    saveStorage({ ...load(), anniversaries: load().anniversaries.map(item => item.id === created.id ? sameVersion : item) }, { strict: true, remote: true })
+    assert.throws(() => store.saveAnniversary({ ...current, title: '草稿' }, { expectedSnapshot: remote }), /更改/)
+    assert.deepEqual(store.getAnniversary(created.id), sameVersion)
+  } finally { fail = false; ui.unmount() }
+})
+
+test('纪念记录连续保存、失败重试及同时间戳异设备更新不丢备注', async () => {
+  const item = store.saveAnniversary({ kind: 'anniversary', title: '记录测试', date: '2000-01-01', notes: '', theme: 'sky', photos: [], coverIndex: 0 })
+  const date = '2001-01-01'
+  const initial = store.saveAnniversaryRecord({ anniversaryId: item.id, date, notes: '初始', confirmed: false })
+  const occurrence = { anniversaryId: item.id, date, notes: '', record: initial }
+  const ui = await anniversarySheet('AnniversaryRecordSheet', { initialProps: { occurrence, today: '2026-10-10' }, storeApi: store })
+  try {
+    ui.notes.value = '第一次'
+    ui.save(true)
+    assert.equal(ui.events.length, 1)
+    assert.deepEqual(ui.events[0][1], store.listAnniversaryRecords({ anniversaryId: item.id })[0])
+    ui.notes.value = '第二次'
+    ui.save(true)
+    assert.equal(ui.events.length, 2)
+    const before = structuredClone(load())
+    const diskBefore = structuredClone(disk)
+    ui.notes.value = '失败后保留'
+    fail = true
+    ui.save(false)
+    fail = false
+    assert.match(ui.error.value, /无法保存/)
+    assert.equal(ui.notes.value, '失败后保留')
+    assert.deepEqual(load(), before)
+    assert.deepEqual(disk, diskBefore)
+    ui.save(true)
+    assert.equal(ui.events.length, 3)
+    const current = store.listAnniversaryRecords({ anniversaryId: item.id })[0]
+    const remote = { ...current, title: '异设备更新', confirmedAt: null, deviceId: 'other-device' }
+    saveStorage({ ...load(), anniversaryRecords: load().anniversaryRecords.map(record => record.anniversaryId === item.id && record.date === date ? remote : record) }, { strict: true, remote: true })
+    ui.notes.value = '本地未保存备注'
+    ui.props.occurrence = { ...occurrence, record: remote }
+    assert.equal(ui.notes.value, '本地未保存备注')
+    ui.save(true)
+    assert.match(ui.error.value, /更改.*重新打开/)
+    assert.equal(ui.notes.value, '本地未保存备注')
+    assert.equal(ui.events.length, 3)
+    assert.deepEqual(store.listAnniversaryRecords({ anniversaryId: item.id })[0], remote)
+    assert.deepEqual(disk.anniversaryRecords.find(record => record.anniversaryId === item.id), remote)
+    const sameVersion = { ...remote, notes: '同版本不同内容' }
+    saveStorage({ ...load(), anniversaryRecords: load().anniversaryRecords.map(record => record.anniversaryId === item.id ? sameVersion : record) }, { strict: true, remote: true })
+    assert.throws(() => store.saveAnniversaryRecord({ anniversaryId: item.id, date, notes: '草稿', confirmed: true }, { expectedSnapshot: remote }), /更改/)
+    assert.deepEqual(store.listAnniversaryRecords({ anniversaryId: item.id })[0], sameVersion)
+  } finally { fail = false; ui.unmount() }
+})
+
+test('无记录时同步新增及墓碑变化均阻止覆盖，兼容未传基线的调用', async () => {
+  const item = store.saveAnniversary({ kind: 'anniversary', title: '新增记录测试', date: '2000-01-01', notes: '', theme: 'sky', photos: [], coverIndex: 0 })
+  const date = '2002-01-01'
+  const occurrence = { anniversaryId: item.id, date, notes: '', record: null }
+  const ui = await anniversarySheet('AnniversaryRecordSheet', { initialProps: { occurrence, today: '2026-10-10' }, storeApi: store })
+  try {
+    ui.notes.value = '本地备注'
+    const remote = store.saveAnniversaryRecord({ anniversaryId: item.id, date, notes: '远端记录', confirmed: true })
+    ui.save(false)
+    assert.match(ui.error.value, /更改.*重新打开/)
+    assert.equal(ui.notes.value, '本地备注')
+    assert.equal(ui.events.length, 0)
+    assert.deepEqual(store.listAnniversaryRecords({ anniversaryId: item.id })[0], remote)
+    assert.deepEqual(disk.anniversaryRecords.find(record => record.anniversaryId === item.id), remote)
+    const legacy = store.saveAnniversaryRecord({ anniversaryId: item.id, date, notes: '兼容旧调用', confirmed: true })
+    assert.equal(legacy.notes, '兼容旧调用')
+    const tombstone = { ...legacy, deletedAt: 10 }
+    saveStorage({ ...load(), anniversaryRecords: load().anniversaryRecords.map(record => record.anniversaryId === item.id ? tombstone : record) }, { strict: true, remote: true })
+    const snapshot = store.getAnniversaryRecordSnapshot(item.id, date, null)
+    const changed = { ...tombstone, notes: '墓碑变化' }
+    saveStorage({ ...load(), anniversaryRecords: load().anniversaryRecords.map(record => record.anniversaryId === item.id ? changed : record) }, { strict: true, remote: true })
+    assert.throws(() => store.saveAnniversaryRecord({ anniversaryId: item.id, date, notes: '本地', confirmed: false }, { expectedSnapshot: snapshot }), /更改/)
+    assert.deepEqual(load().anniversaryRecords.find(record => record.anniversaryId === item.id), changed)
+  } finally { ui.unmount() }
+})
+
+test('列表读取失败不展示空态，规划错误分支保留打开的弹层', async () => {
+  const list = await readFile(new URL('../src/pages/anniversaries/index.vue', import.meta.url), 'utf8')
+  const planning = await readFile(new URL('../src/pages/planning/index.vue', import.meta.url), 'utf8')
+  assert.match(list, /v-if="!error && !visibleItems\.length"/)
+  assert.match(list, /@click="refresh">重试读取/)
+  assert.match(planning, /<\/template>\s*<QuickAdjustSheet v-if="ready \|\| adjustVisible"/)
+  assert.match(planning, /<AnniversaryRecordSheet v-if="ready \|\| activeRecord"/)
 })

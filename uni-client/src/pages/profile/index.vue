@@ -12,41 +12,41 @@
         <view class="mine-card panel">
           <view class="avatar-mark"><text>时</text></view>
           <view class="mine-info">
-            <text class="mine-name">{{ profile.name }}</text>
-            <text class="mine-phone">{{ profile.phone }} · 本地时光记录者</text>
+            <text class="mine-name">{{ profile.name?.trim() || '时光记录者' }}</text>
+            <text class="mine-phone">{{ profile.phone?.trim() ? `${profile.phone.trim()} · ` : '' }}本地时光记录者</text>
           </view>
         </view>
 
         <text class="mine-group-title">基础管理</text>
         <view class="mine-section panel">
-          <view class="mine-row" @click="openAccount"><view><text class="row-title">账号与同步</text><text class="row-hint">{{ syncAccountHint }}</text></view><text class="row-chevron">›</text></view>
-          <view class="mine-row" @click="openAnniversaries"><view><text class="row-title">纪念日</text><text class="row-hint">记住生日、周年与值得期待的日子</text></view><text class="row-chevron">›</text></view>
+          <button class="mine-row row-button" role="button" tabindex="0" @click="openAccount" @keydown.enter.prevent="openAccount" @keydown.space.prevent="openAccount"><view><text class="row-title">账号与同步</text><text class="row-hint">{{ syncAccountHint }}</text></view><text class="row-chevron">›</text></button>
+          <button class="mine-row row-button" role="button" tabindex="0" @click="openAnniversaries" @keydown.enter.prevent="openAnniversaries" @keydown.space.prevent="openAnniversaries"><view><text class="row-title">纪念日</text><text class="row-hint">记住生日、周年与值得期待的日子</text></view><text class="row-chevron">›</text></button>
         </view>
         <view class="mine-section panel">
-          <view class="mine-row" @click="openUpdate">
+          <button class="mine-row row-button" role="button" tabindex="0" @click="openUpdate" @keydown.enter.prevent="openUpdate" @keydown.space.prevent="openUpdate">
             <view>
               <text class="row-title">检查更新</text>
               <text class="row-hint">当前版本 v{{ currentVersion }}</text>
             </view>
             <text class="row-chevron">›</text>
-          </view>
+          </button>
           <view v-for="[view, label] in [['tasks', '事项列表'], ['month', '规划月历']]" :key="view" class="mine-row">
             <view>
               <text class="row-title">{{ label }}隐藏已结束</text>
               <text class="row-hint">隐藏已完成和已失败事项</text>
             </view>
-            <switch :key="`${view}-${switchRevision}`" :checked="settings.hideCompletedByView[view]" color="#2996f6" @change="toggleHideCompleted(view, $event)" />
+            <switch :key="`${view}-${switchRevision}`" role="switch" tabindex="0" :aria-label="`${label}隐藏已结束`" :aria-checked="settings.hideCompletedByView[view]" :checked="settings.hideCompletedByView[view]" color="#2996f6" @change="toggleHideCompleted(view, $event)" @keydown.enter.prevent="toggleHideCompleted(view, { detail: { value: !settings.hideCompletedByView[view] } })" @keydown.space.prevent="toggleHideCompleted(view, { detail: { value: !settings.hideCompletedByView[view] } })" />
           </view>
         </view>
 
         <view class="mine-section panel">
-          <view class="mine-row" @click="restore">
+          <button class="mine-row row-button" role="button" tabindex="0" @click="restore" @keydown.enter.prevent="restore" @keydown.space.prevent="restore">
             <view>
               <text class="row-title">恢复演示数据</text>
-              <text class="row-hint">清除本机的本地数据</text>
+              <text class="row-hint">替换本机数据，绑定账号时可能同步删除</text>
             </view>
             <text class="row-chevron">›</text>
-          </view>
+          </button>
           <view class="mine-row">
             <view>
               <text class="row-title">关于岁岁时光</text>
@@ -99,8 +99,8 @@ function load() {
     if (!nextProfile || typeof nextProfile !== 'object') throw new Error('本机个人资料无效，请保留数据并重试')
     const nextSettings = { ...getSettings() }
     const syncMeta = loadStorage().syncMeta
-    syncAccountHint.value = syncMeta?.remoteUserId ? `已绑定 ${syncMeta.remoteUsername}` : '登录账号，在设备间同步'
-    profile.value = { ...nextProfile }
+    syncAccountHint.value = syncMeta?.remoteUserId ? `已绑定 ${syncMeta.remoteUsername || '账号'}` : '登录账号，在设备间同步'
+    profile.value = { ...nextProfile, name: typeof nextProfile.name === 'string' ? nextProfile.name : '', phone: typeof nextProfile.phone === 'string' ? nextProfile.phone : '' }
     settings.value = nextSettings
     loadError.value = ''
     ready.value = true
@@ -135,15 +135,33 @@ function closeUpdate() {
   updateVisible.value = false
 }
 
+let restoreConfirming = false
 function restore() {
+  if (restoreConfirming || !ready.value) return
+  let account
+  try {
+    const meta = loadStorage().syncMeta || {}
+    account = JSON.stringify([meta.remoteUserId || null, meta.deviceId || null, meta.initialUpload?.sessionId || null, meta.initialMerge?.userId || null])
+  } catch (error) { toast(error.message || String(error)); return }
+  const linked = JSON.parse(account).some((value, index) => index !== 1 && value)
+  restoreConfirming = true
   uni.showModal({
     title: '恢复演示数据',
-    content: '确定清除本机数据并恢复演示数据吗？',
+    content: linked
+      ? '将替换本机数据并恢复演示数据。同步时云端及其他设备上的对应数据也可能被删除，演示数据也可能同步。确定继续吗？'
+      : '将清除本机数据并恢复演示数据。当前未绑定账号；以后绑定同步时，删除记录及演示数据可能上传到云端。确定继续吗？',
     success: (res) => {
       if (!res.confirm) return
-      try { restoreDemoData() } catch (error) { toast(error.message || String(error)); return }
+      try {
+        const meta = loadStorage().syncMeta || {}
+        if (JSON.stringify([meta.remoteUserId || null, meta.deviceId || null, meta.initialUpload?.sessionId || null, meta.initialMerge?.userId || null]) !== account) {
+          toast('账号状态已改变，请重新确认'); return
+        }
+        restoreDemoData()
+      } catch (error) { toast(error.message || String(error)); return }
       if (load()) toast('已恢复')
-    }
+    },
+    complete: () => { restoreConfirming = false }
   })
 }
 </script>
@@ -163,7 +181,7 @@ function restore() {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24rpx 28rpx 40rpx;
+  padding: 24rpx 28rpx calc(40rpx + env(safe-area-inset-bottom));
 }
 
 .mine-card {
@@ -183,8 +201,8 @@ function restore() {
   flex: 0 0 112rpx;
   border: 6rpx solid #e5f4ff;
   border-radius: 50%;
-  background: #e6f4e3;
-  color: #597257;
+  background: #e8f3ff;
+  color: #176ab7;
   font-size: 40rpx;
   font-weight: 800;
 }
@@ -198,6 +216,7 @@ function restore() {
   display: block;
   font-size: 34rpx;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .mine-phone {
@@ -220,6 +239,11 @@ function restore() {
   padding: 28rpx 32rpx;
 }
 
+.row-button { width: 100%; margin: 0; border-radius: 0; background: transparent; text-align: left; line-height: normal; }
+.row-button::after { border: 0; }
+.row-button:focus-visible, .mine-row [role="switch"]:focus-visible { outline: 4rpx solid #79a9d7; outline-offset: -4rpx; }
+.mine-row > view { flex: 1; min-width: 0; }
+
 .mine-row + .mine-row {
   border-top: 2rpx solid var(--line);
 }
@@ -237,8 +261,10 @@ function restore() {
 .row-hint {
   display: block;
   margin-top: 4rpx;
-  color: #9ba1a9;
+  color: #6e7e90;
   font-size: 24rpx;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .row-chevron {

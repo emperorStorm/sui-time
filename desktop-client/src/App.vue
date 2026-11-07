@@ -20,7 +20,7 @@
           <button ref="brandMenuTrigger" class="brand-menu-trigger" type="button" :aria-expanded="brandMenuOpen" aria-label="账户与应用设置" data-sidebar-label="账户与应用设置" :title="sidebarCompact ? undefined : '账户与应用设置'" @click="toggleBrandMenu"><img src="./assets/brand/sui-time-icon.svg" alt="" /></button>
           <span class="sidebar-brand-title">岁岁时光</span>
           <div class="sidebar-notifications" data-sidebar-label="通知"><AppNotificationCenter ref="notificationCenter" :compact="sidebarCompact" /></div>
-          <button class="icon-button sidebar-refresh" type="button" aria-label="回到今天并刷新数据" data-sidebar-label="回到今天并刷新数据" :title="sidebarCompact ? undefined : '回到今天并刷新数据'" @click="resetCurrentDate()"><RefreshCw :size="16" /></button>
+          <button class="icon-button sidebar-refresh" type="button" aria-label="回到今天并同步数据" data-sidebar-label="回到今天并同步数据" :title="sidebarCompact ? undefined : '回到今天并同步数据'" :disabled="sidebarRefreshing" :aria-busy="sidebarRefreshing" @click="refreshAndSync"><RefreshCw :size="16" :class="{ spinning: sidebarRefreshing }" /></button>
         </div>
         <nav aria-label="主导航">
           <p class="nav-group-title">事项</p>
@@ -99,7 +99,7 @@
 
         <section v-else-if="currentView === 'month'" class="page plan-page month-page">
           <div class="period-bar"><button class="icon-button bordered" title="上一个月" @click="moveMonth(-1)"><ChevronLeft :size="18" /></button><button class="period-label" @click="resetCurrentDate()">{{ monthLabel }}</button><button class="icon-button bordered" title="下一个月" @click="moveMonth(1)"><ChevronRight :size="18" /></button><button class="period-today-button" @click="resetCurrentDate()"><CalendarRange :size="15" />回到本月</button></div>
-          <p v-if="anniversaryCalendarError" class="form-error">纪念日读取失败：{{ anniversaryCalendarError }} <button class="quiet-button" @click="refreshCalendarAnniversaries">重试</button></p>
+          <p v-if="anniversaryCalendarError" class="form-error">纪念日读取失败：{{ anniversaryCalendarError }} <button class="quiet-button" @click="refreshCalendarAnniversaries()">重试</button></p>
           <div class="month-calendar" :style="{ '--month-rows': monthWeekCount }">
             <div class="month-weekdays"><span v-for="label in weekdayLabels" :key="label">{{ label }}</span></div>
             <div class="month-grid">
@@ -122,7 +122,7 @@
         </section>
 
         <SyncSettings v-else-if="currentView === 'sync'" :key="session.id" :status="syncStatus" @state="acceptSyncState" />
-        <AnniversaryPage v-else-if="currentView === 'anniversaries'" :key="`${session.id}:${syncDataRevision}`" :initial-id="anniversaryDetailId" />
+        <AnniversaryPage v-else-if="currentView === 'anniversaries'" :key="session.id" :initial-id="anniversaryDetailId" :refresh-revision="syncDataRevision" />
         <section v-else-if="currentView === 'categories'" class="page settings-page">
           <section class="settings-block"><div class="settings-heading"><div><p class="eyebrow">生活分类</p><h2>分类管理</h2><span>用颜色和图标区分不同生活主题，删除分类不会删除关联事项。</span></div><button class="primary-button" @click="openCategoryModal()"><Plus :size="18" />新增分类</button></div><div v-if="categories.length" class="category-table"><div v-for="category in categories" :key="category.id" class="category-row"><span class="category-icon" :style="{ color: category.color, backgroundColor: `${category.color}22` }"><component :is="categoryIconComponent(category.icon)" :size="17" /></span><strong>{{ category.name }}</strong><small>{{ categoryTaskCount(category.id) }} 项事项</small><div><button class="icon-button ghost" title="编辑分类" @click="openCategoryModal(category)"><Pencil :size="16" /></button><button class="icon-button ghost danger" title="删除分类" @click="deleteCategory(category)"><Trash2 :size="16" /></button></div></div></div><p v-else class="empty-state">还没有分类。先为工作、生活或兴趣添加一个分类。</p></section>
         </section>
@@ -420,11 +420,13 @@ let monthOverflowCloseTimer: number | undefined
 let holidayRefreshRequestId = 0
 const syncStatus = ref<SyncStatus | null>(null)
 const syncDataRevision = ref(0)
+const sidebarRefreshing = ref(false)
 let stopSyncState: (() => void) | undefined
 let appDisposed = false
 let focusSyncPending = false
 let lastFocusSyncAt = 0
-let syncRefreshPending = false
+let syncRefreshFlight: Promise<boolean> | null = null
+let syncRefreshOwner: string | undefined
 let syncRefreshQueued = false
 let syncStateVersion = 0
 
@@ -440,21 +442,27 @@ function acceptSyncState(status: SyncStatus) {
   }
 }
 
-async function refreshAfterSync() {
-  if (syncRefreshPending) { syncRefreshQueued = true; return }
-  syncRefreshPending = true
+function refreshAfterSync(): Promise<boolean> {
   const ownerId = session.value?.id
-  try {
-    do {
-      syncRefreshQueued = false
-      if (appDisposed || !ownerId || session.value?.id !== ownerId) return
-      await Promise.all([refreshData(), refreshCalendarAnniversaries()])
-      if (appDisposed || session.value?.id !== ownerId) return
-      syncDataRevision.value++
-    } while (syncRefreshQueued)
-  } catch (error) {
-    if (!appDisposed && session.value?.id === ownerId) showNotice(`同步后刷新数据失败：${messageOf(error)}`, 'error')
-  } finally { syncRefreshPending = false }
+  if (syncRefreshFlight && syncRefreshOwner === ownerId) { syncRefreshQueued = true; return syncRefreshFlight }
+  syncRefreshOwner = ownerId
+  const flight = (async () => {
+    try {
+      do {
+        syncRefreshQueued = false
+        if (appDisposed || !ownerId || session.value?.id !== ownerId) return false
+        await Promise.all([refreshData(), refreshCalendarAnniversaries(true)])
+        if (appDisposed || session.value?.id !== ownerId) return false
+        syncDataRevision.value++
+      } while (syncRefreshQueued)
+      return true
+    } catch (error) {
+      if (!appDisposed && session.value?.id === ownerId) showNotice(`同步后刷新数据失败：${messageOf(error)}`, 'error')
+      return false
+    }
+  })().finally(() => { if (syncRefreshFlight === flight) { syncRefreshFlight = null; syncRefreshOwner = undefined } })
+  syncRefreshFlight = flight
+  return flight
 }
 
 async function loadSyncStatus() {
@@ -468,7 +476,7 @@ async function loadSyncStatus() {
 
 async function syncOnFocus() {
   const status = syncStatus.value
-  if (!session.value || !status?.configured || !status.bound || status.needsReauth || status.syncing || focusSyncPending || Date.now() - lastFocusSyncAt < 1500) return
+  if (!session.value || !status?.configured || !status.bound || status.needsReauth || status.syncing || focusSyncPending || sidebarRefreshing.value || Date.now() - lastFocusSyncAt < 1500) return
   focusSyncPending = true
   lastFocusSyncAt = Date.now()
   const ownerId = session.value.id
@@ -618,15 +626,16 @@ async function submitAuth() {
 
 async function refreshData() {
   const requestId = ++dataRequestId
+  const ownerId = session.value?.id
   const query = { search: search.value || undefined, startDate: rangeStart.value || undefined, endDate: rangeEnd.value || undefined, includeCompleted: showCompleted.value }
   const [nextCategories, nextTasks] = await Promise.all([listCategories(), listTasks(query)])
-  if (requestId !== dataRequestId) return
+  if (requestId !== dataRequestId || session.value?.id !== ownerId) return
   categories.value = nextCategories
   tasks.value = nextTasks
   if (lastTaskCategoryId.value && !nextCategories.some(category => category.id === lastTaskCategoryId.value)) lastTaskCategoryId.value = nextCategories[0]?.id ?? null
 }
 
-async function refreshCalendarAnniversaries() {
+async function refreshCalendarAnniversaries(strict = false) {
   if (!session.value) return
   const ownerId = session.value.id
   const requestId = ++anniversaryRequestId
@@ -638,7 +647,10 @@ async function refreshCalendarAnniversaries() {
     calendarAnniversaryRecords.value = records
     anniversaryCalendarError.value = ''
   } catch (cause) {
-    if (requestId === anniversaryRequestId && session.value?.id === ownerId) anniversaryCalendarError.value = messageOf(cause)
+    if (requestId === anniversaryRequestId && session.value?.id === ownerId) {
+      anniversaryCalendarError.value = messageOf(cause)
+      if (strict) throw cause
+    }
   }
 }
 function openCalendarAnniversary(item: AnniversaryOccurrence) { closeMonthOverflow(); activeAnniversary.value = item }
@@ -848,6 +860,33 @@ async function toggleBrandMenu() {
   brandMenuStyle.value = { ...brandMenuStyle.value, top: `${Math.max(12, Math.min(top, window.innerHeight - height - 12))}px`, visibility: 'visible' }
 }
 
+async function refreshAndSync() {
+  const ownerId = session.value?.id
+  if (!ownerId || sidebarRefreshing.value) return
+  sidebarRefreshing.value = true
+  try {
+    if (!await resetCurrentDate()) return
+    if (appDisposed || session.value?.id !== ownerId) return
+    const version = syncStateVersion
+    const status = await getSyncStatus()
+    if (appDisposed || session.value?.id !== ownerId) return
+    if (version === syncStateVersion) syncStatus.value = status
+    if (!status.configured) throw new Error('尚未配置同步服务，已刷新本机数据')
+    if (status.initializing) throw new Error('首次上传尚未完成，请到账号与同步中继续')
+    if (status.needsReauth) throw new Error('同步账号登录已失效，请重新登录')
+    if (!status.bound) throw new Error('尚未绑定同步账号，已刷新本机数据')
+    const result = await nowSync()
+    if (appDisposed || session.value?.id !== ownerId) return
+    if (!result.bound || result.initializing || result.needsReauth || result.error) {
+      throw new Error(result.error || '同步账号状态已变化，请检查绑定状态')
+    }
+    if (version === syncStateVersion) acceptSyncState(result)
+    if (await refreshAfterSync() && !appDisposed && session.value?.id === ownerId) showNotice('数据同步完成')
+  } catch (error) {
+    if (!appDisposed && session.value?.id === ownerId) showNotice(`同步未完成：${messageOf(error)}`, 'error')
+  } finally { sidebarRefreshing.value = false }
+}
+
 async function resetCurrentDate() {
   const currentDate = todayString()
   todayDate.value = currentDate
@@ -856,8 +895,10 @@ async function resetCurrentDate() {
   try {
     await refreshData()
     void refreshVisibleHolidayCalendar(true)
+    return true
   } catch (error) {
     showNotice(messageOf(error), 'error')
+    return false
   }
 }
 

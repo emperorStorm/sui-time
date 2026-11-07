@@ -2,22 +2,22 @@
   <view class="page planning-page">
     <view class="topbar">
       <view class="topbar-title">规划</view>
-      <view class="topbar-action" role="button" :aria-label="viewMode === 'week' ? '回到本周' : '回到今天'" @click="resetView">↻</view>
+      <view class="topbar-action" role="button" tabindex="0" :aria-label="viewMode === 'week' ? '回到本周' : '回到今天'" @click="resetView" @keydown.enter.prevent="resetView" @keydown.space.prevent="resetView">↻</view>
     </view>
 
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="reload">重试读取</button></view>
     <template v-else-if="ready">
     <view class="view-tabs" role="tablist">
-      <view role="tab" :aria-selected="viewMode === 'week'" :class="['view-tab', { active: viewMode === 'week' }]" @click="switchView('week')">周</view>
-      <view role="tab" :aria-selected="viewMode === 'month'" :class="['view-tab', { active: viewMode === 'month' }]" @click="switchView('month')">月</view>
+      <view role="tab" tabindex="0" :aria-selected="viewMode === 'week'" :class="['view-tab', { active: viewMode === 'week' }]" @click="switchView('week')" @keydown.enter.prevent="switchView('week')" @keydown.space.prevent="switchView('week')">周</view>
+      <view role="tab" tabindex="0" :aria-selected="viewMode === 'month'" :class="['view-tab', { active: viewMode === 'month' }]" @click="switchView('month')" @keydown.enter.prevent="switchView('month')" @keydown.space.prevent="switchView('month')">月</view>
     </view>
 
-    <view class="month-scroll">
+    <scroll-view class="month-scroll" scroll-y refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh">
       <view class="month-head">
         <text class="month-title">{{ viewMode === 'week' ? weekTitle(days) : monthTitle(anchor) }}</text>
         <view class="month-nav">
-          <view class="month-nav-btn" @click="shift(-1)">‹</view>
-          <view class="month-nav-btn" @click="shift(1)">›</view>
+          <view class="month-nav-btn" role="button" tabindex="0" :aria-label="viewMode === 'week' ? '上一周' : '上个月'" @click="shift(-1)" @keydown.enter.prevent="shift(-1)" @keydown.space.prevent="shift(-1)">‹</view>
+          <view class="month-nav-btn" role="button" tabindex="0" :aria-label="viewMode === 'week' ? '下一周' : '下个月'" @click="shift(1)" @keydown.enter.prevent="shift(1)" @keydown.space.prevent="shift(1)">›</view>
         </view>
       </view>
 
@@ -27,7 +27,7 @@
         </view>
 
         <view class="month-grid">
-          <view v-for="date in days" :key="date" :class="['month-day', { 'is-today': date === today, 'is-muted': !inMonth(date) }]" @click="selectedDate = date">
+          <view v-for="date in days" :key="date" :class="['month-day', { 'is-today': date === today, 'is-selected': date === selectedDate, 'is-muted': !inMonth(date) }]" role="button" tabindex="0" :aria-label="`${date}，${dayData[date].count} 项`" @click="selectedDate = date" @keydown.enter.prevent="selectedDate = date" @keydown.space.prevent="selectedDate = date">
             <view class="day-head">
               <text class="day-num">{{ dayNum(date) }}</text>
               <text v-if="holidayOf(date)" class="holiday-badge" :class="holidayOf(date).isOffDay ? 'is-off' : 'is-work'" :title="holidayDescription(holidayOf(date))" :aria-label="holidayDescription(holidayOf(date))">{{ holidayOf(date).isOffDay ? '休' : '班' }}</text>
@@ -46,7 +46,7 @@
 
       <template v-else>
         <view class="week-strip">
-          <view v-for="date in days" :key="date" :class="['week-day', { 'is-today': date === today, 'is-selected': date === selectedDate }]" @click="selectedDate = date">
+          <view v-for="date in days" :key="date" :class="['week-day', { 'is-today': date === today, 'is-selected': date === selectedDate }]" role="button" tabindex="0" :aria-label="`${date}，${dayData[date].count} 项`" @click="selectedDate = date" @keydown.enter.prevent="selectedDate = date" @keydown.space.prevent="selectedDate = date">
             <text class="week-weekday">{{ weekdayLabel(date) }}</text>
             <view class="day-head">
               <text class="day-num">{{ dayNum(date) }}</text>
@@ -62,7 +62,7 @@
           <button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button>
         </view>
       </template>
-    </view>
+    </scroll-view>
 
     <view v-if="selectedDate && viewMode === 'month'" class="day-layer" @click="selectedDate = ''">
       <view class="day-sheet" @click.stop>
@@ -73,10 +73,10 @@
         <button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button>
       </view>
     </view>
-    <TaskEditSheet ref="taskSheet" :visible="sheetVisible" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
-    <QuickAdjustSheet :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
-    <AnniversaryRecordSheet ref="recordSheet" :occurrence="activeRecord" :today="today" @close="activeRecord = null" @saved="reload" />
     </template>
+    <QuickAdjustSheet v-if="ready || adjustVisible" ref="adjustSheet" :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
+    <AnniversaryRecordSheet v-if="ready || activeRecord" ref="recordSheet" :occurrence="activeRecord" :today="today" @close="activeRecord = null" @saved="reload" />
+    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
   </view>
 </template>
 
@@ -93,10 +93,14 @@ import { tasksForDate, getCategories, listAnniversaries, listAnniversaryRecords 
 import { addDays, monthDates, monthTitle, shiftMonth, todayString, weekDates, weekTitle, weekday } from '../../utils/date'
 import { taskMark } from '../../utils/task'
 import { resolveCalendarMeta } from '../../utils/calendar-meta'
+import { usePullSync } from '../../utils/pull-sync.js'
+
+const { refreshing, refresh } = usePullSync(reload)
 
 const anchor = ref(todayString())
 const viewMode = ref('month')
 const adjustVisible = ref(false)
+const adjustSheet = ref(null)
 const adjustingTask = ref(null)
 let longPressAt = 0
 const today = ref(todayString())
@@ -136,7 +140,7 @@ onHide(releasePage)
 onUnload(releasePage)
 onBeforeUnmount(releasePage)
 onBackPress(() => {
-  if (adjustVisible.value) { adjustVisible.value = false; return true }
+  if (adjustVisible.value) { adjustSheet.value?.requestClose(); return true }
   if (activeRecord.value) { recordSheet.value?.close(); return true }
   if (sheetVisible.value) { taskSheet.value?.requestClose(); return true }
   if (viewMode.value === 'week') { switchView('month'); return true }
@@ -197,7 +201,9 @@ async function refreshVisibleHolidayCalendar(force) {
   holidayByDate.value = { ...holidayByDate.value, ...getCachedHolidayCalendar(years) }
   const refreshed = await refreshHolidayCalendar(years, force)
   if (requestId !== holidayRefreshRequestId) return
-  holidayByDate.value = { ...holidayByDate.value, ...refreshed }
+  const replacedYears = new Set(refreshed.availableYears)
+  const retained = Object.fromEntries(Object.entries(holidayByDate.value).filter(([date]) => !replacedYears.has(Number(date.slice(0, 4)))))
+  holidayByDate.value = { ...retained, ...refreshed.days }
 }
 
 function inMonth(date) {
@@ -291,6 +297,7 @@ function reload() {
 .day-task-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .day-item.day-anniversary, .day-list-anniversary { background: #eaf2fc; color: #6686a8; border-left: 3rpx solid #acc4df; }.day-item.day-anniversary.kind-birthday, .day-list-anniversary.kind-birthday { background: #fff0e6; color: #a97959; border-left-color: #e9c2a6; }.day-item.day-anniversary.kind-anniversary, .day-list-anniversary.kind-anniversary { background: #faedf2; color: #a27286; border-left-color: #dcb9c9; }.commemorated { opacity: .7; }.day-layer { position: fixed; inset: 0; z-index: 1000; background: #17243166; display: flex; align-items: flex-end; }.day-sheet { width: 100%; max-height: 80vh; background: var(--panel); border-radius: 28rpx 28rpx 0 0; padding-bottom: env(safe-area-inset-bottom); }.day-sheet-header { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 32rpx; color: #657c96; font-size: 27rpx; }.day-sheet-header button { margin: 0; width: 64rpx; line-height: 64rpx; padding: 0; background: transparent; color: #8291a2; font-size: 40rpx; }.day-sheet button::after { border: 0; }.day-sheet-list { max-height: 56vh; }.day-group { display: block; padding: 12rpx 32rpx; color: #99a5b2; font-size: 24rpx; }.day-list-anniversary, .day-list-task { display: flex; align-items: center; gap: 18rpx; margin: 12rpx 32rpx; padding: 24rpx 20rpx; border-radius: 10rpx; font-size: 27rpx; }.day-list-anniversary > text:nth-child(2), .day-list-task > text:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }.day-list-anniversary > text:last-child, .day-list-task > text:last-child { flex-shrink: 0; font-size: 22rpx; }.day-list-task { background: #f6f8fb; color: #71859c; }.day-task-dot { width: 12rpx; height: 12rpx; border-radius: 50%; flex-shrink: 0; }.day-empty { display: block; text-align: center; color: #a0aab7; padding: 60rpx 0; font-size: 28rpx; }.day-add { margin: 24rpx 32rpx; background: #7299d5; color: #fff; font-size: 27rpx; line-height: 88rpx; }
 .planning-page {
+  height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -396,8 +403,9 @@ function reload() {
 
 .month-scroll {
   flex: 1;
+  height: 0;
   min-height: 0;
-  overflow-y: auto;
+  width: 100%;
   background: var(--panel);
 }
 
@@ -544,4 +552,62 @@ function reload() {
   font-size: 18rpx;
   text-align: center;
 }
+
+.view-tabs {
+  gap: 0;
+  margin: 8rpx 28rpx 12rpx;
+  padding: 6rpx;
+  border-radius: 16rpx;
+  background: #edf3fa;
+}
+.view-tab {
+  border-radius: 12rpx;
+  background: transparent;
+  color: #647991;
+  font-weight: 600;
+}
+.view-tab.active {
+  background: #fff;
+  color: #287fc1;
+  box-shadow: 0 2rpx 8rpx #244b7520;
+}
+.month-head { gap: 16rpx; padding: 24rpx 28rpx; }
+.month-title { min-width: 0; color: #263e58; font-size: 34rpx; overflow-wrap: anywhere; }
+.month-nav { flex-shrink: 0; gap: 12rpx; }
+.month-nav-btn { width: 64rpx; height: 64rpx; border-radius: 14rpx; background: #f1f6fb; color: #4079ad; font-size: 40rpx; }
+.month-nav-btn:active { background: #dcecff; }
+.month-weekdays { padding: 14rpx 0; border-color: #e8eff6; background: #f8fbfe; color: #617a94; font-weight: 600; }
+.month-day { padding: 10rpx 4rpx 8rpx; border-color: #edf2f7; }
+.month-day.is-muted { background: #fafbfd; }
+.month-day.is-muted .day-num { color: #9caab8; }
+.month-day.is-selected { background: #edf5ff; box-shadow: inset 0 0 0 2rpx #80afe0; }
+.month-day.is-today .day-num, .week-day.is-today .day-num { background: #2996f6; color: #fff; font-weight: 700; }
+.month-day.is-selected .day-num, .week-day.is-selected .day-num { box-shadow: 0 0 0 3rpx #5b91c8; }
+.day-subtitle { color: #74879b; }
+.day-subtitle.has-marker { color: #3979b2; font-weight: 600; }
+.holiday-badge { right: 0; width: 26rpx; height: 26rpx; font-size: 17rpx; }
+.holiday-badge.is-off { background: #e1f1ff; color: #1c6fae; }
+.holiday-badge.is-work { background: #fff0da; color: #9b5a08; }
+.day-items { min-width: 0; }
+.day-item { min-width: 0; box-sizing: border-box; padding: 4rpx; }
+.day-item.day-anniversary { color: #436988; border-left-width: 3rpx; }
+.day-item.day-anniversary.kind-birthday { color: #8b5635; }
+.day-item.day-anniversary.kind-anniversary { color: #8c516b; }
+.day-item.day-anniversary > text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-item.commemorated { opacity: 1; }
+.day-more { color: #607b96; }
+
+.week-strip { padding: 8rpx 0; border-color: #e8eff6; background: #f8fbfe; }
+.week-day { box-sizing: border-box; border-right: 0; border-radius: 14rpx; }
+.week-day.is-selected { background: #e6f1ff; }
+.week-day .day-subtitle { box-sizing: border-box; width: 100%; }
+.week-count { color: #74879b; }
+.week-agenda { margin: 20rpx 20rpx 32rpx; border: 2rpx solid #e7eef6; border-radius: 20rpx; }
+.week-agenda-head, .day-sheet-header { gap: 16rpx; color: #344e69; font-weight: 600; }
+.week-agenda-head > text:first-child, .day-sheet-header > text { min-width: 0; overflow-wrap: anywhere; }
+.week-agenda-head > text:last-child { flex-shrink: 0; color: #66809a; font-size: 23rpx; }
+.day-sheet-header button { flex-shrink: 0; }
+.day-add { border-radius: 14rpx; background: #398edb; font-weight: 600; }
+.day-add:active { background: #287bc6; }
+.view-tab:focus-visible, .month-nav-btn:focus-visible, .month-day:focus-visible, .week-day:focus-visible, .topbar-action:focus-visible { outline: 4rpx solid #79a9d7; outline-offset: -4rpx; }
 </style>

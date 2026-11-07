@@ -124,6 +124,7 @@ export function createSyncEngine(deps) {
   const { load: readData, save, readAuth, writeAuth, request, authenticate, revokeAuth, emit = () => {} } = deps
   const load = () => clone(readData())
   let flight = null
+  let flightKind = null
   let state = { status: 'idle', error: '' }
   const listeners = new Set()
   const publish = patch => { state = { ...state, ...patch }; for (const listener of listeners) listener({ ...state }) }
@@ -136,16 +137,26 @@ export function createSyncEngine(deps) {
     return meta.deviceId
   }
   function singleFlight(operation, kind = 'sync') {
-    if (flight) return kind === 'sync' ? flight : Promise.reject(new Error('正在同步，请稍后重试'))
+    let previous = null
+    if (flight) {
+      if (kind === 'sync') return flight
+      if (kind !== 'manual' || flightKind !== 'sync') return Promise.reject(new Error('账号操作或同步正在进行，请稍后重试'))
+      previous = flight
+    }
     publish({ status: 'syncing', error: '' })
-    flight = Promise.resolve().then(operation).then(result => {
-      publish({ status: readAuth()?.token ? 'idle' : 'unbound', error: '' })
+    const current = Promise.resolve().then(async () => {
+      if (previous) { try { await previous } catch { /* 手动同步使用新的快照重试。 */ } }
+      return operation()
+    }).then(result => {
+      if (flight === current) publish({ status: readAuth()?.token ? 'idle' : 'unbound', error: '' })
       return result
     }).catch(error => {
-      publish({ status: error.status === 401 ? 'needsReauth' : 'error', error: error.message || String(error) })
+      if (flight === current) publish({ status: error.status === 401 ? 'needsReauth' : 'error', error: error.message || String(error) })
       throw error
-    }).finally(() => { flight = null })
-    return flight
+    }).finally(() => { if (flight === current) { flight = null; flightKind = null } })
+    flight = current
+    flightKind = kind
+    return current
   }
   async function pull(auth, cursor) {
     const changes = []
@@ -312,6 +323,17 @@ export function createSyncEngine(deps) {
       return meta.initialUpload ? resumeInitialUpload(auth, meta.initialUpload) : meta.initialMerge || meta.remoteUserId ? exchange(auth) : null
     })
   }
+  function manualSync() {
+    return singleFlight(async () => {
+      const meta = ensureMeta(load())
+      if (!meta.remoteUserId && !meta.initialUpload && !meta.initialMerge) throw new Error('尚未绑定账号，请先前往我的页面绑定')
+      const auth = readAuth()
+      if (!auth?.token || !auth.user?.id) throw new Error('缺少登录凭证，请登录原账号后重试')
+      if (meta.initialUpload) await resumeInitialUpload(auth, meta.initialUpload)
+      else if (meta.initialMerge) await exchange(auth)
+      return exchange(auth)
+    }, 'manual')
+  }
   function bind({ mode = 'login', username, password, strategy = 'remote' }) {
     return singleFlight(async () => {
       if (!['upload', 'merge', 'remote'].includes(strategy)) throw new Error('请选择有效的数据绑定方式')
@@ -427,13 +449,14 @@ export function createSyncEngine(deps) {
       try { await revokeAuth(old) } catch { /* 离线解绑仍保留本地数据并清除本机凭证。 */ }
     }, 'unbind')
   }
-  return { deviceId, syncNow, bind, unbind, cancelInitialUpload, getState: () => ({ ...state }),
+  return { deviceId, syncNow, manualSync, bind, unbind, cancelInitialUpload, getState: () => ({ ...state }),
     subscribe(listener) { listeners.add(listener); listener({ ...state }); return () => listeners.delete(listener) } }
 }
 
 export const syncEngine = createSyncEngine({ load, save, readAuth, writeAuth, request, authenticate, revokeAuth,
   emit: event => uni.$emit(event) })
 export const syncNow = () => syncEngine.syncNow()
+export const manualSync = () => syncEngine.manualSync()
 export const bindAccount = options => syncEngine.bind(options)
 export const unbindAccount = () => syncEngine.unbind()
 export const cancelInitialUpload = expected => syncEngine.cancelInitialUpload(expected)

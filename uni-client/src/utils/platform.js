@@ -3,8 +3,8 @@ export function toast(title, icon = 'none') {
 }
 
 export function confirm(content, { title = '提示' } = {}) {
-  return new Promise((resolve) => {
-    uni.showModal({ title, content, success: (res) => resolve(res.confirm) })
+  return new Promise((resolve, reject) => {
+    uni.showModal({ title, content, success: (res) => resolve(res.confirm), fail: () => reject(new Error('确认窗口无法打开，请重试')) })
   })
 }
 

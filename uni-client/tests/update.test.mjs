@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os'
 import vm from 'node:vm'
 import { generateAndroidUpdate } from '../scripts/generate-android-update.mjs'
 
-async function updateHarness() {
+async function updateHarness(cached = null) {
   const requests = [], downloads = [], installs = [], settings = []
   let permission = false, current = { version: '0.6.2', versionCode: '602' }, state
   const context = vm.createContext({ Uint8Array, Date, console, plus: { os: { name: 'Android' }, io: { resolveLocalFileSystemURL(path, callback) { callback({ remove() {} }) } }, runtime: { ...current, install: (path, options, done) => { installs.push(path); done() } }, downloader: { createDownload: (url, options, done) => {
     const task = { filename: options.filename, downloadedSize: 4, totalSize: 4, start() {}, abort() { this.aborted = true }, addEventListener(type, callback) { this.progress = callback } }
     downloads.push({ task, done }); return task
-  } } }, uni: { request: options => { const task = { abort: () => options.fail() }; requests.push({ options, task }); return task }, setStorageSync() {}, getStorageSync() { return null }, removeStorageSync() {} } })
+  } } }, uni: { request: options => { const task = { abort: () => options.fail() }; requests.push({ options, task }); return task }, setStorageSync() {}, getStorageSync() { return cached }, removeStorageSync() { cached = null } } })
   const module = new vm.SourceTextModule(await readFile(new URL('../src/api/update.js', import.meta.url), 'utf8'), { context })
   await module.link(name => name.endsWith('.json') ? new vm.SyntheticModule(['default'], function () { this.setExport('default', { versionName: '0.6.2', versionCode: 602 }) }, { context }) : new vm.SyntheticModule(['androidPermissions', 'androidSettings'], function () {
     this.setExport('androidPermissions', () => ({ install: permission })); this.setExport('androidSettings', kind => settings.push(kind))
@@ -77,6 +77,33 @@ test('OSS拒绝、取消下载、进度、安装授权往返与取消后重新�
   h.context.plus.runtime.versionCode = 604
   h.api.resumeUpdateInstallation()
   assert.equal(h.state().status, 'latest')
+})
+
+test('恢复下载包后检查失败仍可安装，并可再次检查', async () => {
+  const cached = { path: '_doc/updates/sui-time-0.6.4-604.apk', version: '0.6.4', code: 604, url: 'https://github.com/emperorStorm/sui-time/releases/download/v0.6.4/sui-time-0.6.4-android.apk' }
+  for (const failure of ['network', 'http']) {
+    const h = await updateHarness(cached)
+    h.api.resumeUpdateInstallation(); assert.equal(h.state().status, 'ready')
+    const check = h.api.checkUpdate()
+    if (failure === 'network') h.requests.at(-1).options.fail()
+    else h.requests.at(-1).options.success({ statusCode: 503 })
+    await check
+    assert.equal(h.state().status, 'ready'); assert.equal(h.state().checkError, true)
+    assert.match(h.state().message, /检查更新失败/)
+    assert.equal(h.state().downloadUrl, cached.url)
+    h.permit(); h.api.installDownloaded()
+    assert.deepEqual(h.installs, [cached.path])
+  }
+  const h = await updateHarness(cached)
+  h.api.resumeUpdateInstallation()
+  const first = h.api.checkUpdate(); h.requests.at(-1).options.fail(); await first
+  await found(h)
+  assert.equal(h.state().status, 'found'); assert.equal(h.state().checkError, false)
+  const next = h.api.checkUpdate(); h.requests.at(-1).options.fail(); await next
+  assert.equal(h.state().status, 'ready'); assert.equal(h.state().downloadUrl, cached.url)
+  const sheet = await readFile(new URL('../src/components/UpdateSheet.vue', import.meta.url), 'utf8')
+  assert.match(sheet, /state.status === 'ready' && state.checkError/)
+  assert.match(sheet, /emit\('install'\)/)
 })
 
 test('清单生成仅在完整公开 APK 校验通过后写入，失败保留旧清单', async () => {

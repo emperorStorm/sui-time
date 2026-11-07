@@ -29,13 +29,17 @@ let reminderErrorVisible = false
 async function refreshReminders() {
   if (reminderSyncing || reminderErrorVisible) return
   reminderSyncing = true
+  let operation = '读取本机事项'
   try {
-    await syncTaskReminders(listTasks())
+    const tasks = listTasks()
+    operation = '更新系统提醒'
+    const result = await syncTaskReminders(tasks)
     uni.$emit('reminder-permissions')
+    if (result?.error) throw new Error(result.error)
   } catch (error) {
     reminderErrorVisible = true
     uni.showModal({
-      title: '本机事项同步失败',
+      title: `${operation}失败`,
       content: `${error.message || String(error)}。现有数据已保留，可重试读取并同步提醒。`,
       confirmText: '重试',
       cancelText: '稍后',
@@ -57,18 +61,22 @@ onShow(() => { enableAutoSync(); void syncNow().catch(() => {}); void refreshRem
 <style>
 page,
 body {
-  --ink: #26282d;
-  --muted: #969ba5;
-  --line: #f0f1f4;
-  --canvas: #f5f6f8;
+  --ink: #25384c;
+  --muted: #61758a;
+  --line: #e5edf5;
+  --canvas: #f4f7fb;
   --panel: #ffffff;
-  --blue: #2996f6;
-  --blue-soft: #dceeff;
-  --green: #10bf75;
-  --orange: #ff8445;
-  --danger: #f06368;
-  --radius: 28rpx;
-  --shadow: 0 8rpx 28rpx rgba(30, 44, 61, 0.07);
+  --blue: #176ab7;
+  --blue-soft: #e8f3ff;
+  --green: #16835a;
+  --orange: #dd7035;
+  --danger: #b94550;
+  --radius: 24rpx;
+  --shadow: 0 8rpx 28rpx rgba(43, 70, 98, 0.06);
+  --top-safe-area: var(--status-bar-height, env(safe-area-inset-top, 0px));
+  /* #ifdef H5 */
+  --top-safe-area: env(safe-area-inset-top, 0px);
+  /* #endif */
 }
 
 page {
@@ -109,8 +117,10 @@ page {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex: 0 0 auto;
+  box-sizing: content-box;
   height: 104rpx;
-  padding: 0 20rpx calc(8rpx + env(safe-area-inset-top));
+  padding: var(--top-safe-area) 20rpx 0;
   background: var(--panel);
   border-bottom: 2rpx solid var(--line);
 }
@@ -132,7 +142,22 @@ page {
 }
 
 .topbar .topbar-action:active {
-  background: #eef2f6;
+  background: #e8f2fc;
+}
+
+.placeholder-page { display: flex; flex-direction: column; }
+.placeholder-body { flex: 1; display: flex; align-items: center; justify-content: center; padding: 48rpx 40rpx 80rpx; }
+.placeholder-card { box-sizing: border-box; width: 100%; max-width: 620rpx; padding: 64rpx 40rpx; border: 2rpx solid var(--line); border-radius: 28rpx; background: var(--panel); box-shadow: var(--shadow); text-align: center; }
+.placeholder-icon { display: flex; align-items: center; justify-content: center; width: 112rpx; height: 112rpx; margin: 0 auto 28rpx; border-radius: 32rpx; background: var(--blue-soft); }
+.placeholder-icon image { width: 56rpx; height: 56rpx; }
+.placeholder-badge { display: inline-block; padding: 8rpx 20rpx; border-radius: 999rpx; background: #eff6fd; color: var(--blue); font-size: 22rpx; font-weight: 600; }
+.placeholder-title { display: block; margin-top: 20rpx; color: var(--ink); font-size: 32rpx; font-weight: 600; }
+.placeholder-description { display: block; margin-top: 16rpx; color: var(--muted); font-size: 26rpx; line-height: 1.7; overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-enter-active, .sheet-leave-active, .page-enter-active, .page-leave-active,
+  .sheet, .sheet-enter-active .sheet, .sheet-leave-active .sheet,
+  .sheet-enter-active .adjust-sheet, .sheet-leave-active .adjust-sheet { transition-duration: 0.01ms !important; }
 }
 
 /* 存储读取失败时阻断业务入口，重试成功后才恢复内容。 */

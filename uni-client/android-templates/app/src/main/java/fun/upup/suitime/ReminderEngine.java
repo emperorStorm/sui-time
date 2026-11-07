@@ -17,6 +17,10 @@ public final class ReminderEngine {
     private ReminderEngine() {}
 
     public static Map<String, JSONObject> next(JSONArray tasks, long now) throws Exception {
+        return next(tasks, now, null);
+    }
+
+    static Map<String, JSONObject> next(JSONArray tasks, long now, JSONArray unsupported) throws Exception {
         Map<String, JSONObject> result = new LinkedHashMap<>();
         for (int index = 0; index < tasks.length(); index++) {
             JSONObject task = tasks.getJSONObject(index);
@@ -27,7 +31,10 @@ public final class ReminderEngine {
             JSONObject overrides = json(task.optString("occurrenceOverrides", "{}"));
             String kind = rule.optString("kind", "none");
             if ((task.optJSONArray("reminderOffsets") == null || task.optJSONArray("reminderOffsets").length() == 0) && overrides.length() == 0) continue;
-            if (!supported(kind)) throw new IllegalArgumentException("暂不支持此重复规则的安卓提醒：" + kind);
+            if (!supported(kind)) {
+                if (unsupported != null) unsupported.put(task.optString("title", "") + "（ID：" + task.optString("id") + "，规则：" + kind + "）");
+                continue;
+            }
             for (int offset : OFFSETS) {
                 JSONObject candidate = null;
                 if (contains(task.optJSONArray("reminderOffsets"), offset) && !"all_day".equals(task.optString("scheduleKind", task.optString("plannedTime").isEmpty() ? "all_day" : "point"))
@@ -38,8 +45,14 @@ public final class ReminderEngine {
                     while (cursor.get(Calendar.YEAR) <= 2100) {
                         String sourceDate = format(cursor.getTimeInMillis());
                         if (rule.optString("endMode").equals("date") && sourceDate.compareTo(rule.optString("endDate", "2100-12-31")) > 0) break;
-                        if (rule.optString("endMode").equals("count") && days(start, sourceDate) > (rule.optInt("count", 1) - 1L) * Math.max(1, rule.optInt("interval", 1))) break;
-                        if (occurs(start, sourceDate, rule)) {
+                        boolean matched = matches(start, sourceDate, rule);
+                        if (!"none".equals(kind) && "count".equals(rule.optString("endMode"))) {
+                            double count = rule.optDouble("count", 0);
+                            if (count > 0 && (("daily".equals(kind) && days(start, sourceDate) > (count - 1) * Math.max(1, rule.optInt("interval", 1)))
+                                    || ("weekly".equals(kind) && days(start, sourceDate) > (count - 1) * 7)
+                                    || (matched && occurrenceNumber(start, sourceDate, rule) > count))) break;
+                        }
+                        if (matched) {
                             JSONObject override = overrides.optJSONObject(sourceDate);
                             if (override == null) {
                                 candidate = request(task, null, sourceDate, sourceDate, offset, now, kind);
@@ -89,17 +102,65 @@ public final class ReminderEngine {
     }
 
     static boolean occurs(String start, String target, JSONObject rule) throws Exception {
+        if (!matches(start, target, rule)) return false;
+        if ("none".equals(rule.optString("kind", "none"))) return true;
+        if ("date".equals(rule.optString("endMode")) && target.compareTo(rule.optString("endDate", "2100-12-31")) > 0) return false;
+        double count = rule.optDouble("count", 0);
+        return !"count".equals(rule.optString("endMode")) || !(count > 0) || occurrenceNumber(start, target, rule) <= count;
+    }
+
+    private static boolean matches(String start, String target, JSONObject rule) throws Exception {
         if (target.compareTo(start) < 0) return false;
         String kind = rule.optString("kind", "none");
         if ("none".equals(kind)) return target.equals(start);
-        long elapsed = days(start, target);
-        int interval = Math.max(1, rule.optInt("interval", 1));
-        if ("date".equals(rule.optString("endMode")) && target.compareTo(rule.optString("endDate", "2100-12-31")) > 0) return false;
-        if ("count".equals(rule.optString("endMode")) && elapsed > (rule.optInt("count", 1) - 1L) * interval) return false;
-        if ("daily".equals(kind)) return elapsed % interval == 0;
-        if ("weekly".equals(kind)) return elapsed % 7 == 0;
+        if ("daily".equals(kind)) return days(start, target) % Math.max(1, rule.optInt("interval", 1)) == 0;
+        if ("weekly".equals(kind)) return days(start, target) % 7 == 0;
         if ("monthly".equals(kind)) return target.substring(8).equals(start.substring(8));
         return "yearly".equals(kind) && target.substring(5).equals(start.substring(5));
+    }
+
+    // 调用时目标日期已匹配；缺少对应日期的月份或年份不计入次数。
+    private static long occurrenceNumber(String start, String target, JSONObject rule) throws Exception {
+        String kind = rule.optString("kind", "none");
+        if ("daily".equals(kind)) return days(start, target) / Math.max(1, rule.optInt("interval", 1)) + 1;
+        if ("weekly".equals(kind)) return days(start, target) / 7 + 1;
+        int startYear = Integer.parseInt(start.substring(0, 4));
+        int targetYear = Integer.parseInt(target.substring(0, 4));
+        if ("yearly".equals(kind)) {
+            return start.substring(5).equals("02-29")
+                    ? leapYearsThrough(targetYear) - leapYearsThrough(startYear - 1)
+                    : targetYear - startYear + 1L;
+        }
+        int day = Integer.parseInt(start.substring(8));
+        int startMonth = Integer.parseInt(start.substring(5, 7));
+        int targetMonth = Integer.parseInt(target.substring(5, 7));
+        return monthsThrough(targetYear, targetMonth, day) - monthsThrough(startYear, startMonth - 1, day);
+    }
+
+    private static long leapYearsThrough(int year) { return year / 4 - year / 100 + year / 400; }
+
+    private static long monthsThrough(int year, int month, int day) {
+        int perYear = day <= 28 ? 12 : day == 31 ? 7 : 11;
+        long total = (long) (year - 1) * perYear;
+        if (day == 29) total += leapYearsThrough(year - 1);
+        int[] lengths = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        for (int index = 0; index < month; index++) {
+            int length = lengths[index] + (index == 1 && leapYearsThrough(year) != leapYearsThrough(year - 1) ? 1 : 0);
+            if (day <= length) total++;
+        }
+        return total;
+    }
+
+    static Map<String, JSONObject> dueAt(JSONObject pending, Map<String, JSONObject> expected, long triggerAt) throws Exception {
+        Map<String, JSONObject> due = new LinkedHashMap<>();
+        Iterator<String> keys = pending.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            JSONObject saved = pending.optJSONObject(key);
+            JSONObject current = expected.get(key);
+            if (saved != null && saved.optLong("triggerAt") == triggerAt && current != null && current.optLong("triggerAt") == triggerAt) due.put(key, current);
+        }
+        return due;
     }
 
     private static boolean supported(String kind) { return "none".equals(kind) || "daily".equals(kind) || "weekly".equals(kind) || "monthly".equals(kind) || "yearly".equals(kind); }

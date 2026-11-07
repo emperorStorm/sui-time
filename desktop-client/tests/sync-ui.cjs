@@ -109,7 +109,7 @@ listTasks = async (...args) => { window.__syncMock.reads++; return originalListT
     await page.addInitScript(() => {
       const mock = {
         state: { configured: true, bound: false, username: '', remoteEmpty: null, lastSyncAt: null, pendingCount: 3, needsReauth: false, syncing: false, error: null },
-        calls: [], reads: 0, stopped: 0, callback: null, failLogin: true, failRead: false,
+        calls: [], reads: 0, stopped: 0, callback: null, failLogin: true, failRead: false, failNow: false,
         read() { if (this.failRead) throw new Error('状态读取失败'); return { ...this.state } },
         emit(patch) { Object.assign(this.state, patch); this.callback?.({ ...this.state }) },
         async action(name, input) {
@@ -119,6 +119,7 @@ listTasks = async (...args) => { window.__syncMock.reads++; return originalListT
           if (name === 'bind') Object.assign(this.state, { bound: true, initializing: false, lastSyncAt: Date.now(), pendingCount: 0, error: null })
           if (name === 'cancelInit') Object.assign(this.state, { initializing: false, error: null })
           if (name === 'now') {
+            if (this.failNow) throw new Error('同步服务暂不可用')
             this.emit({ syncing: true })
             await new Promise(resolve => setTimeout(resolve, 80))
             this.emit({ syncing: false, lastSyncAt: Date.now(), pendingCount: 0, error: null })
@@ -131,6 +132,21 @@ listTasks = async (...args) => { window.__syncMock.reads++; return originalListT
     })
     await page.reload()
     await openSettings(page)
+    const sidebarRefresh = page.getByRole('button', { name: '回到今天并同步数据', exact: true })
+    await sidebarRefresh.click()
+    await page.getByText('同步未完成：尚未绑定同步账号，已刷新本机数据', { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__syncMock.calls.filter(call => call.name === 'now').length), 0)
+    await page.evaluate(() => window.__syncMock.emit({ configured: false }))
+    await sidebarRefresh.click()
+    await page.getByText('同步未完成：尚未配置同步服务，已刷新本机数据', { exact: true }).waitFor()
+    await page.evaluate(() => window.__syncMock.emit({ configured: true, initializing: true }))
+    await sidebarRefresh.click()
+    await page.getByText('同步未完成：首次上传尚未完成，请到账号与同步中继续', { exact: true }).waitFor()
+    await page.evaluate(() => window.__syncMock.emit({ initializing: false, needsReauth: true }))
+    await sidebarRefresh.click()
+    await page.getByText('同步未完成：同步账号登录已失效，请重新登录', { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__syncMock.calls.filter(call => call.name === 'now').length), 0)
+    await page.evaluate(() => window.__syncMock.emit({ needsReauth: false }))
     await page.locator('input[name="sync-username"]').fill('同步测试账号')
     await page.locator('input[name="sync-password"]').fill('test-password')
     const passwordToggle = page.getByRole('button', { name: '显示密码', exact: true })
@@ -183,6 +199,25 @@ listTasks = async (...args) => { window.__syncMock.reads++; return originalListT
     await page.evaluate(() => { window.__syncMock.emit({}); window.__syncMock.emit({}) })
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     assert.equal(await page.evaluate(() => window.__syncMock.reads), readsAfterSuccess)
+    await sidebarRefresh.evaluate(button => { button.click(); button.click() })
+    await page.getByText('数据同步完成', { exact: true }).waitFor()
+    assert.equal(await page.evaluate(() => window.__syncMock.calls.filter(call => call.name === 'now').length), 2)
+    assert(await page.evaluate(() => window.__syncMock.reads) > readsAfterSuccess)
+    await page.evaluate(() => { window.__syncMock.failNow = true })
+    await sidebarRefresh.click()
+    await page.getByText('同步未完成：同步服务暂不可用', { exact: true }).waitFor()
+    assert.equal(await sidebarRefresh.isDisabled(), false)
+    await page.evaluate(() => { window.__syncMock.failNow = false })
+    await page.getByRole('button', { name: '纪念日', exact: true }).click()
+    await page.getByRole('button', { name: '新增纪念日', exact: true }).click()
+    const draftTitle = page.getByPlaceholder('例如：我们的相伴纪念日')
+    await draftTitle.fill('未保存的纪念日草稿')
+    const readsBeforeDraftSync = await page.evaluate(() => window.__syncMock.reads)
+    await page.evaluate(() => window.__syncMock.emit({ lastSyncAt: Date.now() + 1000 }))
+    await page.waitForFunction(count => window.__syncMock.reads > count, readsBeforeDraftSync)
+    assert.equal(await draftTitle.inputValue(), '未保存的纪念日草稿')
+    await page.getByRole('dialog', { name: '新增纪念日' }).getByRole('button', { name: '取消', exact: true }).click()
+    await openSettings(page)
     await page.evaluate(() => { window.__syncMock.emit({ error: '服务器暂不可用', pendingCount: 7 }) })
     await page.getByText('失败原因：服务器暂不可用', { exact: true }).waitFor()
     await page.getByText('7 项', { exact: true }).waitFor()

@@ -80,7 +80,7 @@ function fixture({ bound = true, request, data: patch = {} } = {}) {
       return { changes: [], nextCursor: 3, hasMore: false }
     }, emit: event => events.push(event)
   })
-  return { engine, calls, saves, events, get data() { return data }, get auth() { return auth }, edit(fn) { fn(data) } }
+  return { engine, calls, saves, events, get data() { return data }, get auth() { return auth }, setAuth(value) { auth = value }, edit(fn) { fn(data) } }
 }
 
 test('同步单飞，完整拉取后远端应用和游标同次保存', async () => {
@@ -102,6 +102,77 @@ test('同步单飞，完整拉取后远端应用和游标同次保存', async ()
   assert.deepEqual(f.data.syncMeta.outbox.task, {})
   assert.equal(f.saves.length, 1)
   assert.deepEqual(f.events, ['sync-applied'])
+})
+
+test('手动同步上传再拉取，空队列仍拉取远端', async () => {
+  const f = fixture()
+  await f.engine.manualSync()
+  assert.deepEqual(f.calls.map(call => call.path), ['/api/v1/sui-time/sync/push', '/api/v1/sui-time/sync/pull?cursor=2&limit=500'])
+  assert.equal(f.calls[0].data.changes[0].id, 't1')
+  f.calls.length = 0
+  await f.engine.manualSync()
+  assert.deepEqual(f.calls.map(call => call.path), ['/api/v1/sui-time/sync/pull?cursor=3&limit=500'])
+})
+
+test('手动同步等待普通同步后使用新快照，并拒绝重入和账号操作', async () => {
+  let release, started
+  const gate = new Promise(resolve => { release = resolve })
+  const begun = new Promise(resolve => { started = resolve })
+  let first = true
+  const f = fixture({ request: async path => {
+    if (path.includes('/push') && first) { first = false; started(); await gate }
+    return path.includes('/push') ? { applied: [], superseded: [] } : { changes: [], nextCursor: 3, hasMore: false }
+  } })
+  const auto = f.engine.syncNow(); await begun
+  f.edit(data => { data.tasks[0].title = '下拉之前的编辑'; data.tasks[0].updatedAt = 11; data.syncMeta.outbox.task.t1 = 11 })
+  const manual = f.engine.manualSync()
+  assert.equal(f.engine.syncNow(), manual)
+  await assert.rejects(f.engine.manualSync(), /正在进行/)
+  await assert.rejects(f.engine.unbind(), /正在进行/)
+  release(); await auto; await manual
+  assert.deepEqual(f.calls.map(call => call.path.split('?')[0]), ['/api/v1/sui-time/sync/push', '/api/v1/sui-time/sync/pull', '/api/v1/sui-time/sync/push', '/api/v1/sui-time/sync/pull'])
+  assert.equal(f.calls[2].data.changes[0].data.title, '下拉之前的编辑')
+  assert.deepEqual(f.data.syncMeta.outbox.task, {})
+})
+
+test('账号操作期间拒绝手动同步，未绑定及无凭证不得报成功', async () => {
+  let release, started
+  const gate = new Promise(resolve => { release = resolve })
+  const begun = new Promise(resolve => { started = resolve })
+  const f = fixture({ request: async () => { started(); await gate; return { changes: [], nextCursor: 3, hasMore: false } }, bound: false })
+  const binding = f.engine.bind({ strategy: 'remote' }); await begun
+  await assert.rejects(f.engine.manualSync(), /账号操作/)
+  release(); await binding
+  for (const operation of ['unbind', 'cancelInitialUpload']) {
+    const active = fixture()
+    const account = active.engine[operation]({})
+    const settled = account.catch(() => {})
+    await assert.rejects(active.engine.manualSync(), /账号操作/)
+    await settled
+  }
+  const unbound = fixture({ bound: false })
+  await assert.rejects(unbound.engine.manualSync(), /尚未绑定/)
+  assert.equal(unbound.calls.length, 0)
+  const missing = fixture(); missing.setAuth(null)
+  await assert.rejects(missing.engine.manualSync(), /登录凭证/)
+  assert.equal(missing.calls.length, 0)
+})
+
+test('手动同步失败保留队列；普通同步失败后仍执行手动新一轮', async () => {
+  let release, started, attempts = 0
+  const gate = new Promise(resolve => { release = resolve })
+  const begun = new Promise(resolve => { started = resolve })
+  const f = fixture({ request: async path => {
+    if (path.includes('/push') && ++attempts === 1) { started(); await gate; throw new Error('离线') }
+    return path.includes('/push') ? { applied: [], superseded: [] } : { changes: [], nextCursor: 3, hasMore: false }
+  } })
+  const auto = f.engine.syncNow(); const failed = assert.rejects(auto, /离线/); await begun
+  const manual = f.engine.manualSync(); release(); await failed; await manual
+  assert.equal(attempts, 2); assert.deepEqual(f.data.syncMeta.outbox.task, {})
+  const broken = fixture({ request: async () => { throw new Error('断网') } })
+  const before = clone(broken.data)
+  await assert.rejects(broken.engine.manualSync(), /断网/)
+  assert.deepEqual(broken.data, before)
 })
 
 test('上传期间编辑同一事项，保留新内容与新队列版本', async () => {
@@ -308,6 +379,37 @@ async function initialHarness({ tasks = [task()], failAt = '', beforeResponse = 
     setAuth(value) { auth = value }, setLost(value) { lost = value }, edit(fn) { const data = clone(storage.load()); fn(data); storage.save(data, { remote: true, strict: true }) },
     async restart() { storage = await import(`../src/api/storage.js?init-test=${++initialRevision}`); engine = create() } }
 }
+
+test('手动同步先恢复首次上传或合并，再执行普通同步', async () => {
+  for (const strategy of ['upload', 'merge']) {
+    const h = await initialHarness({ failAt: strategy === 'upload' ? 'complete' : 'pull' })
+    await assert.rejects(h.engine.bind({ strategy }), /响应丢失/)
+    h.edit(data => { data.tasks[0].title = '恢复前编辑'; data.tasks[0].updatedAt = 20; data.syncMeta.outbox.task.t1 = 20 })
+    const start = h.calls.length
+    await h.engine.manualSync()
+    const paths = h.calls.slice(start).map(call => call.path.split('?')[0])
+    assert.equal(paths.at(-1), '/api/v1/sui-time/sync/pull')
+    if (strategy === 'upload') assert.ok(paths.indexOf('/api/v1/sui-time/sync/init/start') < paths.indexOf('/api/v1/sui-time/sync/push'))
+    else assert.equal(paths.filter(path => path.endsWith('/pull')).length, 2)
+    assert.equal(h.disk.syncMeta.remoteUserId, 'u1')
+    assert.equal(h.disk.syncMeta.outbox.task.t1, undefined)
+  }
+})
+
+test('手动恢复初始化期间的新编辑在后续普通同步中上传', async () => {
+  let duringManual = false, edited = false
+  const h = await initialHarness({ failAt: 'start', beforeResponse(stage, { storage }) {
+    if (!duringManual || stage !== 'batch' || edited) return
+    edited = true
+    const data = storage.load(); data.tasks[0].title = '恢复期间编辑'
+    storage.save(data, { strict: true })
+  } })
+  await assert.rejects(h.engine.bind({ strategy: 'upload' }), /响应丢失/)
+  duringManual = true
+  await h.engine.manualSync()
+  assert.equal(h.pushed.get(JSON.stringify(['task', 't1'])).data.title, '恢复期间编辑')
+  assert.equal(h.disk.syncMeta.outbox.task.t1, undefined)
+})
 
 test('首次合并部分上传失败后持久化待恢复状态，重启及原账号重登才能完成', async () => {
   let pushes = 0
@@ -789,8 +891,74 @@ test('轮询与写入重叠时不重入，失败后不因期间写入快速循�
   stop()
 })
 
+test('下拉控件防重入、反馈失败并在页面隐藏或重入后不跨页提示', async () => {
+  let show, hide, unload, unmount, resolve, reject, calls = 0, reloads = 0, readable = true
+  const messages = []
+  const context = vm.createContext({ uni: { showModal: options => messages.push(`${options.title}：${options.content}`) } })
+  const dependencies = {
+    vue: { ref: value => ({ value }), nextTick: () => Promise.resolve(), onBeforeUnmount: fn => { unmount = fn } },
+    '@dcloudio/uni-app': { onShow: fn => { show = fn }, onHide: fn => { hide = fn }, onUnload: fn => { unload = fn } },
+    '../api/sync.js': { manualSync: () => { calls++; return new Promise((yes, no) => { resolve = yes; reject = no }) } },
+    './platform.js': { toast: message => messages.push(message) }
+  }
+  const module = new vm.SourceTextModule(await readFile(new URL('../src/utils/pull-sync.js', import.meta.url), 'utf8'), { context })
+  await module.link(specifier => {
+    const values = dependencies[specifier]
+    return new vm.SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value) }, { context })
+  })
+  await module.evaluate()
+  const { refresh, refreshing } = module.namespace.usePullSync(() => { reloads++; return readable })
+  show(); const first = refresh(); assert.equal(refreshing.value, true)
+  await refresh(); assert.equal(calls, 1)
+  resolve(); await first; assert.equal(refreshing.value, false); assert.deepEqual(messages, ['同步完成']); assert.equal(reloads, 1)
+  const waitCall = async count => { while (calls < count) await Promise.resolve() }
+  const second = refresh(); await waitCall(2); reject(new Error('断网')); await second
+  assert.match(messages.at(-1), /同步未完成：断网/); assert.equal(refreshing.value, false); assert.equal(reloads, 2)
+  const third = refresh(); await waitCall(3); hide(); show(); resolve(); await third
+  assert.equal(messages.length, 2); assert.equal(reloads, 2)
+  const fourth = refresh(); await waitCall(4); unload(); reject(new Error('离线')); await fourth
+  assert.equal(messages.length, 2); assert.equal(refreshing.value, false)
+  show(); readable = false
+  const fifth = refresh(); await waitCall(5); resolve(); await fifth
+  assert.match(messages.at(-1), /同步已完成，但本机数据读取失败/); assert.equal(refreshing.value, false)
+  unmount()
+})
+
+test('恢复演示数据依据账号状态提示影响范围并在确认时复核', async () => {
+  const modals = [], messages = []
+  const meta = { deviceId: 'd1', remoteUserId: null }
+  let restores = 0
+  const context = vm.createContext({ uni: { showModal: options => modals.push(options) } })
+  const dependencies = {
+    vue: { ref: value => ({ value }), onBeforeUnmount() {} },
+    '@dcloudio/uni-app': { onShow: fn => fn(), onUnload() {} },
+    '../../components/UpdateSheet.vue': { default: {} },
+    '../../api/store': { getProfile: () => ({}), getSettings: () => ({}), setHideCompleted() {}, restoreDemoData: () => { restores++ } },
+    '../../api/update': { checkUpdate() {}, downloadUpdate() {}, cancelDownload() {}, installDownloaded() {}, installedVersion: () => ({ version: '1.0.0' }), subscribeUpdate: () => () => {}, openUpdateInBrowser() {} },
+    '../../utils/platform': { toast: message => messages.push(message) },
+    '../../api/storage.js': { load: () => ({ syncMeta: meta }) }
+  }
+  const source = await readFile(new URL('../src/pages/profile/index.vue', import.meta.url), 'utf8')
+  const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1]
+  const module = new vm.SourceTextModule(`${script}\nexport { restore }`, { context })
+  await module.link(specifier => {
+    const values = dependencies[specifier]
+    return new vm.SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value) }, { context })
+  })
+  await module.evaluate()
+  module.namespace.restore(); module.namespace.restore()
+  assert.equal(modals.length, 1); assert.match(modals[0].content, /以后绑定同步时.*可能上传到云端/)
+  meta.remoteUserId = 'u1'; modals[0].success({ confirm: true }); modals[0].complete()
+  assert.equal(restores, 0); assert.match(messages.at(-1), /账号状态已改变/)
+  module.namespace.restore(); assert.match(modals[1].content, /云端及其他设备.*可能被删除/)
+  modals[1].success({ confirm: false }); modals[1].complete(); assert.equal(restores, 0)
+  module.namespace.restore(); modals[2].success({ confirm: true }); modals[2].complete()
+  assert.equal(restores, 1); assert.equal(messages.at(-1), '已恢复')
+})
+
 async function accountHarness(origin = 'user', boundId = null, initialUpload = null) {
-  const modals = []; const binds = []; const cancels = []
+  const modals = []; const binds = []; const cancels = []; const syncCalls = []; const unbinds = []
+  let syncFailure = null
   const context = vm.createContext({ uni: { showModal: options => modals.push(options), navigateBack() {}, switchTab() {} } })
   const meta = { dataOrigin: origin, remoteUserId: boundId, remoteUsername: 'alice', initialUpload, outbox: {} }
   const dependencies = {
@@ -799,18 +967,18 @@ async function accountHarness(origin = 'user', boundId = null, initialUpload = n
     '../../api/storage.js': { load: () => ({ syncMeta: meta }) },
     '../../utils/sync-config.js': { SYNC_BASE_URL: 'https://example.com' },
     '../../api/auth.js': { readAuth: () => ({ token: 'token' }) },
-    '../../api/sync.js': { bindAccount: async options => { binds.push(options) }, syncNow: async () => {}, unbindAccount: async () => {}, cancelInitialUpload: async options => { cancels.push(options) },
+    '../../api/sync.js': { bindAccount: async options => { binds.push(options) }, manualSync: async () => { syncCalls.push(true); if (syncFailure) throw syncFailure }, unbindAccount: async () => { unbinds.push(true) }, cancelInitialUpload: async options => { cancels.push(options) },
       syncEngine: { getState: () => ({ status: 'idle' }), subscribe: fn => { fn({ status: 'idle' }); return () => {} } } }
   }
   const source = await readFile(new URL('../src/pages/account/index.vue', import.meta.url), 'utf8')
   const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1]
-  const module = new vm.SourceTextModule(`${script}\nexport { submit, cancelUpload, strategy, busy }`, { context })
+  const module = new vm.SourceTextModule(`${script}\nexport { submit, cancelUpload, disconnect, manualSync, refresh, strategy, busy, error, syncNotice }`, { context })
   await module.link(specifier => {
     const values = dependencies[specifier]
     return new vm.SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value) }, { context })
   })
   await module.evaluate()
-  return { api: module.namespace, modals, binds, cancels, meta, source }
+  return { api: module.namespace, modals, binds, cancels, syncCalls, unbinds, meta, source, failSync: error => { syncFailure = error } }
 }
 
 test('首次上传或合并前可取消，并按来源告知上传内容', async () => {
@@ -849,6 +1017,32 @@ test('首次合并待恢复时页面锁定原账号并跳过首次选择确认',
   assert.equal(h.binds[0].mode, 'login')
   assert.match(h.source, /继续首次合并/)
   assert.match(h.source, /部分数据可能已上传/)
+})
+
+test('账号页手动同步展示失败和成功，也支持继续初始化', async () => {
+  for (const initial of [null, { sessionId: 's1', userId: 'u1', username: 'alice' }]) {
+    const h = await accountHarness('user', initial ? null : 'u1', initial)
+    h.failSync(new Error('缺少登录凭证，请登录原账号后重试'))
+    await h.api.manualSync()
+    assert.match(h.api.error.value, /缺少登录凭证/)
+    assert.equal(h.api.syncNotice.value, '')
+    h.failSync(null); await h.api.manualSync()
+    assert.equal(h.syncCalls.length, 2)
+    assert.equal(h.api.error.value, '')
+    assert.equal(h.api.syncNotice.value, '同步完成')
+  }
+})
+
+test('解绑确认期间防重入，账号改变后不执行解绑', async () => {
+  const h = await accountHarness('user', 'u1')
+  const first = h.api.disconnect(); assert.equal(h.api.busy.value, true)
+  await h.api.disconnect(); assert.equal(h.modals.length, 1)
+  h.modals[0].success({ confirm: false }); await first; assert.equal(h.unbinds.length, 0)
+  const second = h.api.disconnect(); h.meta.remoteUserId = 'u2'
+  h.modals[1].success({ confirm: true }); await second
+  assert.equal(h.unbinds.length, 0); assert.match(h.api.error.value, /账号状态已改变/)
+  const third = h.api.disconnect(); h.modals[2].success({ confirm: true }); await third
+  assert.equal(h.unbinds.length, 1)
 })
 
 test('远端替换仍需确认，已绑定重新登录不显示首次上传提示', async () => {

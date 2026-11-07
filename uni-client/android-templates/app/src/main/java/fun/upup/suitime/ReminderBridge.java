@@ -36,10 +36,17 @@ public final class ReminderBridge {
             JSONObject permissions = new JSONObject(AppSettings.state(context));
             JSONObject previous = new JSONObject(prefs.getString("pending", "{}"));
             JSONObject desired = new JSONObject();
+            JSONArray unsupported = new JSONArray();
             if (permissions.optBoolean("notifications") && permissions.optBoolean("exactAlarm")) {
-                Map<String, JSONObject> next = ReminderEngine.next(new JSONArray(prefs.getString("tasks", "[]")), System.currentTimeMillis());
+                Map<String, JSONObject> next = ReminderEngine.next(new JSONArray(prefs.getString("tasks", "[]")), System.currentTimeMillis(), unsupported);
                 for (Map.Entry<String, JSONObject> entry : next.entrySet()) desired.put(entry.getKey(), entry.getValue());
             }
+            StringBuilder warning = new StringBuilder();
+            for (int index = 0; index < unsupported.length(); index++) {
+                if (index > 0) warning.append("；");
+                warning.append(unsupported.getString(index));
+            }
+            if (warning.length() > 0) warning.insert(0, "以下事项的重复规则暂不支持安卓提醒；其他支持的事项在权限允许时仍会排程：");
             AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
             // 先记录待处理标识；即使进程在设置闹钟时退出，下次也能清理旧 PendingIntent。
             JSONObject known = new JSONObject(previous.toString());
@@ -62,28 +69,50 @@ public final class ReminderBridge {
                 if (key.startsWith("delivered:") && !desired.has(key.substring(10))) cleanup.remove(key);
             }
             cleanup.apply();
-            if (!prefs.edit().putString("pending", desired.toString()).remove("error").commit()) throw new IllegalStateException("无法保存排程结果");
+            SharedPreferences.Editor result = prefs.edit().putString("pending", desired.toString());
+            if (warning.length() > 0) {
+                result.putString("error", warning.toString());
+                permissions.put("error", warning.toString());
+            } else result.remove("error");
+            if (!result.commit()) throw new IllegalStateException("无法保存排程结果");
             permissions.put("scheduled", desired.length());
             return permissions.toString();
         } catch (Exception error) { return failure(context, error); }
     }
 
     public static synchronized void fire(Context context, String key, long triggerAt) {
-        Exception failure = null;
+        StringBuilder errors = new StringBuilder();
         try {
             SharedPreferences prefs = preferences(context);
             JSONObject pending = new JSONObject(prefs.getString("pending", "{}"));
             JSONObject request = pending.optJSONObject(key);
-            // 旧闹钟即使已经进入广播队列，也不能在事项改期或删除后继续发通知。
-            JSONObject expected = ReminderEngine.next(new JSONArray(prefs.getString("tasks", "[]")), triggerAt - 1).get(key);
-            if (request != null && request.optLong("triggerAt") == triggerAt && expected != null && expected.optLong("triggerAt") == triggerAt
-                    && prefs.getLong("delivered:" + key, 0) != triggerAt && new JSONObject(AppSettings.state(context)).optBoolean("notifications")) {
-                if (!prefs.edit().putLong("delivered:" + key, triggerAt).commit()) throw new IllegalStateException("无法记录提醒状态");
-                notify(context, key, expected.getString("title"), expected.getString("body"));
+            // 过期广播不能触发重排，否则可能清掉同一时刻尚未处理的其他闹钟。
+            if (request == null || request.optLong("triggerAt") != triggerAt) return;
+            if (new JSONObject(AppSettings.state(context)).optBoolean("notifications")) {
+                // 对同一时刻的每一项重新核对快照，过滤已删除或改期的旧闹钟。
+                Map<String, JSONObject> expected = ReminderEngine.next(new JSONArray(prefs.getString("tasks", "[]")), triggerAt - 1);
+                for (Map.Entry<String, JSONObject> entry : ReminderEngine.dueAt(pending, expected, triggerAt).entrySet()) {
+                    String dueKey = entry.getKey();
+                    if (prefs.getLong("delivered:" + dueKey, 0) == triggerAt) continue;
+                    try {
+                        if (!prefs.edit().putLong("delivered:" + dueKey, triggerAt).commit()) throw new IllegalStateException("无法记录提醒状态");
+                        JSONObject current = entry.getValue();
+                        notify(context, dueKey, current.getString("title"), current.getString("body"));
+                    } catch (Exception error) {
+                        if (errors.length() > 0) errors.append("；");
+                        errors.append(dueKey).append("：").append(error.getMessage() == null ? error.toString() : error.getMessage());
+                    }
+                }
             }
-        } catch (Exception error) { failure = error; }
-        reschedule(context);
-        if (failure != null) failure(context, failure);
+        } catch (Exception error) { errors.append(error.getMessage() == null ? error.toString() : error.getMessage()); }
+        String schedule = reschedule(context);
+        if (errors.length() > 0) {
+            try {
+                String scheduleError = new JSONObject(schedule).optString("error", "");
+                if (!scheduleError.isEmpty()) errors.append("；").append(scheduleError);
+            } catch (Exception ignored) {}
+            failure(context, new IllegalStateException(errors.toString()));
+        }
     }
 
     public static String test(Context context) {
