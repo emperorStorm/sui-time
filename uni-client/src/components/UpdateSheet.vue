@@ -7,7 +7,8 @@
     <template v-if="state.status === 'downloading'"><view class="progress-track"><view :style="{ width: `${state.progress}%` }" /></view><text class="update-desc">{{ state.totalBytes ? `${state.progress}% · ${mb(state.downloadedBytes)} / ${mb(state.totalBytes)} MB` : '正在连接下载服务…' }}</text><button class="secondary" @click="emit('cancel')">取消下载</button></template>
     <text v-if="state.message" class="update-message">{{ state.message }}</text>
     <button v-if="['found', 'download-error'].includes(state.status)" class="primary" @click="emit('download')">{{ state.status === 'download-error' ? '重试下载' : '立即更新' }}</button>
-    <button v-if="['ready', 'waiting'].includes(state.status)" class="primary" @click="emit('install')">重新安装</button>
+    <button v-if="state.status === 'ready'" class="primary" @click="emit('install')">继续安装</button>
+    <button v-if="state.status === 'ready' && state.downloadUrl" class="secondary" @click="emit('download', true)">重新下载安装包</button>
     <button v-if="state.status === 'error' || (state.status === 'ready' && state.checkError)" :class="state.status === 'error' ? 'primary' : 'secondary'" @click="emit('check')">重新检查</button>
     <button v-if="['download-error', 'ready', 'waiting'].includes(state.status) && state.downloadUrl" class="secondary" @click="emit('browser')">使用浏览器下载</button>
     <button v-if="!['downloading', 'installing'].includes(state.status)" class="secondary" @click="close">{{ state.status === 'found' ? '暂不更新' : '关闭' }}</button>

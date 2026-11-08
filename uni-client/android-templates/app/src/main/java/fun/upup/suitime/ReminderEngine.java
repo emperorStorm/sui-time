@@ -3,6 +3,7 @@ package fun.upup.suitime;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -20,6 +21,48 @@ public final class ReminderEngine {
         return next(tasks, now, null);
     }
 
+    static void collectUnsupported(JSONArray tasks, JSONArray unsupported) throws Exception {
+        for (int index = 0; index < tasks.length(); index++) {
+            JSONObject task = tasks.getJSONObject(index);
+            if (!task.isNull("parentTaskId") && !task.optString("parentTaskId").isEmpty()) continue;
+            if (!validDate(task.optString("plannedDate")) || task.optString("id").isEmpty()) continue;
+            JSONObject overrides = json(task.optString("occurrenceOverrides", "{}"));
+            if (!hasReminderIntent(task, overrides)) continue;
+            String kind = json(task.optString("repeatRule", "{}")).optString("kind", "none");
+            if (!supported(kind)) unsupported.put(unsupportedWarning(task, kind));
+        }
+    }
+
+    private static JSONObject unsupportedWarning(JSONObject task, String kind) throws Exception {
+        return new JSONObject().put("id", task.optString("id")).put("title", task.optString("title", "")).put("kind", kind);
+    }
+
+    private static boolean hasReminderIntent(JSONObject task, JSONObject overrides) {
+        JSONArray offsets = task.optJSONArray("reminderOffsets");
+        if (offsets != null && offsets.length() > 0) return true;
+        Iterator<String> keys = overrides.keys();
+        while (keys.hasNext()) {
+            JSONObject override = overrides.optJSONObject(keys.next());
+            if (override == null || override.optBoolean("deleted") || !"todo".equals(override.optString("status", "todo"))) continue;
+            JSONArray overrideOffsets = override.optJSONArray("reminderOffsets");
+            if (overrideOffsets != null && overrideOffsets.length() > 0) return true;
+        }
+        return false;
+    }
+
+    static JSONArray mergeWarnings(JSONArray current, JSONArray saved) {
+        JSONArray result = new JSONArray();
+        HashSet<String> seen = new HashSet<>();
+        for (JSONArray source : new JSONArray[]{current, saved}) {
+            if (source == null) continue;
+            for (int index = 0; index < source.length(); index++) {
+                JSONObject warning = source.optJSONObject(index);
+                if (warning != null && seen.add(warning.optString("id") + "\n" + warning.optString("kind"))) result.put(warning);
+            }
+        }
+        return result;
+    }
+
     static Map<String, JSONObject> next(JSONArray tasks, long now, JSONArray unsupported) throws Exception {
         Map<String, JSONObject> result = new LinkedHashMap<>();
         for (int index = 0; index < tasks.length(); index++) {
@@ -30,9 +73,9 @@ public final class ReminderEngine {
             JSONObject rule = json(task.optString("repeatRule", "{}"));
             JSONObject overrides = json(task.optString("occurrenceOverrides", "{}"));
             String kind = rule.optString("kind", "none");
-            if ((task.optJSONArray("reminderOffsets") == null || task.optJSONArray("reminderOffsets").length() == 0) && overrides.length() == 0) continue;
+            if (!hasReminderIntent(task, overrides)) continue;
             if (!supported(kind)) {
-                if (unsupported != null) unsupported.put(task.optString("title", "") + "（ID：" + task.optString("id") + "，规则：" + kind + "）");
+                if (unsupported != null) unsupported.put(unsupportedWarning(task, kind));
                 continue;
             }
             for (int offset : OFFSETS) {
@@ -48,7 +91,7 @@ public final class ReminderEngine {
                         boolean matched = matches(start, sourceDate, rule);
                         if (!"none".equals(kind) && "count".equals(rule.optString("endMode"))) {
                             double count = rule.optDouble("count", 0);
-                            if (count > 0 && (("daily".equals(kind) && days(start, sourceDate) > (count - 1) * Math.max(1, rule.optInt("interval", 1)))
+                            if (count > 0 && ((isDaily(kind) && days(start, sourceDate) > (count - 1) * Math.max(1, rule.optInt("interval", 1)))
                                     || ("weekly".equals(kind) && days(start, sourceDate) > (count - 1) * 7)
                                     || (matched && occurrenceNumber(start, sourceDate, rule) > count))) break;
                         }
@@ -113,7 +156,7 @@ public final class ReminderEngine {
         if (target.compareTo(start) < 0) return false;
         String kind = rule.optString("kind", "none");
         if ("none".equals(kind)) return target.equals(start);
-        if ("daily".equals(kind)) return days(start, target) % Math.max(1, rule.optInt("interval", 1)) == 0;
+        if (isDaily(kind)) return days(start, target) % Math.max(1, rule.optInt("interval", 1)) == 0;
         if ("weekly".equals(kind)) return days(start, target) % 7 == 0;
         if ("monthly".equals(kind)) return target.substring(8).equals(start.substring(8));
         return "yearly".equals(kind) && target.substring(5).equals(start.substring(5));
@@ -122,7 +165,7 @@ public final class ReminderEngine {
     // 调用时目标日期已匹配；缺少对应日期的月份或年份不计入次数。
     private static long occurrenceNumber(String start, String target, JSONObject rule) throws Exception {
         String kind = rule.optString("kind", "none");
-        if ("daily".equals(kind)) return days(start, target) / Math.max(1, rule.optInt("interval", 1)) + 1;
+        if (isDaily(kind)) return days(start, target) / Math.max(1, rule.optInt("interval", 1)) + 1;
         if ("weekly".equals(kind)) return days(start, target) / 7 + 1;
         int startYear = Integer.parseInt(start.substring(0, 4));
         int targetYear = Integer.parseInt(target.substring(0, 4));
@@ -163,7 +206,8 @@ public final class ReminderEngine {
         return due;
     }
 
-    private static boolean supported(String kind) { return "none".equals(kind) || "daily".equals(kind) || "weekly".equals(kind) || "monthly".equals(kind) || "yearly".equals(kind); }
+    private static boolean isDaily(String kind) { return "daily".equals(kind) || "every_days".equals(kind); }
+    private static boolean supported(String kind) { return "none".equals(kind) || isDaily(kind) || "weekly".equals(kind) || "monthly".equals(kind) || "yearly".equals(kind); }
     private static boolean contains(JSONArray values, int offset) { if (values != null) for (int i = 0; i < values.length(); i++) if (values.optInt(i, -1) == offset) return true; return false; }
     private static JSONObject json(String text) { try { return new JSONObject(text); } catch (Exception ignored) { return new JSONObject(); } }
     private static String format(long value) { return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date(value)); }

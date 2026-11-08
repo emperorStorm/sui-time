@@ -9,6 +9,12 @@ export function androidCall(className, method, ...args) {
 
 export function androidSettings(kind) { androidCall('AppSettings', 'open', kind) }
 
+export function androidUpdate(method, ...args) {
+  const result = androidCall('ApkInstallBridge', method, ...args)
+  if (!result) throw new Error('安卓安装桥不可用，请使用浏览器下载')
+  return JSON.parse(result)
+}
+
 export function androidPermissions() {
   const result = androidCall('AppSettings', 'state')
   return result ? JSON.parse(result) : { supported: false, notifications: false, exactAlarm: false, install: false }

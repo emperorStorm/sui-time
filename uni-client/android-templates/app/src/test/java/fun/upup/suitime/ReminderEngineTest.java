@@ -107,9 +107,112 @@ public class ReminderEngineTest {
         assertTrue(result.containsKey("source:0"));
         assertFalse(result.containsKey("unsupported:0"));
         assertEquals(1, warnings.length());
-        assertTrue(warnings.getString(0).contains("工作日事项"));
-        assertTrue(warnings.getString(0).contains("unsupported"));
-        assertTrue(warnings.getString(0).contains("workdays"));
+        JSONObject warning = warnings.getJSONObject(0);
+        assertEquals("工作日事项", warning.getString("title"));
+        assertEquals("unsupported", warning.getString("id"));
+        assertEquals("workdays", warning.getString("kind"));
+    }
+
+    @Test public void everyDaysIntervalAndEndLimits() throws Exception {
+        String ruleText = "{\"kind\":\"every_days\",\"interval\":3,\"endMode\":\"count\",\"count\":3,\"extra\":\"保留\"}";
+        JSONObject task = task("2026-10-10", "every_days").put("repeatRule", ruleText);
+        JSONObject rule = new JSONObject(ruleText);
+        assertTrue(ReminderEngine.occurs("2026-10-10", "2026-10-13", rule));
+        assertFalse(ReminderEngine.occurs("2026-10-10", "2026-10-14", rule));
+        assertTrue(ReminderEngine.occurs("2026-10-10", "2026-10-16", rule));
+        assertFalse(ReminderEngine.occurs("2026-10-10", "2026-10-19", rule));
+        assertEquals("2026-10-16", next(task, "2026-10-13 09:00:00").get("source:0").getString("date"));
+        assertTrue(next(task, "2026-10-16 09:00:00").isEmpty());
+        assertTrue(next(task, "2099-01-01 00:00:00").isEmpty());
+        assertEquals(ruleText, task.getString("repeatRule"));
+
+        task.put("repeatRule", "{\"kind\":\"every_days\",\"interval\":3,\"endMode\":\"date\",\"endDate\":\"2026-10-15\"}");
+        assertEquals("2026-10-13", next(task, "2026-10-10 09:00:00").get("source:0").getString("date"));
+        assertTrue(next(task, "2026-10-13 09:00:00").isEmpty());
+        assertFalse(ReminderEngine.occurs("2026-10-10", "2026-10-16", new JSONObject(task.getString("repeatRule"))));
+        task.put("occurrenceOverrides", "{\"2026-10-13\":{\"plannedDate\":\"2026-10-20\"},\"2026-10-16\":{\"plannedDate\":\"2026-10-20\"}}");
+        Map<String, JSONObject> moved = next(task, "2026-10-17 00:00:00");
+        assertTrue(moved.containsKey("source@2026-10-13:0"));
+        assertFalse(moved.containsKey("source@2026-10-16:0"));
+        task.remove("occurrenceOverrides");
+        task.put("repeatRule", "{\"kind\":\"every_days\",\"interval\":0}");
+        assertEquals("2026-10-11", next(task, "2026-10-10 09:00:00").get("source:0").getString("date"));
+    }
+
+    @Test public void everyDaysOverridesAndSameTimeBatch() throws Exception {
+        JSONObject task = task("2026-10-10", "every_days")
+                .put("repeatRule", "{\"kind\":\"every_days\",\"interval\":2,\"endMode\":\"count\",\"count\":5}")
+                .put("occurrenceOverrides", "{\"2026-10-10\":{\"status\":\"done\"},\"2026-10-12\":{\"deleted\":true},"
+                        + "\"2026-10-14\":{\"plannedDate\":\"2026-10-18\"},\"2026-10-16\":{\"plannedDate\":\"2026-10-18\"},"
+                        + "\"2026-10-17\":{\"plannedDate\":\"2026-10-18\"},\"2026-10-20\":{\"plannedDate\":\"2026-10-18\"}}");
+        Map<String, JSONObject> result = next(task, "2026-10-10 00:00:00");
+        assertFalse(result.containsKey("source@2026-10-10:0"));
+        assertFalse(result.containsKey("source@2026-10-12:0"));
+        assertFalse(result.containsKey("source@2026-10-17:0"));
+        assertFalse(result.containsKey("source@2026-10-20:0"));
+        assertEquals("2026-10-18", result.get("source:0").getString("date"));
+        assertEquals("2026-10-18", result.get("source@2026-10-14:0").getString("date"));
+        assertEquals("2026-10-18", result.get("source@2026-10-16:0").getString("date"));
+        JSONObject pending = new JSONObject();
+        for (Map.Entry<String, JSONObject> entry : result.entrySet()) pending.put(entry.getKey(), entry.getValue());
+        assertEquals(3, ReminderEngine.dueAt(pending, result, time("2026-10-18 09:00:00")).size());
+    }
+
+    @Test public void everyDaysUsesLocalTimeAcrossDstAndTimezones() throws Exception {
+        for (String zone : new String[]{"America/New_York", "Europe/Berlin", "Asia/Shanghai"}) {
+            TimeZone.setDefault(TimeZone.getTimeZone(zone));
+            JSONObject task = task("2026-03-07", "every_days")
+                    .put("repeatRule", "{\"kind\":\"every_days\",\"interval\":2,\"endMode\":\"count\",\"count\":3}");
+            JSONObject result = next(task, "2026-03-07 09:00:00").get("source:0");
+            assertEquals(zone, "2026-03-09", result.getString("date"));
+            assertEquals(zone, time("2026-03-09 09:00:00"), result.getLong("triggerAt"));
+            assertEquals(zone, "2026-03-11", next(task, "2026-03-09 09:00:00").get("source:0").getString("date"));
+            assertTrue(zone, next(task, "2026-03-11 09:00:00").isEmpty());
+        }
+    }
+
+    @Test public void otherAdvancedKindsRemainUnsupported() throws Exception {
+        JSONArray tasks = new JSONArray().put(task("2026-10-10", "every_days")
+                .put("repeatRule", "{\"kind\":\"every_days\",\"interval\":2}"));
+        String[] kinds = {"workdays", "weekly_slots", "monthly_slots", "memory", "custom"};
+        for (String kind : kinds) tasks.put(task("2026-10-10", kind).put("id", kind));
+        JSONArray warnings = new JSONArray();
+        Map<String, JSONObject> result = ReminderEngine.next(tasks, time("2026-10-10 08:00:00"), warnings);
+        assertEquals(2, result.size());
+        assertEquals(kinds.length, warnings.length());
+        JSONArray collected = new JSONArray();
+        ReminderEngine.collectUnsupported(tasks, collected);
+        assertEquals(warnings.toString(), collected.toString());
+        for (int i = 0; i < kinds.length; i++) {
+            assertEquals(kinds[i], warnings.getJSONObject(i).getString("kind"));
+            assertEquals(kinds[i], warnings.getJSONObject(i).getString("id"));
+            assertFalse(result.containsKey(kinds[i] + ":0"));
+        }
+    }
+
+    @Test public void unsupportedWarningsOnlyIncludeTasksWithReminderSettings() throws Exception {
+        JSONObject noReminder = task("2026-10-10", "workdays").put("id", "no-reminder")
+                .put("reminderOffsets", new JSONArray()).put("occurrenceOverrides", "{\"2026-10-10\":{\"status\":\"done\"}}");
+        JSONObject withReminder = task("2026-10-10", "workdays").put("id", "with-reminder")
+                .put("reminderOffsets", new JSONArray()).put("occurrenceOverrides", "{\"2026-10-12\":{\"reminderOffsets\":[0]}}");
+        JSONArray tasks = new JSONArray().put(noReminder).put(withReminder);
+        JSONArray warnings = new JSONArray();
+        ReminderEngine.next(tasks, time("2026-10-10 08:00:00"), warnings);
+        assertEquals(1, warnings.length());
+        assertEquals("with-reminder", warnings.getJSONObject(0).getString("id"));
+        JSONArray collected = new JSONArray();
+        ReminderEngine.collectUnsupported(tasks, collected);
+        assertEquals(warnings.toString(), collected.toString());
+    }
+
+    @Test public void failurePreservesPreviouslyKnownWarnings() throws Exception {
+        JSONArray previous = new JSONArray().put(new JSONObject().put("id", "a").put("title", "之前的事项").put("kind", "workdays"));
+        JSONArray current = new JSONArray().put(new JSONObject().put("id", "b").put("title", "本次事项").put("kind", "memory"));
+        JSONArray merged = ReminderEngine.mergeWarnings(current, previous);
+        assertEquals(2, merged.length());
+        assertEquals("b", merged.getJSONObject(0).getString("id"));
+        assertEquals("a", merged.getJSONObject(1).getString("id"));
+        assertEquals(1, ReminderEngine.mergeWarnings(previous, previous).length());
     }
 
     @Test public void dueBatchIncludesOnlyCurrentRequestsAtSameTime() throws Exception {

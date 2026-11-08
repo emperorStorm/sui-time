@@ -693,6 +693,62 @@ const base=process.env.MOBILE_TEST_URL || 'http://127.0.0.1:5187';
     await noOverflowOf('.account-page, .account-card');
     results.push('账号页未配置同步服务：提示保留本机数据，绑定按钮禁用且无横溢出');
   }
+  if (process.env.MOBILE_TEST_URL) {
+    const warningPage = await context.newPage();
+    await warningPage.addInitScript(() => {
+      window.__reminderMock = {
+        permissions: { supported: true, notifications: true, exactAlarm: true },
+        result: { supported: true, notifications: true, exactAlarm: true, scheduled: 1, warnings: [{ id: 'warning-1', title: '测试事项', kind: 'workdays' }] }
+      };
+    });
+    await warningPage.route('**/src/api/android.js*', async route => {
+      const response = await route.fetch();
+      const source = await response.text();
+      await route.fulfill({ response, body: source + '\nandroidCall = () => JSON.stringify(window.__reminderMock.result);\nandroidPermissions = () => ({ ...window.__reminderMock.permissions });\n' });
+    });
+    try {
+      await warningPage.goto(base+'/#/pages/tasks/index');
+      await warningPage.locator('.reminder-status-toggle').filter({hasText:'1 项重复规则暂不支持'}).waitFor();
+      await warningPage.locator('.reminder-status-toggle').click();
+      await warningPage.locator('.reminder-status-detail').getByText('测试事项（工作日）',{exact:true}).waitFor();
+      assert.equal(await warningPage.locator('uni-modal').count(), 0);
+      const intervalRule = '{"kind":"every_days","interval":3,"endMode":"count","count":4}';
+      const intervalId = await warningPage.evaluate(async rule => {
+        const api = await import('/src/api/store.js');
+        const now = new Date();
+        const date = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const item = api.saveTask({ title:'间隔提醒事项', plannedDate:date, scheduleKind:'all_day', repeatRule:rule });
+        return item.id;
+      }, intervalRule);
+      await warningPage.reload();
+      const intervalTask = warningPage.locator('.task-item').filter({hasText:'间隔提醒事项'});
+      await intervalTask.locator('.task-meta').filter({hasText:'每隔3天'}).waitFor();
+      await intervalTask.click();
+      await warningPage.locator('.sheet .permission-hint').filter({hasText:'每隔3天'}).waitFor();
+      await warningPage.locator('.sheet .option-chip').filter({hasText:/^每天$/}).click();
+      const replaceRule = warningPage.locator('uni-modal').filter({hasText:'替换高级重复规则'});
+      await replaceRule.getByText('取消',{exact:true}).click();
+      await warningPage.locator('.sheet .note-area textarea').fill('只修改备注');
+      await warningPage.locator('.sheet-save').click();
+      await warningPage.locator('.sheet').waitFor({state:'hidden'});
+      const savedRule = await warningPage.evaluate(async id => (await import('/src/api/store.js')).findTask(id).repeatRule, intervalId);
+      assert.equal(savedRule, intervalRule);
+      await warningPage.evaluate(async () => {
+        window.__reminderMock.result = { supported: true, notifications: true, exactAlarm: true, scheduled: 1, warnings: [] };
+        const api = await import('/src/api/reminders.js');
+        await api.syncTaskReminders([]);
+      });
+      await warningPage.locator('.reminder-status').waitFor({state:'hidden'});
+      await warningPage.evaluate(async () => {
+        window.__reminderMock.permissions.exactAlarm = false;
+        window.__reminderMock.result = { supported: true, notifications: true, exactAlarm: false, scheduled: 0, warnings: [] };
+        const api = await import('/src/api/reminders.js');
+        await api.syncTaskReminders([]);
+      });
+      await warningPage.locator('.reminder-status-toggle').filter({hasText:'提醒未安排'}).waitFor();
+      results.push('提醒部分成功不弹阻断框、警告解除及权限不足状态');
+    } finally { await warningPage.close(); }
+  }
   const unexpected=failed.filter(item=>item.error!=='net::ERR_ABORTED');
   console.log(JSON.stringify({results,errors,unexpectedRequests:unexpected,navigationAborts:failed.filter(item=>item.error==='net::ERR_ABORTED').length,fixtures:['现有节假日接口休/班样本','现有Uni统计请求']},null,2));
   assert.deepEqual(errors,[]); assert.deepEqual(unexpected,[]);

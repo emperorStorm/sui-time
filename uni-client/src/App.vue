@@ -25,9 +25,10 @@ function disableAutoSync() { stopAutoSync?.(); stopAutoSync = null }
 onHide(disableAutoSync)
 onBeforeUnmount(disableAutoSync)
 let reminderSyncing = false
+let reminderRefreshPending = false
 let reminderErrorVisible = false
 async function refreshReminders() {
-  if (reminderSyncing || reminderErrorVisible) return
+  if (reminderSyncing) { reminderRefreshPending = true; return }
   reminderSyncing = true
   let operation = '读取本机事项'
   try {
@@ -37,6 +38,7 @@ async function refreshReminders() {
     uni.$emit('reminder-permissions')
     if (result?.error) throw new Error(result.error)
   } catch (error) {
+    if (reminderErrorVisible) return
     reminderErrorVisible = true
     uni.showModal({
       title: `${operation}失败`,
@@ -52,7 +54,10 @@ async function refreshReminders() {
         uni.showToast({ title: '本机数据读取失败，请返回应用重试', icon: 'none' })
       }
     })
-  } finally { reminderSyncing = false }
+  } finally {
+    reminderSyncing = false
+    if (reminderRefreshPending) { reminderRefreshPending = false; void refreshReminders() }
+  }
 }
 onLaunch(() => { enableAutoSync(); void refreshReminders() })
 onShow(() => { enableAutoSync(); void syncNow().catch(() => {}); void refreshReminders(); resumeUpdateInstallation() })
@@ -159,6 +164,13 @@ page {
   .sheet, .sheet-enter-active .sheet, .sheet-leave-active .sheet,
   .sheet-enter-active .adjust-sheet, .sheet-leave-active .adjust-sheet { transition-duration: 0.01ms !important; }
 }
+
+.reminder-status { flex: 0 0 auto; background: #fff8e9; color: #795429; }
+.reminder-status-toggle { width: 100%; margin: 0; padding: 14rpx 28rpx; background: transparent; color: inherit; text-align: left; font-size: 24rpx; line-height: 1.5; overflow-wrap: anywhere; }
+.reminder-status-toggle::after, .reminder-status-detail button::after { border: 0; }
+.reminder-status-detail { box-sizing: border-box; max-height: 35vh; padding: 0 28rpx 16rpx; font-size: 24rpx; line-height: 1.6; }
+.reminder-status-detail text { display: block; overflow-wrap: anywhere; }
+.reminder-status-detail button { margin: 12rpx 0 0; padding: 4rpx 18rpx; color: var(--blue); background: #e8f3ff; font-size: 24rpx; }
 
 /* 存储读取失败时阻断业务入口，重试成功后才恢复内容。 */
 .storage-error { margin: 32rpx 28rpx; padding: 40rpx 32rpx; color: var(--ink); text-align: center; }

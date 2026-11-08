@@ -39,6 +39,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { findTask, saveTask } from '../api/store'
 import { parseOccurrenceId, parseRepeatRule } from '../utils/occurrence'
 import { toast } from '../utils/platform'
+import { reminderSaveMessage } from '../api/reminders'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -143,7 +144,8 @@ async function save() {
 async function notifyReminder(saved) {
   try {
     const result = await saved?.reminderPromise
-    if (result?.error) toast(`事项已保存，提醒排程失败：${result.error}`)
+    const message = reminderSaveMessage(result)
+    if (message) toast(message)
   } catch (cause) {
     toast(`事项已保存，提醒排程失败：${cause.message || cause}`)
   }

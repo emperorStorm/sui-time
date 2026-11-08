@@ -7,6 +7,16 @@
 
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="load">重试读取</button></view>
     <template v-else-if="ready">
+    <view v-if="showReminderStatus" class="reminder-status" role="status">
+      <button class="reminder-status-toggle" role="button" tabindex="0" :aria-expanded="reminderExpanded" @click="reminderExpanded = !reminderExpanded" @keydown.enter.prevent="reminderExpanded = !reminderExpanded" @keydown.space.prevent="reminderExpanded = !reminderExpanded">系统提醒：{{ reminderSummary(reminder) }} {{ reminderExpanded ? '▴' : '▾' }}</button>
+      <scroll-view v-if="reminderExpanded" scroll-y class="reminder-status-detail">
+        <text v-if="reminder.warnings.length && reminder.warningsStale">以下为上次已知的受影响事项，重新排程后更新：</text>
+        <text v-for="item in reminder.warnings" :key="item.id">{{ item.title || '未命名事项' }}（{{ repeatLabel(item.kind) }}）</text>
+        <button v-if="reminder.supported && !reminder.notifications" @click="openReminderSettings('notifications')">打开通知设置</button>
+        <button v-if="reminder.supported && !reminder.exactAlarm" @click="openReminderSettings('alarm')">打开准时提醒设置</button>
+        <button @click="retryReminders">重新同步提醒</button>
+      </scroll-view>
+    </view>
     <scroll-view class="filter-bar" scroll-x>
       <view :class="['filter-chip', 'chip-all', filter === 'all' ? 'active' : '']" role="button" tabindex="0" :aria-pressed="filter === 'all'" @click="filter = 'all'" @keydown.enter.prevent="filter = 'all'" @keydown.space.prevent="filter = 'all'"><text>全部</text></view>
       <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', 'chip-cat', filter === cat.id ? 'active' : '']" :style="{ background: cat.color, '--chip-color': cat.color }" role="button" tabindex="0" :aria-pressed="filter === cat.id" @click="filter = cat.id" @keydown.enter.prevent="filter = cat.id" @keydown.space.prevent="filter = cat.id">
@@ -67,12 +77,14 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { onShow, onBackPress } from '@dcloudio/uni-app'
+import { onShow, onBackPress, onUnload } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import QuickAdjustSheet from '../../components/QuickAdjustSheet.vue'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
 import { getCategories, listTasks, setTaskStatus, getSettings, getHideCompleted, toggleGroupCollapsed } from '../../api/store'
-import { repeatLabel } from '../../utils/occurrence'
+import { repeatLabel, parseRepeatRule } from '../../utils/occurrence'
+import { reminderState, reminderSummary, subscribeReminderState, syncTaskReminders } from '../../api/reminders'
+import { androidSettings } from '../../api/android'
 import { occursOn } from '../../utils/occurrence'
 import { compareTasks, matchesTaskFilter, taskMark, validateTaskDateRange } from '../../utils/task'
 import { shortDate, weekday, todayString } from '../../utils/date'
@@ -80,6 +92,18 @@ import { toast } from '../../utils/platform'
 import { usePullSync } from '../../utils/pull-sync.js'
 
 const { refreshing, refresh } = usePullSync(load)
+const reminder = ref(reminderState())
+const reminderExpanded = ref(false)
+const showReminderStatus = computed(() => Boolean(reminder.value.error || reminder.value.warnings.length || (reminder.value.supported && (!reminder.value.notifications || !reminder.value.exactAlarm))))
+const unsubscribeReminder = subscribeReminderState(state => { reminder.value = state })
+onBeforeUnmount(unsubscribeReminder)
+onUnload(unsubscribeReminder)
+function openReminderSettings(kind) {
+  try { androidSettings(kind) } catch (error) { toast(error.message || String(error)) }
+}
+async function retryReminders() {
+  try { await syncTaskReminders(listTasks()) } catch (error) { toast(error.message || String(error)) }
+}
 
 const categories = ref([])
 const ready = ref(false)
@@ -150,7 +174,7 @@ const groups = computed(() => {
   return Object.keys(bucket).map((label) => ({ label, items: bucket[label].sort(compareTasks) })).filter((group) => group.items.length)
 })
 
-onShow(load)
+onShow(() => { load(); reminder.value = reminderState() })
 onBackPress(() => {
   if (adjustVisible.value) { adjustSheet.value?.requestClose(); return true }
   if (sheetVisible.value) { taskSheet.value?.requestClose(); return true }
@@ -223,8 +247,8 @@ function metaOf(task) {
   if (task.plannedDate) {
     parts.push(task.plannedDate === todayString() ? '今天' : `${shortDate(task.plannedDate)} ${weekday(task.plannedDate)}`)
   }
-  const kind = parseKind(task.repeatRule)
-  if (kind !== 'none') parts.push(`↻ ${repeatLabel(kind)}`)
+  const rule = parseRepeatRule(task.repeatRule)
+  if (rule.kind !== 'none') parts.push(`↻ ${repeatLabel(rule.kind, rule.interval)}`)
   if (task.plannedTime) parts.push(task.plannedTime)
   const children = allTasks.value.filter(child => child.parentTaskId === task.id && child.title?.trim())
   if (children.length) {

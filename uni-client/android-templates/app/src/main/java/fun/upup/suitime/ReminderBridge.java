@@ -30,29 +30,30 @@ public final class ReminderBridge {
     }
 
     public static synchronized String reschedule(Context context) {
+        JSONArray warnings = null;
         try {
             createChannel(context);
             SharedPreferences prefs = preferences(context);
             JSONObject permissions = new JSONObject(AppSettings.state(context));
+            if (permissions.has("error")) throw new IllegalStateException(permissions.optString("error", "无法读取提醒权限"));
+            if (!permissions.has("notifications") || !permissions.has("exactAlarm")) throw new IllegalStateException("无法读取提醒权限");
             JSONObject previous = new JSONObject(prefs.getString("pending", "{}"));
             JSONObject desired = new JSONObject();
-            JSONArray unsupported = new JSONArray();
+            JSONArray tasks = new JSONArray(prefs.getString("tasks", "[]"));
+            JSONArray computedWarnings = new JSONArray();
+            warnings = computedWarnings;
             if (permissions.optBoolean("notifications") && permissions.optBoolean("exactAlarm")) {
-                Map<String, JSONObject> next = ReminderEngine.next(new JSONArray(prefs.getString("tasks", "[]")), System.currentTimeMillis(), unsupported);
+                Map<String, JSONObject> next = ReminderEngine.next(tasks, System.currentTimeMillis(), computedWarnings);
                 for (Map.Entry<String, JSONObject> entry : next.entrySet()) desired.put(entry.getKey(), entry.getValue());
+            } else {
+                ReminderEngine.collectUnsupported(tasks, computedWarnings);
             }
-            StringBuilder warning = new StringBuilder();
-            for (int index = 0; index < unsupported.length(); index++) {
-                if (index > 0) warning.append("；");
-                warning.append(unsupported.getString(index));
-            }
-            if (warning.length() > 0) warning.insert(0, "以下事项的重复规则暂不支持安卓提醒；其他支持的事项在权限允许时仍会排程：");
             AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
             // 先记录待处理标识；即使进程在设置闹钟时退出，下次也能清理旧 PendingIntent。
             JSONObject known = new JSONObject(previous.toString());
             Iterator<String> newKeys = desired.keys();
             while (newKeys.hasNext()) { String key = newKeys.next(); known.put(key, desired.get(key)); }
-            if (!prefs.edit().putString("pending", known.toString()).commit()) throw new IllegalStateException("无法保存待发提醒");
+            if (!prefs.edit().putString("pending", known.toString()).putString("warnings", warnings.toString()).commit()) throw new IllegalStateException("无法保存待发提醒");
             Iterator<String> keys = desired.keys();
             while (keys.hasNext()) {
                 String key = keys.next();
@@ -64,20 +65,15 @@ public final class ReminderBridge {
             }
             Iterator<String> oldKeys = previous.keys();
             while (oldKeys.hasNext()) { String key = oldKeys.next(); if (!desired.has(key)) { PendingIntent alarm = alarm(context, key, 0); manager.cancel(alarm); alarm.cancel(); } }
-            SharedPreferences.Editor cleanup = prefs.edit();
+            SharedPreferences.Editor result = prefs.edit().putString("pending", desired.toString())
+                    .putString("warnings", warnings.toString()).remove("error");
             for (String key : prefs.getAll().keySet()) {
-                if (key.startsWith("delivered:") && !desired.has(key.substring(10))) cleanup.remove(key);
+                if (key.startsWith("delivered:") && !desired.has(key.substring(10))) result.remove(key);
             }
-            cleanup.apply();
-            SharedPreferences.Editor result = prefs.edit().putString("pending", desired.toString());
-            if (warning.length() > 0) {
-                result.putString("error", warning.toString());
-                permissions.put("error", warning.toString());
-            } else result.remove("error");
             if (!result.commit()) throw new IllegalStateException("无法保存排程结果");
-            permissions.put("scheduled", desired.length());
+            permissions.put("scheduled", desired.length()).put("warnings", warnings);
             return permissions.toString();
-        } catch (Exception error) { return failure(context, error); }
+        } catch (Exception error) { return failure(context, error, warnings); }
     }
 
     public static synchronized void fire(Context context, String key, long triggerAt) {
@@ -151,11 +147,23 @@ public final class ReminderBridge {
         ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE)).notify(key, 0, builder.build());
     }
 
-    private static String failure(Context context, Exception error) {
+    private static String failure(Context context, Exception error) { return failure(context, error, null); }
+
+    private static String failure(Context context, Exception error, JSONArray warnings) {
         String message = error.getMessage() == null ? error.toString() : error.getMessage();
-        preferences(context).edit().putString("error", message).apply();
-        JSONObject result = new JSONObject();
-        try { result.put("supported", true).put("error", message); } catch (Exception ignored) {}
+        SharedPreferences prefs = preferences(context);
+        JSONArray savedWarnings;
+        try { savedWarnings = new JSONArray(prefs.getString("warnings", "[]")); }
+        catch (Exception invalidWarnings) {
+            savedWarnings = new JSONArray();
+            message += "；无法读取提醒警告";
+        }
+        warnings = ReminderEngine.mergeWarnings(warnings, savedWarnings);
+        prefs.edit().putString("error", message).putString("warnings", warnings.toString()).apply();
+        JSONObject result;
+        try { result = new JSONObject(AppSettings.state(context)); }
+        catch (Exception ignored) { result = new JSONObject(); }
+        try { result.put("supported", true).put("error", message).put("warnings", warnings); } catch (Exception ignored) {}
         return result.toString();
     }
 }

@@ -1,5 +1,5 @@
 import buildManifest from '../manifest.json'
-import { androidPermissions, androidSettings } from './android.js'
+import { androidPermissions, androidSettings, androidUpdate } from './android.js'
 
 export const OSS_BASE_URL = 'https://package.laoshi.chat'
 export const APP_VERSION = buildManifest.versionName
@@ -13,6 +13,37 @@ let preflightRequest = null
 let generation = 0
 let downloaded = null
 let waitingForPermission = false
+let installing = false
+
+function validCache(item) {
+  try {
+    if (!item || !/^[0-9a-f-]{36}\.apk$/.test(item.name || '') || !Number.isSafeInteger(item.size) || item.size < 4) return false
+    validateUpdateManifest({ version: item.version, versionCode: item.code || undefined, url: item.url })
+    return true
+  } catch { return false }
+}
+
+function discardCache(item = downloaded) {
+  if (validCache(item)) {
+    const result = androidUpdate('remove', item.name)
+    if (!result.ok) throw new Error(result.message || '无法清理安装包缓存')
+  }
+  try { uni.removeStorageSync(CACHE_KEY) } catch { throw new Error('无法清理安装包缓存记录，请重试') }
+  downloaded = null
+  waitingForPermission = false
+}
+
+function inspectCache(item) {
+  if (!validCache(item)) return { ok: false, message: '安装包缓存已失效，请重新下载' }
+  return androidUpdate('inspect', item.name, String(item.size))
+}
+
+function cacheFailed(message) {
+  let detail = message || '安装包缓存已失效'
+  let action = '请重新下载或使用浏览器下载'
+  try { discardCache() } catch (error) { detail += `；${error.message || String(error)}`; action = '请重试或使用浏览器下载' }
+  publish({ status: 'download-error', message: `${detail}，${action}` })
+}
 
 function publish(patch) { state = { ...state, ...patch }; listeners.forEach(listener => listener(state)); return state }
 export function subscribeUpdate(listener) { listeners.add(listener); listener(state); return () => listeners.delete(listener) }
@@ -48,10 +79,10 @@ export function checkUpdate() {
   if (checkPromise) return checkPromise
   if (['downloading', 'installing', 'waiting'].includes(state.status)) return Promise.resolve(state)
   const current = installedVersion()
-  const cached = downloaded?.path && downloaded.version &&
+  const cached = validCache(downloaded) && downloaded.version &&
     (downloaded.code ? current.code < downloaded.code : compareVersions(current.version, downloaded.version) < 0) ? downloaded : null
   const checkFailed = message => publish(cached && downloaded === cached
-    ? { status: 'ready', latestVersion: cached.version, latestCode: cached.code, downloadUrl: cached.url, checkError: true, message: `检查更新失败：${message}。已下载的安装包仍可安装。` }
+    ? { status: 'ready', latestVersion: cached.version, latestCode: cached.code, downloadUrl: cached.url, checkError: true, message: `检查更新失败：${message}。可尝试安装已下载的安装包。` }
     : { status: 'error', checkError: true, message })
   publish({ status: 'checking', currentVersion: current.version, currentCode: current.code, message: '', checkError: false })
   checkPromise = new Promise(resolve => {
@@ -97,9 +128,13 @@ function verifyDownload(url, token) {
   })
 }
 
-export async function downloadUpdate() {
-  if (['downloading', 'installing'].includes(state.status) || !state.downloadUrl) return
-  if (downloaded?.url === state.downloadUrl) { installDownloaded(); return }
+export async function downloadUpdate(force = false) {
+  if (['downloading', 'installing', 'waiting'].includes(state.status) || installing || !state.downloadUrl) return
+  if (downloaded?.url === state.downloadUrl && !force && state.status !== 'download-error') { installDownloaded(); return }
+  if (downloaded) {
+    try { discardCache() }
+    catch (error) { publish({ status: 'download-error', message: `${error.message || String(error)}，请重试或使用浏览器下载` }); return }
+  }
   // #ifdef APP-PLUS
   if (typeof plus !== 'undefined' && plus.os?.name === 'Android') {
     const token = ++generation
@@ -114,10 +149,20 @@ export async function downloadUpdate() {
         // 删除下载任务以释放 SDK 回调；完成文件保留供安装和授权往返复用。
         task.abort()
         if (![200, 206].includes(status) || task.downloadedSize < 4 || (status === 206 && !rangeSize) || (expectedSize > 0 && task.downloadedSize !== expectedSize)) { publish({ status: 'download-error', message: `下载未完成（HTTP ${status}），请重试或使用浏览器下载` }); return }
-        downloaded = { url: state.downloadUrl, path: task.filename, version: state.latestVersion, code: state.latestCode }
-        try { uni.setStorageSync(CACHE_KEY, downloaded) } catch { /* 缓存失败不影响本次安装。 */ }
-        publish({ status: 'ready', progress: 100 })
-        installDownloaded()
+        try {
+          const source = plus.io.convertLocalFileSystemURL(task.filename)
+          const directory = plus.io.convertLocalFileSystemURL('_doc/updates/')
+          if (!source || !directory) throw new Error('无法解析下载文件路径')
+          const result = androidUpdate('stage', source, directory, String(task.downloadedSize))
+          if (!result.ok) throw new Error(result.message || '无法读取下载的安装包')
+          downloaded = { url: state.downloadUrl, name: result.name, size: Number(result.size), version: state.latestVersion, code: state.latestCode }
+          if (!validCache(downloaded)) throw new Error('安装包缓存信息无效')
+          try { uni.setStorageSync(CACHE_KEY, downloaded) } catch { /* 缓存失败不影响本次安装。 */ }
+          publish({ status: 'ready', progress: 100 })
+          installDownloaded()
+        } catch (error) {
+          cacheFailed(error.message || '无法读取下载的安装包')
+        }
       })
       downloadTask.addEventListener('statechanged', task => {
         if (token !== generation) return
@@ -137,6 +182,7 @@ export async function downloadUpdate() {
 }
 
 export function cancelDownload() {
+  if (state.status !== 'downloading') return
   generation++
   preflightRequest?.abort()
   preflightRequest = null
@@ -147,37 +193,72 @@ export function cancelDownload() {
 }
 
 export function installDownloaded() {
-  if (!downloaded || state.status === 'installing') return
+  if (!downloaded || installing || waitingForPermission || state.status === 'waiting') return
+  installing = true
   try {
+    const inspected = inspectCache(downloaded)
+    if (!inspected.ok) { cacheFailed(inspected.message); return }
     if (!androidPermissions().install) {
       waitingForPermission = true
       publish({ status: 'waiting', message: '安装包已下载。请允许“安装未知应用”，返回后继续安装。' })
       androidSettings('install')
       return
     }
-    waitingForPermission = false
     publish({ status: 'installing', message: '正在打开系统安装界面，请确认安装' })
-    plus.runtime.install(downloaded.path, {}, () => publish({ status: 'waiting', message: '已交给系统安装，请完成确认。若取消，可点击重新安装。' }), error => publish({ status: 'ready', message: `安装未完成：${error.message || '请重试'}` }))
-    // 部分安卓系统不回调 APK 安装结果，不把唤起安装当作升级成功。
-    if (state.status === 'installing') publish({ status: 'waiting' })
-  } catch (error) { publish({ status: 'ready', message: error.message || String(error) }) }
+    const result = androidUpdate('install', downloaded.name, String(downloaded.size))
+    if (!result.ok) {
+      const recheck = inspectCache(downloaded)
+      if (!recheck.ok) cacheFailed(recheck.message)
+      else publish({ status: 'ready', message: `无法打开系统安装界面：${result.message || '请重试'}` })
+      return
+    }
+    publish({ status: 'waiting', message: '已打开系统安装界面，请确认安装；返回后可重新安装。' })
+  } catch (error) {
+    waitingForPermission = false
+    publish({ status: 'ready', message: `安装未完成：${error.message || String(error)}` })
+  } finally { installing = false }
 }
 
 export function resumeUpdateInstallation() {
+  if (installing || ['downloading', 'installing'].includes(state.status)) return
   try {
     if (!downloaded) downloaded = uni.getStorageSync(CACHE_KEY) || null
     if (!downloaded) return
+    if (!validCache(downloaded)) {
+      const previous = downloaded
+      try { uni.removeStorageSync(CACHE_KEY) } catch { throw new Error('无法清理旧版更新缓存记录，请重试') }
+      downloaded = null
+      if (previous.version && previous.url) {
+        try {
+          validateUpdateManifest({ version: previous.version, versionCode: previous.code || undefined, url: previous.url })
+          publish({ status: 'download-error', latestVersion: previous.version, latestCode: previous.code, downloadUrl: previous.url, message: '旧版安装包缓存不可继续使用，请重新下载' })
+        } catch { publish({ status: 'error', message: '安装包缓存无效，请重新检查更新' }) }
+      } else publish({ status: 'error', message: '安装包缓存无效，请重新检查更新' })
+      return
+    }
     const current = installedVersion()
     if ((downloaded.code && current.code >= downloaded.code) || (!downloaded.code && compareVersions(current.version, downloaded.version) >= 0)) {
-      const oldPath = downloaded.path
-      downloaded = null; waitingForPermission = false
-      uni.removeStorageSync(CACHE_KEY)
-      // #ifdef APP-PLUS
-      if (typeof plus !== 'undefined' && /^_doc\/updates\//.test(oldPath)) plus.io.resolveLocalFileSystemURL(oldPath, entry => entry.remove(() => {}, () => {}), () => {})
-      // #endif
-      publish({ status: 'latest', currentVersion: current.version, currentCode: current.code })
-    } else if (waitingForPermission && androidPermissions().install) installDownloaded()
-    else if (state.status === 'idle') publish({ status: 'ready', latestVersion: downloaded.version, latestCode: downloaded.code, downloadUrl: downloaded.url, message: '上次下载的安装包已保留，可继续安装' })
+      discardCache()
+      publish({ status: 'latest', currentVersion: current.version, currentCode: current.code, message: '' })
+      return
+    }
+    const inspected = inspectCache(downloaded)
+    if (!inspected.ok) {
+      publish({ latestVersion: downloaded.version, latestCode: downloaded.code, downloadUrl: downloaded.url })
+      cacheFailed(inspected.message)
+      return
+    }
+    if (waitingForPermission) {
+      waitingForPermission = false
+      if (androidPermissions().install) {
+        publish({ status: 'ready' })
+        installDownloaded()
+      } else publish({ status: 'ready', message: '未获得安装未知应用权限，可授权后重试或使用浏览器下载。' })
+    } else if (state.status === 'waiting') {
+      publish({ status: 'ready', message: '已返回应用，尚未检测到新版本；如已取消安装可重新安装。' })
+    } else if (state.status === 'idle') {
+      publish({ status: 'ready', latestVersion: downloaded.version, latestCode: downloaded.code, downloadUrl: downloaded.url, message: '上次下载的安装包已保留，可继续安装' })
+    }
   } catch (error) { publish({ status: 'error', message: error.message || String(error) }) }
 }
 

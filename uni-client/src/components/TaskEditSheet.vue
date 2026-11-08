@@ -24,8 +24,9 @@
         <view class="sheet-row">
           <text class="row-label">⌁ 重复</text>
         </view>
+        <text v-if="advancedRule" class="permission-hint">当前规则：{{ advancedRuleDescription }}。{{ occurrence ? '当次编辑不能更改规则。' : '现有设置将保留；选择下方基本规则时需确认替换。' }}</text>
         <view @touchstart.stop class="option-grid">
-          <view v-for="kind in repeatKinds" :key="kind" :class="['option-chip', draft.repeatKind === kind ? 'active' : '']" @click="!occurrence && (draft.repeatKind = kind)">
+          <view v-for="kind in repeatKinds" :key="kind" :class="['option-chip', !advancedRule && draft.repeatKind === kind ? 'active' : '']" @click="selectRepeatKind(kind)">
             <text>{{ repeatLabel(kind) }}</text>
           </view>
         </view>
@@ -76,7 +77,7 @@ import { getCategories, getNewTaskDefaults, saveTask, removeTask, findTask, list
 import { parseOccurrenceId, parseRepeatRule, repeatLabel } from '../utils/occurrence'
 import { applyTaskTime, hasReminderTime, priorities, reminderOptions } from '../utils/task'
 import { todayString } from '../utils/date'
-import { reminderState, sendReminderTest } from '../api/reminders'
+import { reminderState, reminderSaveMessage, sendReminderTest } from '../api/reminders'
 import { androidSettings, requestNotificationPermission } from '../api/android'
 import { toast } from '../utils/platform'
 
@@ -137,6 +138,43 @@ const draft = reactive({
   subtasks: [],
   notes: ''
 })
+
+const advancedRule = computed(() => {
+  try {
+    const rule = JSON.parse(draft.repeatRule || '{}')
+    return !repeatKinds.includes(rule.kind) || Object.keys(rule).some(key => key !== 'kind') ? rule : null
+  } catch { return { kind: '未知' } }
+})
+
+const advancedRuleDescription = computed(() => {
+  const rule = advancedRule.value
+  if (!rule) return ''
+  const parts = [repeatLabel(rule.kind, rule.interval)]
+  if (rule.kind !== 'every_days' && rule.interval != null) parts.push(`间隔：${rule.interval}`)
+  if (rule.endMode === 'date') parts.push(`截止日期：${rule.endDate || '未设置'}`)
+  else if (rule.endMode === 'count') parts.push(`重复次数：${rule.count ?? '未设置'}`)
+  else if (rule.endMode === 'never') parts.push('永不结束')
+  return parts.join('；')
+})
+
+async function selectRepeatKind(kind) {
+  if (occurrence.value || actionBusy.value) return
+  if (!advancedRule.value) { draft.repeatKind = kind; return }
+  const session = generation
+  const original = draft.repeatRule
+  actionBusy.value = true
+  try {
+    const result = await new Promise(resolve => uni.showModal({
+      title: '替换高级重复规则？',
+      content: `将用“${repeatLabel(kind)}”替换当前完整重复规则，包括间隔、结束条件等设置。此操作不能自动恢复。`,
+      confirmText: '替换', success: resolve, fail: () => resolve({ confirm: false })
+    }))
+    if (result.confirm && session === generation && props.visible && !closeEmitted && draft.repeatRule === original) {
+      draft.repeatRule = JSON.stringify({ kind })
+      draft.repeatKind = kind
+    }
+  } finally { if (session === generation) actionBusy.value = false }
+}
 
 watch(
   () => props.visible,
@@ -449,7 +487,7 @@ async function updateReminders(session, promise) {
   try { result = await promise }
   catch (cause) { result = { error: cause?.message || String(cause) } }
   if (token !== reminderToken) return
-  const warning = result?.error ? `事项已保存，提醒排程失败：${result.error}` : result?.supported && needsReminder && (!result.notifications || !result.exactAlarm) ? '事项已保存，需开启通知和准时提醒权限' : ''
+  const warning = reminderSaveMessage(result, needsReminder)
   if (session === generation && props.visible && !closeEmitted) reminderWarning.value = warning
   else if (warning) toast(warning)
 }

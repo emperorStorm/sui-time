@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import * as vue from 'vue'
 import * as realStore from '../src/api/store.js'
 import { load, save as saveStorage } from '../src/api/storage.js'
+import { reminderSaveMessage } from '../src/api/reminders.js'
 
 let disk = null
 let diskFailure = false
@@ -12,7 +13,7 @@ globalThis.uni = { getStorageSync: () => disk, setStorageSync: (_key, value) => 
 
 const source = (await readFile(new URL('../src/components/TaskEditSheet.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
 
-async function editor({ storeApi = null, task = { id: 'parent' }, modal = null } = {}) {
+async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, repeatRule = '{"kind":"none"}' } = {}) {
   const props = vue.reactive({ visible: false, task, presetDate: '' })
   const events = []
   const writes = []
@@ -22,7 +23,7 @@ async function editor({ storeApi = null, task = { id: 'parent' }, modal = null }
   let release
   let hold = false
   let confirmed = false
-  const parent = { id: 'parent', title: '原名称', notes: '', repeatRule: '{"kind":"none"}', priority: 'not_urgent_not_important' }
+  const parent = { id: 'parent', title: '原名称', notes: '', repeatRule, priority: 'not_urgent_not_important' }
   const context = vm.createContext({
     setTimeout, clearTimeout, setInterval, clearInterval, console,
     window: { addEventListener() {}, removeEventListener() {} },
@@ -47,11 +48,11 @@ async function editor({ storeApi = null, task = { id: 'parent' }, modal = null }
     '../utils/occurrence': { parseOccurrenceId: id => id.includes('@') ? { sourceId: id.split('@')[0], date: id.split('@')[1] } : null, parseRepeatRule: value => JSON.parse(value), repeatLabel: value => value },
     '../utils/task': { applyTaskTime: Object.assign, hasReminderTime: () => false, priorities: [], reminderOptions: [] },
     '../utils/date': { todayString: () => '2026-10-27' },
-    '../api/reminders': { reminderState: () => ({ supported: false }), sendReminderTest() {} },
+    '../api/reminders': { reminderState: () => ({ supported: false }), reminderSaveMessage, sendReminderTest() {} },
     '../api/android': { androidSettings() {}, requestNotificationPermission() {} },
     '../utils/platform': { toast: message => toasts.push(message) }
   }
-  const module = new vm.SourceTextModule(`${source}\nexport { draft, flushDraft, requestClose, discardAndClose, remove, save, changeStatus, dirty, error, reminderWarning, moveSubtaskTo, cancelSubtaskDrag, dragIndex, drag, dragScrollTop, sheetOffset, swipe, startSheetSwipe, moveSheetSwipe, endSheetSwipe, cancelSheetSwipe, saveOnHide };`, { context })
+  const module = new vm.SourceTextModule(`${source}\nexport { draft, advancedRule, advancedRuleDescription, selectRepeatKind, flushDraft, requestClose, discardAndClose, remove, save, changeStatus, dirty, error, reminderWarning, moveSubtaskTo, cancelSubtaskDrag, dragIndex, drag, dragScrollTop, sheetOffset, swipe, startSheetSwipe, moveSheetSwipe, endSheetSwipe, cancelSheetSwipe, saveOnHide };`, { context })
   await module.link(specifier => {
     const exports = modules[specifier]
     return new vm.SyntheticModule(Object.keys(exports), function () {
@@ -70,6 +71,74 @@ async function editor({ storeApi = null, task = { id: 'parent' }, modal = null }
     close: () => { props.visible = false; callbacks.forEach(callback => callback()) }
   }
 }
+
+test('编辑保存后的部分成功只提示不支持，不误报排程失败', async () => {
+  const ui = await editor()
+  try {
+    ui.setHold(true)
+    ui.draft.notes = '修改'
+    await ui.flushDraft()
+    ui.release({ supported: true, notifications: true, exactAlarm: true, warnings: [{ id: 'a', title: '事项', kind: 'workdays' }] })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.match(ui.reminderWarning.value, /暂不支持/)
+    assert.doesNotMatch(ui.reminderWarning.value, /排程失败/)
+  } finally { ui.close() }
+})
+
+test('快捷调整分别提示部分成功和真正错误', async () => {
+  const quickSource = (await readFile(new URL('../src/components/QuickAdjustSheet.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+  const messages = []
+  const context = vm.createContext({ defineProps: () => ({ visible: false }), defineEmits: () => () => {}, defineExpose() {} })
+  const modules = {
+    vue: { ...vue, onBeforeUnmount() {} },
+    '../api/store': { findTask() {}, saveTask() {} },
+    '../utils/occurrence': { parseOccurrenceId() {}, parseRepeatRule() {} },
+    '../utils/platform': { toast: message => messages.push(message) },
+    '../api/reminders': { reminderSaveMessage }
+  }
+  const module = new vm.SourceTextModule(`${quickSource}\nexport { notifyReminder };`, { context })
+  await module.link(specifier => new vm.SyntheticModule(Object.keys(modules[specifier]), function () {
+    for (const [key, value] of Object.entries(modules[specifier])) this.setExport(key, value)
+  }, { context }))
+  await module.evaluate()
+  await module.namespace.notifyReminder({ reminderPromise: Promise.resolve({ supported: true, notifications: true, exactAlarm: true, warnings: [{ id: 'a' }] }) })
+  await module.namespace.notifyReminder({ reminderPromise: Promise.resolve({ error: '系统错误' }) })
+  assert.match(messages[0], /暂不支持/)
+  assert.doesNotMatch(messages[0], /排程失败/)
+  assert.match(messages[1], /排程失败：系统错误/)
+})
+
+test('高级规则保持原始 JSON，替换需确认且可以取消', async () => {
+  const original = '{ "kind": "every_days", "interval": 3, "endMode": "count", "count": 4 }'
+  const ui = await editor({ repeatRule: original })
+  try {
+    assert.equal(ui.advancedRule.value.interval, 3)
+    assert.match(ui.advancedRuleDescription.value, /重复次数：4/)
+    ui.draft.notes = '保留规则'
+    await ui.flushDraft()
+    assert.equal(ui.writes.at(-1).input.repeatRule, original)
+    await ui.selectRepeatKind('weekly')
+    assert.equal(ui.draft.repeatRule, original)
+    assert.equal(ui.draft.repeatKind, 'every_days')
+    ui.setConfirmed(true)
+    await ui.selectRepeatKind('weekly')
+    await ui.flushDraft()
+    assert.equal(ui.writes.at(-1).input.repeatRule, '{"kind":"weekly"}')
+    assert.equal(ui.writes.at(-1).input.notes, '保留规则')
+  } finally { ui.close() }
+})
+
+test('单次实例不能替换高级规则', async () => {
+  const original = '{"kind":"every_days","interval":2}'
+  const ui = await editor({ task: { id: 'parent@2026-10-10' }, repeatRule: original })
+  try {
+    ui.setConfirmed(true)
+    await ui.selectRepeatKind('none')
+    ui.draft.notes = '仅本次'
+    await ui.flushDraft()
+    assert.equal(ui.writes.at(-1).input.repeatRule, original)
+  } finally { ui.close() }
+})
 
 test('未修改的已有事项可通过遮罩和保存关闭', async () => {
   for (const entry of ['requestClose', 'save']) {

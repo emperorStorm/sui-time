@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { applyTaskTime, normalizeTask, compareTasks, taskMark } from '../src/utils/task.js'
-import { occursOn, resolveTasksForDate } from '../src/utils/occurrence.js'
+import { occursOn, resolveTasksForDate, repeatLabel } from '../src/utils/occurrence.js'
 import { weekDates, weekTitle } from '../src/utils/date.js'
 import * as store from '../src/api/store.js'
-import { syncTaskReminders, reminderState } from '../src/api/reminders.js'
+import { syncTaskReminders, reminderState, reminderSummary, reminderSaveMessage, subscribeReminderState } from '../src/api/reminders.js'
 import { load, save as saveStorage } from '../src/api/storage.js'
 import { refreshHolidayCalendar } from '../src/api/holiday.js'
 import { confirm } from '../src/utils/platform.js'
@@ -59,12 +59,13 @@ test('前台恢复时报告提醒排程错误，并区分本机读取失败', as
   const modals = []
   const events = []
   let readFailure = false
+  let reminderResult = { error: '排程异常' }
   const context = vm.createContext({ uni: { $emit: event => events.push(event), showModal: options => modals.push(options), showToast() {} } })
   const dependencies = {
     vue: { onBeforeUnmount() {} },
     '@dcloudio/uni-app': { onHide() {}, onLaunch() {}, onShow() {} },
     './api/store': { listTasks: () => { if (readFailure) throw new Error('读取异常'); return [] } },
-    './api/reminders': { syncTaskReminders: async () => ({ error: '排程异常' }) },
+    './api/reminders': { syncTaskReminders: async () => reminderResult },
     './api/update': { resumeUpdateInstallation() {} },
     './api/sync.js': { startAutoSync() {}, syncNow() {} }
   }
@@ -82,6 +83,79 @@ test('前台恢复时报告提醒排程错误，并区分本机读取失败', as
   await module.namespace.refreshReminders()
   assert.equal(modals[1].title, '读取本机事项失败')
   assert.match(modals[1].content, /读取异常/)
+  modals[1].success({ confirm: false })
+  readFailure = false
+  reminderResult = { supported: true, notifications: true, exactAlarm: true, warnings: [{ id: 'a', title: '事项', kind: 'workdays' }] }
+  await module.namespace.refreshReminders()
+  await module.namespace.refreshReminders()
+  assert.equal(modals.length, 2)
+})
+
+test('提醒警告、真实错误和权限变化持续更新且不丢失已知警告', async () => {
+  const warning = { id: 'a', title: '工作日事项', kind: 'workdays' }
+  let permissions = { supported: true, notifications: true, exactAlarm: true }
+  let response = { ...permissions, scheduled: 2, warnings: [warning] }
+  const observed = []
+  globalThis.plus = { os: { name: 'Android' }, android: { runtimeMainActivity: () => ({}), invoke: (name) => JSON.stringify(name.endsWith('AppSettings') ? permissions : response) } }
+  const unsubscribe = subscribeReminderState(state => observed.push(state))
+  try {
+    const result = await syncTaskReminders([{ id: 'a' }])
+    assert.match(reminderSaveMessage(result), /暂不支持/)
+    assert.doesNotMatch(reminderSaveMessage(result), /排程失败/)
+    assert.match(reminderSummary(reminderState()), /1 项/)
+    response = { ...permissions, scheduled: 2, warnings: [{ ...warning, title: '已更名' }] }
+    await syncTaskReminders([{ id: 'a' }])
+    assert.equal(reminderState().warnings[0].title, '已更名')
+    observed.at(-1).warnings[0].title = '外部修改'
+    assert.equal(reminderState().warnings[0].title, '已更名')
+    response = { supported: true, error: '排程异常', warnings: [] }
+    await syncTaskReminders([{ id: 'a' }])
+    assert.equal(reminderState().warnings[0].id, 'a')
+    assert.match(reminderSummary(reminderState()), /排程异常/)
+    response = { supported: true, error: '以下事项的重复规则暂不支持安卓提醒' }
+    await syncTaskReminders([{ id: 'a' }])
+    assert.match(reminderState().error, /暂不支持/)
+    permissions = { ...permissions, exactAlarm: false }
+    response = { ...permissions, scheduled: 0 }
+    await syncTaskReminders([{ id: 'a' }])
+    assert.equal(reminderState().warnings.length, 1)
+    assert.match(reminderSummary(reminderState()), /未安排/)
+    response = { ...permissions, scheduled: 0, warnings: [] }
+    await syncTaskReminders([])
+    assert.equal(reminderState().warnings.length, 0)
+    assert.match(reminderSummary(reminderState()), /未安排/)
+    permissions = { ...permissions, exactAlarm: true }
+    response = { ...permissions, scheduled: 1, warnings: [] }
+    await syncTaskReminders([])
+    assert.equal(reminderState().warnings.length, 0)
+    assert.match(reminderSummary(reminderState()), /已安排 1/)
+    unsubscribe()
+    const count = observed.length
+    await syncTaskReminders([])
+    assert.equal(observed.length, count)
+  } finally { unsubscribe(); delete globalThis.plus; await syncTaskReminders([]) }
+})
+
+test('提醒状态监听中提交新快照仍会安排最新内容', async () => {
+  const snapshots = []
+  let requested = false
+  globalThis.plus = { os: { name: 'Android' }, android: { runtimeMainActivity: () => ({}), invoke: (name, method, context, snapshot) => {
+    if (name.endsWith('ReminderBridge')) snapshots.push(JSON.parse(snapshot))
+    return JSON.stringify({ supported: true, notifications: true, exactAlarm: true, scheduled: 0, warnings: [] })
+  } } }
+  const unsubscribe = subscribeReminderState(state => {
+    if (state.scheduleReady && !requested) { requested = true; void syncTaskReminders([{ id: 'new' }]) }
+  })
+  try {
+    await syncTaskReminders([{ id: 'old' }])
+    assert.equal(snapshots.at(-1)[0].id, 'new')
+  } finally { unsubscribe(); delete globalThis.plus; await syncTaskReminders([]) }
+})
+
+test('间隔日与其他高级重复规则不误显示为不重复', () => {
+  assert.equal(repeatLabel('every_days', 3), '每隔3天')
+  assert.equal(repeatLabel('workdays'), '工作日')
+  assert.notEqual(repeatLabel('custom'), '不重复')
 })
 
 test('重复次数按实际匹配的源日期计数', () => {

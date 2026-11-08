@@ -114,6 +114,7 @@ export function resolveTasksForDate(tasks, date) {
   })
 }
 
-export function repeatLabel(kind) {
-  return ({ none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' })[kind] || '不重复'
+export function repeatLabel(kind, interval = 1) {
+  if (kind === 'every_days') return `每隔${Math.max(1, Number(interval) || 1)}天`
+  return ({ none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年', workdays: '工作日', weekly_slots: '每周多时段', monthly_slots: '每月多时段', memory: '记忆曲线', custom: '自定义' })[kind] || '其他重复规则'
 }

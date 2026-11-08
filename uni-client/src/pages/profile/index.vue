@@ -17,6 +17,16 @@
           </view>
         </view>
 
+        <view class="reminder-status panel" role="status">
+          <button class="reminder-status-toggle" role="button" tabindex="0" :aria-expanded="reminderExpanded" @click="reminderExpanded = !reminderExpanded" @keydown.enter.prevent="reminderExpanded = !reminderExpanded" @keydown.space.prevent="reminderExpanded = !reminderExpanded">系统提醒：{{ reminderSummary(reminder) }} {{ reminderExpanded ? '▴' : '▾' }}</button>
+          <scroll-view v-if="reminderExpanded" scroll-y class="reminder-status-detail">
+            <text v-if="reminder.warnings.length && reminder.warningsStale">以下为上次已知的受影响事项，重新排程后更新：</text>
+            <text v-for="item in reminder.warnings" :key="item.id">{{ item.title || '未命名事项' }}（{{ repeatLabel(item.kind) }}）</text>
+            <button v-if="reminder.supported && !reminder.notifications" @click="openReminderSettings('notifications')">打开通知设置</button>
+            <button v-if="reminder.supported && !reminder.exactAlarm" @click="openReminderSettings('alarm')">打开准时提醒设置</button>
+            <button @click="retryReminders">重新同步提醒</button>
+          </scroll-view>
+        </view>
         <text class="mine-group-title">基础管理</text>
         <view class="mine-section panel">
           <button class="mine-row row-button" role="button" tabindex="0" @click="openAccount" @keydown.enter.prevent="openAccount" @keydown.space.prevent="openAccount"><view><text class="row-title">账号与同步</text><text class="row-hint">{{ syncAccountHint }}</text></view><text class="row-chevron">›</text></button>
@@ -67,13 +77,28 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { onShow, onUnload } from '@dcloudio/uni-app'
 import UpdateSheet from '../../components/UpdateSheet.vue'
-import { getProfile, getSettings, setHideCompleted, restoreDemoData } from '../../api/store'
+import { getProfile, getSettings, setHideCompleted, restoreDemoData, listTasks } from '../../api/store'
+import { reminderState, reminderSummary, subscribeReminderState, syncTaskReminders } from '../../api/reminders'
+import { androidSettings } from '../../api/android'
+import { repeatLabel } from '../../utils/occurrence'
 import { checkUpdate, downloadUpdate, cancelDownload, installDownloaded, installedVersion, subscribeUpdate, openUpdateInBrowser } from '../../api/update'
 import { toast } from '../../utils/platform'
 import { load as loadStorage } from '../../api/storage.js'
 
 function openAnniversaries() { uni.navigateTo({ url: '/pages/anniversaries/index' }) }
 function openAccount() { uni.navigateTo({ url: '/pages/account/index' }) }
+
+const reminder = ref(reminderState())
+const reminderExpanded = ref(false)
+const unsubscribeReminder = subscribeReminderState(state => { reminder.value = state })
+onBeforeUnmount(unsubscribeReminder)
+onUnload(unsubscribeReminder)
+function openReminderSettings(kind) {
+  try { androidSettings(kind) } catch (error) { toast(error.message || String(error)) }
+}
+async function retryReminders() {
+  try { await syncTaskReminders(listTasks()) } catch (error) { toast(error.message || String(error)) }
+}
 
 const syncAccountHint = ref('登录账号，在设备间同步')
 const profile = ref(null)
@@ -90,6 +115,7 @@ onUnload(unsubscribeUpdate)
 
 onShow(() => {
   load()
+  reminder.value = reminderState()
   currentVersion.value = installedVersion().version
 })
 
