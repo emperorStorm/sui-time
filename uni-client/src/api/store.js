@@ -313,6 +313,44 @@ export function tasksForDate(date) {
   return resolveTasksForDate(listTasks(), date).filter(task => isVisible(task, 'month')).sort(compareTasks)
 }
 
+function isPlanningDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = new Date(`${value}T12:00:00Z`)
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
+// 仅供规划展示：墓碑和已删除实例不会写回存储，也不能作为可编辑事项。
+export function planningTasksForDates(dates) {
+  const { tasks } = load()
+  const requested = [...new Set((Array.isArray(dates) ? dates : []).filter(isPlanningDate))]
+  const byDate = new Map(requested.map(date => [date, []]))
+  const active = tasks.filter(isActive)
+  const activeIds = new Set(active.map(task => task.id))
+  for (const date of requested) {
+    const items = resolveTasksForDate(active, date).filter(item => {
+      const occurrence = parseOccurrenceId(item.id)
+      return activeIds.has(item.id) || !occurrence || isPlanningDate(occurrence.date)
+    })
+    byDate.get(date).push(...items.map(item => ({ ...item, planningDeleted: false })))
+  }
+  for (const source of tasks) {
+    if (source.parentTaskId) continue
+    if (!isActive(source) && parseRepeatRule(source.repeatRule).kind === 'none' && isPlanningDate(source.plannedDate) && byDate.has(source.plannedDate)) {
+      byDate.get(source.plannedDate).push({ ...source, title: typeof source.title === 'string' && source.title.trim() ? source.title : '已删除事项', planningDeleted: true })
+    }
+    for (const [date, override] of Object.entries(parseOverrides(source))) {
+      if (!isPlanningDate(date) || !byDate.has(date) || !override || typeof override !== 'object' || Array.isArray(override) || override.deleted !== true) continue
+      const item = { ...source, ...override, id: `${source.id}@${date}`, plannedDate: date, planningDeleted: true }
+      if (typeof item.title !== 'string' || !item.title.trim()) item.title = '已删除事项'
+      byDate.get(date).push(item)
+    }
+  }
+  return Object.fromEntries([...byDate].map(([date, items]) => {
+    const seen = new Set()
+    return [date, cloneData(items.filter(item => !seen.has(item.id) && seen.add(item.id)).sort(compareTasks))]
+  }))
+}
+
 export function tasksGrouped() {
   const today = todayString()
   const weekEnd = addDays(today, 7)

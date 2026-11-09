@@ -364,7 +364,7 @@ function recordSubtaskTouch(event) {
 }
 
 function startSubtaskDrag(index) {
-  if (dragIndex.value >= 0 || actionBusy.value) return
+  if (!drag.touching || dragIndex.value >= 0 || actionBusy.value) return
   // 长按前手指已明显移动时按滚动处理，不启动拖动
   if (Math.abs(drag.y - drag.startY) > 12) return
   if (typeof uni === 'undefined' || typeof uni.createSelectorQuery !== 'function') return
@@ -374,7 +374,7 @@ function startSubtaskDrag(index) {
   query.select('.sheet-body').scrollOffset()
   query.selectAll('.subtask-row').boundingClientRect()
   query.exec((result) => {
-    if (token !== drag.token || !props.visible || dragIndex.value >= 0) return
+    if (token !== drag.token || !drag.touching || !props.visible || dragIndex.value >= 0) return
     const [body, offset, rows] = result || []
     if (!body || !Array.isArray(rows) || rows.length < 2) return
     drag.rows = rows.map(row => ({ top: row.top, bottom: row.bottom }))
@@ -432,10 +432,10 @@ function onSubtaskScroll(event) {
 }
 
 function landSubtaskDrag() {
-  drag.touching = false
-  if (dragIndex.value < 0) return
+  const active = dragIndex.value >= 0
+  // 抬手也要使尚未返回的测量失效，避免旧回调启动拖动。
   stopSubtaskDrag()
-  void flushDraft()
+  if (active) void flushDraft()
 }
 
 function cancelSubtaskDrag() {

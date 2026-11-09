@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import * as vue from 'vue'
+import { parse, compileScript } from '@vue/compiler-sfc'
 import * as realStore from '../src/api/store.js'
 import { load, save as saveStorage } from '../src/api/storage.js'
 import { reminderSaveMessage } from '../src/api/reminders.js'
@@ -13,7 +14,7 @@ globalThis.uni = { getStorageSync: () => disk, setStorageSync: (_key, value) => 
 
 const source = (await readFile(new URL('../src/components/TaskEditSheet.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
 
-async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, repeatRule = '{"kind":"none"}' } = {}) {
+async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, repeatRule = '{"kind":"none"}', selectorQuery = null } = {}) {
   const props = vue.reactive({ visible: false, task, presetDate: '' })
   const events = []
   const writes = []
@@ -31,7 +32,7 @@ async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, 
     defineProps: () => props,
     defineEmits: () => (...event) => events.push(event),
     defineExpose: () => {},
-    uni: { $on() {}, $off() {}, showModal: options => modal ? modal(options) : options.success({ confirm: confirmed }) }
+    uni: { $on() {}, $off() {}, createSelectorQuery: selectorQuery, showModal: options => modal ? modal(options) : options.success({ confirm: confirmed }) }
   })
   const modules = {
     vue: { ...vue, onBeforeUnmount: callback => callbacks.push(callback) },
@@ -52,7 +53,7 @@ async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, 
     '../api/android': { androidSettings() {}, requestNotificationPermission() {} },
     '../utils/platform': { toast: message => toasts.push(message) }
   }
-  const module = new vm.SourceTextModule(`${source}\nexport { draft, advancedRule, advancedRuleDescription, selectRepeatKind, flushDraft, requestClose, discardAndClose, remove, save, changeStatus, dirty, error, reminderWarning, moveSubtaskTo, cancelSubtaskDrag, dragIndex, drag, dragScrollTop, sheetOffset, swipe, startSheetSwipe, moveSheetSwipe, endSheetSwipe, cancelSheetSwipe, saveOnHide };`, { context })
+  const module = new vm.SourceTextModule(`${source}\nexport { draft, advancedRule, advancedRuleDescription, selectRepeatKind, flushDraft, requestClose, discardAndClose, remove, save, changeStatus, dirty, error, reminderWarning, moveSubtaskTo, recordSubtaskTouch, startSubtaskDrag, moveSubtaskDrag, landSubtaskDrag, cancelSubtaskDrag, dragIndex, drag, dragScrollTop, sheetOffset, swipe, startSheetSwipe, moveSheetSwipe, endSheetSwipe, cancelSheetSwipe, saveOnHide };`, { context })
   await module.link(specifier => {
     const exports = modules[specifier]
     return new vm.SyntheticModule(Object.keys(exports), function () {
@@ -106,6 +107,210 @@ test('快捷调整分别提示部分成功和真正错误', async () => {
   assert.match(messages[0], /暂不支持/)
   assert.doesNotMatch(messages[0], /排程失败/)
   assert.match(messages[1], /排程失败：系统错误/)
+})
+
+async function quickEditor() {
+  const quickSource = (await readFile(new URL('../src/components/QuickAdjustSheet.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+  const props = vue.reactive({ visible: false, task: { id: 'a', title: '事项', plannedDate: '2026-10-01', categoryId: null, repeatRule: '{"kind":"none"}' }, categories: [] })
+  const events = []
+  const modals = []
+  const callbacks = []
+  const writes = []
+  let fail = false
+  let now = 1000
+  class FakeDate extends Date { static now() { return now } }
+  const context = vm.createContext({ Date: FakeDate, defineProps: () => props, defineEmits: () => (...event) => events.push(event), defineExpose() {}, uni: { showModal: options => modals.push(options) } })
+  const modules = {
+    vue: { ...vue, onBeforeUnmount: callback => callbacks.push(callback) },
+    '../api/store': { findTask: () => props.task, saveTask: input => { if (fail) throw Error('写入失败'); writes.push(input); return input } },
+    '../utils/occurrence': { parseOccurrenceId: () => null, parseRepeatRule: value => JSON.parse(value) },
+    '../utils/platform': { toast() {} }, '../api/reminders': { reminderSaveMessage: () => '' }
+  }
+  const module = new vm.SourceTextModule(`${quickSource}\nexport { requestClose, onBackdrop, save, draft, error, confirming };`, { context })
+  await module.link(specifier => new vm.SyntheticModule(Object.keys(modules[specifier]), function () {
+    for (const [key, value] of Object.entries(modules[specifier])) this.setExport(key, value)
+  }, { context }))
+  await module.evaluate()
+  props.visible = true
+  await vue.nextTick()
+  return { ...module.namespace, props, events, modals, writes, advance: value => { now += value }, setFailure: value => { fail = value }, close: () => { props.visible = false; callbacks.forEach(callback => callback()) } }
+}
+
+test('快捷调整取消、遮罩与长按抬起误触', async () => {
+  const cancel = await quickEditor()
+  try {
+    assert.equal(await cancel.requestClose(), true)
+    assert.equal(cancel.events.filter(event => event[0] === 'close').length, 1)
+    assert.equal(await cancel.requestClose(), false)
+  } finally { cancel.close() }
+  const backdrop = await quickEditor()
+  try {
+    backdrop.onBackdrop()
+    assert.equal(backdrop.events.length, 0)
+    backdrop.advance(400)
+    backdrop.onBackdrop()
+    assert.equal(backdrop.events.filter(event => event[0] === 'close').length, 1)
+    assert.equal(backdrop.writes.length, 0)
+  } finally { backdrop.close() }
+})
+
+test('快捷调整有草稿时取消确认保留修改，确认放弃才关闭', async () => {
+  const ui = await quickEditor()
+  try {
+    ui.draft.categoryId = 'cat'
+    const first = ui.requestClose()
+    assert.equal(ui.confirming.value, true)
+    assert.equal(await ui.requestClose(), false)
+    ui.modals[0].success({ confirm: false })
+    assert.equal(await first, false)
+    assert.equal(ui.draft.categoryId, 'cat')
+    ui.advance(400)
+    ui.onBackdrop()
+    assert.equal(ui.modals.length, 2)
+    ui.modals[1].success({ confirm: true })
+    await vue.nextTick()
+    assert.equal(ui.events.filter(event => event[0] === 'close').length, 1)
+    assert.equal(ui.writes.length, 0)
+  } finally { ui.close() }
+})
+
+test('快捷调整确认窗口失败可重试且保留草稿', async () => {
+  const ui = await quickEditor()
+  try {
+    ui.draft.categoryId = 'cat'
+    const closing = ui.requestClose()
+    ui.modals[0].fail(new Error('unavailable'))
+    assert.equal(await closing, false)
+    assert.match(ui.error.value, /确认窗口无法打开/)
+    assert.equal(ui.confirming.value, false)
+    assert.equal(ui.draft.categoryId, 'cat')
+    const retry = ui.requestClose()
+    ui.modals[1].success({ confirm: true })
+    assert.equal(await retry, true)
+  } finally { ui.close() }
+})
+
+test('快捷调整保存失败保留草稿；旧确认和确认期间的新修改不能关闭', async () => {
+  const ui = await quickEditor()
+  try {
+    ui.draft.plannedDate = '2026-11-01'
+    ui.setFailure(true)
+    await ui.save()
+    assert.match(ui.error.value, /写入失败/)
+    assert.equal(ui.draft.plannedDate, '2026-11-01')
+    assert.equal(ui.events.length, 0)
+    const first = ui.requestClose()
+    ui.draft.categoryId = 'new'
+    ui.modals[0].success({ confirm: true })
+    assert.equal(await first, false)
+    const old = ui.requestClose()
+    ui.props.visible = false
+    await vue.nextTick()
+    ui.props.visible = true
+    await vue.nextTick()
+    ui.draft.categoryId = 'current'
+    ui.modals[1].success({ confirm: true })
+    assert.equal(await old, false)
+    assert.equal(ui.draft.categoryId, 'current')
+    assert.equal(ui.events.length, 0)
+    ui.setFailure(false)
+    await ui.save()
+    assert.equal(ui.writes.length, 1)
+    assert.equal(ui.events.filter(event => event[0] === 'close').length, 1)
+  } finally { ui.close() }
+})
+
+test('任务页读取失败时保留打开的调整和分类组件及草稿，返回可关闭', async () => {
+  const file = await readFile(new URL('../src/pages/tasks/index.vue', import.meta.url), 'utf8')
+  const compiled = compileScript(parse(file).descriptor, { id: 'task-page-test', inlineTemplate: true, templateOptions: { compilerOptions: { isCustomElement: tag => ['scroll-view', 'picker'].includes(tag) } } }).content
+  const callbacks = {}
+  const instances = {}
+  let failing = false
+  const item = { id: 'a', title: '事项', status: 'todo', repeatRule: '{"kind":"none"}' }
+  function sheet(name) {
+    return { props: ['visible', 'task', 'categories'], setup(props, { expose, emit }) {
+      const state = { draft: '', calls: 0, props, unmounted: false }
+      instances[name] = state
+      vue.onUnmounted(() => { state.unmounted = true })
+      expose({ requestClose() { state.calls++; emit('close') } })
+      return () => vue.h('sheet-stub', { name })
+    } }
+  }
+  const modules = {
+    vue: { ...vue, vModelText: {} },
+    '@dcloudio/uni-app': { onShow: fn => { callbacks.show = fn }, onBackPress: fn => { callbacks.back = fn }, onUnload() {} },
+    '../../components/TaskEditSheet.vue': { default: sheet('task') },
+    '../../components/QuickAdjustSheet.vue': { default: sheet('quick') },
+    '../../components/CategoryManageSheet.vue': { default: sheet('category') },
+    '../../api/store': { listTasks: () => { if (failing) throw Error('读取失败'); return [item] }, getCategories: () => [], getSettings: () => ({}), getHideCompleted: () => false, setTaskStatus() {}, toggleGroupCollapsed() {} },
+    '../../utils/occurrence': { repeatLabel: () => '', parseRepeatRule: () => ({ kind: 'none' }), occursOn: () => false },
+    '../../api/reminders': { reminderState: () => ({ warnings: [] }), reminderSummary: () => '', subscribeReminderState: () => () => {}, syncTaskReminders() {} },
+    '../../api/android': { androidSettings() {} },
+    '../../utils/task': { compareTasks: () => 0, matchesTaskFilter: () => true, taskMark: () => '', validateTaskDateRange() {} },
+    '../../utils/date': { shortDate: () => '', weekday: () => '', todayString: () => '2026-10-01' },
+    '../../utils/platform': { toast() {} },
+    '../../utils/pull-sync.js': { usePullSync: () => ({ refreshing: vue.ref(false), refresh() {} }) }
+  }
+  const context = vm.createContext({ setTimeout, clearTimeout, console })
+  const module = new vm.SourceTextModule(compiled, { context })
+  await module.link(specifier => new vm.SyntheticModule(Object.keys(modules[specifier]), function () {
+    for (const [key, value] of Object.entries(modules[specifier])) this.setExport(key, value)
+  }, { context }))
+  await module.evaluate()
+  const renderer = vue.createRenderer({
+    createElement: type => ({ type, children: [], props: {} }), createText: text => ({ text }), createComment: text => ({ text }),
+    setText: (node, text) => { node.text = text }, setElementText: (node, text) => { node.text = text; node.children = [] },
+    patchProp: (node, key, _old, value) => { node.props[key] = value },
+    insert: (node, parent, anchor) => { if (node.parent) { const old = node.parent.children.indexOf(node); if (old >= 0) node.parent.children.splice(old, 1) }; node.parent = parent; const index = parent.children.indexOf(anchor); parent.children.splice(index < 0 ? parent.children.length : index, 0, node) },
+    remove: node => { const index = node.parent?.children.indexOf(node); if (index >= 0) node.parent.children.splice(index, 1) },
+    parentNode: node => node.parent, nextSibling: node => node.parent?.children[node.parent.children.indexOf(node) + 1] || null
+  })
+  const root = { children: [] }
+  const app = renderer.createApp(module.namespace.default)
+  for (const name of ['scroll-view', 'picker']) app.component(name, { setup(_props, { slots }) { return () => vue.h(name, slots.default?.()) } })
+  app.mount(root)
+  const find = (node, predicate) => predicate(node) ? node : (node.children || []).map(child => find(child, predicate)).find(Boolean)
+  try {
+    callbacks.show()
+    await vue.nextTick()
+    const row = find(root, node => node.props?.class === 'task-item')
+    row.props.onLongpress()
+    row.props.onClick()
+    await vue.nextTick()
+    const quick = instances.quick
+    assert.equal(quick.props.visible, true)
+    assert.equal(instances.task.props.visible, false)
+    quick.draft = '调整草稿'
+    failing = true
+    callbacks.show()
+    await vue.nextTick()
+    assert.equal(instances.quick, quick)
+    assert.equal(quick.unmounted, false)
+    assert.equal(quick.props.visible, true)
+    assert.equal(quick.draft, '调整草稿')
+    assert.equal(callbacks.back(), true)
+    await vue.nextTick()
+    assert.equal(quick.calls, 1)
+    assert.equal(callbacks.back(), false)
+    failing = false
+    callbacks.show()
+    await vue.nextTick()
+    find(root, node => node.props?.['aria-label'] === '管理分类').props.onClick()
+    await vue.nextTick()
+    const category = instances.category
+    category.draft = '分类草稿'
+    failing = true
+    callbacks.show()
+    await vue.nextTick()
+    assert.equal(instances.category, category)
+    assert.equal(category.unmounted, false)
+    assert.equal(category.props.visible, true)
+    assert.equal(category.draft, '分类草稿')
+    assert.equal(callbacks.back(), true)
+    await vue.nextTick()
+    assert.equal(category.calls, 1)
+    assert.equal(callbacks.back(), false)
+  } finally { app.unmount() }
 })
 
 test('高级规则保持原始 JSON，替换需确认且可以取消', async () => {
@@ -452,6 +657,60 @@ test('子项换位只调整数组顺序，取消拖动恢复开始前顺序', as
     ui.cancelSubtaskDrag()
     assert.equal(ui.draft.subtasks.map(item => item.id).join(','), 'a,b,c')
     assert.equal(ui.dragIndex.value, -1)
+  } finally { ui.close() }
+})
+
+test('子事项测量回调晚于抬手或取消时不启动拖动，也不影响下一次触摸', async () => {
+  const callbacks = []
+  const selectorQuery = () => {
+    const query = { in: () => query, select: () => query, selectAll: () => query, boundingClientRect: () => query, scrollOffset: () => query, exec: callback => callbacks.push(callback) }
+    return query
+  }
+  const ui = await editor({ selectorQuery })
+  const result = [{ top: 0, bottom: 200, height: 200 }, { scrollTop: 0, scrollHeight: 300 }, [{ top: 0, bottom: 50 }, { top: 50, bottom: 100 }]]
+  try {
+    ui.draft.subtasks = [{ id: 'a', title: '甲' }, { id: 'b', title: '乙' }]
+    ui.recordSubtaskTouch(touch(20))
+    ui.startSubtaskDrag(0)
+    ui.landSubtaskDrag()
+    ui.recordSubtaskTouch(touch(70))
+    callbacks.shift()(result)
+    assert.equal(ui.dragIndex.value, -1)
+    assert.equal(ui.drag.timer, null)
+    ui.startSubtaskDrag(1)
+    callbacks.shift()(result)
+    assert.equal(ui.dragIndex.value, 1)
+    ui.cancelSubtaskDrag()
+    ui.recordSubtaskTouch(touch(20))
+    ui.startSubtaskDrag(0)
+    ui.cancelSubtaskDrag()
+    callbacks.shift()(result)
+    assert.equal(ui.dragIndex.value, -1)
+    assert.equal(ui.drag.timer, null)
+  } finally { ui.close() }
+})
+
+test('有效子事项拖动可换位，抬手保存，取消恢复顺序', async () => {
+  let measured
+  const selectorQuery = () => {
+    const query = { in: () => query, select: () => query, selectAll: () => query, boundingClientRect: () => query, scrollOffset: () => query, exec: callback => { measured = callback } }
+    return query
+  }
+  const ui = await editor({ selectorQuery })
+  try {
+    ui.draft.subtasks = [{ id: 'a', title: '甲' }, { id: 'b', title: '乙' }]
+    const start = () => { ui.recordSubtaskTouch(touch(20)); ui.startSubtaskDrag(0); measured([{ top: 0, bottom: 200, height: 200 }, { scrollTop: 0, scrollHeight: 200 }, [{ top: 0, bottom: 50 }, { top: 50, bottom: 100 }]]) }
+    start()
+    ui.moveSubtaskDrag(touch(90))
+    assert.equal(ui.draft.subtasks.map(item => item.id).join(','), 'b,a')
+    ui.cancelSubtaskDrag()
+    assert.equal(ui.draft.subtasks.map(item => item.id).join(','), 'a,b')
+    start()
+    ui.moveSubtaskDrag(touch(90))
+    ui.landSubtaskDrag()
+    await vue.nextTick()
+    assert.equal(ui.writes.at(-1).children.map(item => item.id).join(','), 'b,a')
+    assert.equal(ui.drag.timer, null)
   } finally { ui.close() }
 })
 

@@ -7,6 +7,10 @@ export function taskMark(task) {
   return task.status === 'done' ? '✓' : task.status === 'failed' ? '×' : marks[priorityRank[task.priority] ?? 3]
 }
 
+export function planningStatusLabel(task) {
+  return task.planningDeleted ? '已删除' : ({ todo: '待办', done: '已完成', failed: '已失败' })[task.status] || '未知状态'
+}
+
 export function compareTasks(a, b) {
   const state = Number(a.status !== 'todo') - Number(b.status !== 'todo')
   const date = (a.plannedDate || '9999').localeCompare(b.plannedDate || '9999')

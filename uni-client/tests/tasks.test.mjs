@@ -276,6 +276,156 @@ test('多个改期实例与原实例在同一天全部显示', () => {
   assert.equal(resolveTasksForDate([source], '2026-10-10').length, 0)
 })
 
+test('规划状态包含三态和普通删除投影，不受旧偏好影响且不修改数据', () => {
+  const before = structuredClone(load())
+  try {
+    const records = [
+      task({ id: 'todo', status: 'todo' }), task({ id: 'done', status: 'done' }),
+      task({ id: 'failed', status: 'failed' }), task({ id: 'deleted', title: '', status: 'failed', deletedAt: 10 }),
+      task({ id: 'child', parentTaskId: 'deleted', deletedAt: 10 }),
+      { id: 'bare', deletedAt: 10 }, { id: 'undated', status: 'done', deletedAt: 10, plannedDate: null },
+      { id: 'invalid-date', status: 'todo', deletedAt: 10, plannedDate: '2026-02-30' },
+      { id: 'date-only', deletedAt: 10, plannedDate: '2026-10-10' }
+    ]
+    saveStorage({ ...before, tasks: records, settings: { hideCompleted: true } }, { strict: true, remote: true })
+    const snapshot = structuredClone(load())
+    const diskBefore = structuredClone(disk)
+    const count = writes
+    const result = store.planningTasksForDates(['2026-10-10', '2026-10-10', '2026-02-30', 'bad', null, '2026-10-11'])
+    assert.deepEqual(Object.keys(result), ['2026-10-10', '2026-10-11'])
+    assert.deepEqual(result['2026-10-11'], [])
+    const items = Object.fromEntries(result['2026-10-10'].map(item => [item.id, item]))
+    assert.deepEqual(Object.keys(items).sort(), ['date-only', 'deleted', 'done', 'failed', 'todo'])
+    for (const status of ['todo', 'done', 'failed']) {
+      assert.equal(items[status].status, status)
+      assert.equal(items[status].planningDeleted, false)
+    }
+    assert.equal(items.deleted.status, 'failed')
+    assert.equal(items.deleted.planningDeleted, true)
+    assert.equal(items.deleted.title, '已删除事项')
+    assert.equal(items['date-only'].title, '已删除事项')
+    assert.equal(Object.hasOwn(items['date-only'], 'status'), false)
+    assert.equal(store.tasksForDate('2026-10-10').some(item => item.id === 'done'), false)
+    assert.deepEqual(store.listTasks().map(item => item.id).sort(), ['done', 'failed', 'todo'])
+    assert.deepEqual(load(), snapshot)
+    assert.deepEqual(disk, diskBefore)
+    assert.equal(writes, count)
+    items.todo.title = '仅修改投影'
+    assert.equal(load().tasks.find(item => item.id === 'todo').title, '测试事项')
+  } finally { saveStorage(before, { strict: true, remote: true }) }
+})
+
+test('规划状态按源日期展示删除实例，保留改期同日实例及已删除源的明确墓碑', () => {
+  const before = structuredClone(load())
+  try {
+    const source = task({ id: 'repeat', plannedDate: '2026-10-10', repeatRule: '{"kind":"daily"}', occurrenceOverrides: JSON.stringify({
+      '2026-10-08': { plannedDate: '2026-10-10', status: 'done', title: '已移动一' },
+      '2026-10-09': { plannedDate: '2026-10-10', status: 'failed', title: '已移动二' },
+      '2026-10-11': { plannedDate: '2026-10-12', status: 'failed', title: '删除的改期实例', deleted: true, id: '错误覆盖', planningDeleted: false },
+      '2026-09-01': { status: 'done', deleted: true },
+      '2026-02-30': { deleted: true },
+      'not-a-date': { deleted: true },
+      '2026-02-31': { status: 'done', plannedDate: '2026-10-10' }
+    }) })
+    const removed = task({ id: 'removed-repeat', title: '', deletedAt: 20, repeatRule: '{"kind":"daily"}', occurrenceOverrides: JSON.stringify({
+      '2026-10-10': { deleted: true, status: 'done', plannedDate: '2026-10-12' },
+      '2026-10-11': { status: 'failed' }
+    }) })
+    const changedRule = task({ id: 'changed-rule', repeatRule: '{"kind":"weekly"}', occurrenceOverrides: JSON.stringify({ '2026-10-11': { deleted: true, status: 'done' } }) })
+    const bare = { id: 'bare-repeat', deletedAt: 10, repeatRule: '{"kind":"daily"}', occurrenceOverrides: JSON.stringify({ '2026-10-11': { deleted: true } }) }
+    const child = task({ id: 'child-repeat', parentTaskId: 'repeat', repeatRule: '{"kind":"daily"}', occurrenceOverrides: JSON.stringify({ '2026-10-11': { deleted: true } }) })
+    saveStorage({ ...before, tasks: [source, removed, changedRule, bare, child], settings: { hideCompleted: true, hideCompletedByView: { month: true } } }, { strict: true, remote: true })
+    const snapshot = structuredClone(load())
+    const result = store.planningTasksForDates(['2026-09-01', '2026-10-10', '2026-10-11', '2026-10-12', '2026-11-01'])
+    const day10 = result['2026-10-10']
+    assert.deepEqual(day10.filter(item => item.id.startsWith('repeat@')).map(item => item.id).sort(), ['repeat@2026-10-08', 'repeat@2026-10-09', 'repeat@2026-10-10'])
+    assert.equal(day10.find(item => item.id === 'repeat@2026-10-08').status, 'done')
+    assert.equal(day10.find(item => item.id === 'repeat@2026-10-09').status, 'failed')
+    const removedInstance = day10.find(item => item.id === 'removed-repeat@2026-10-10')
+    assert.equal(removedInstance.planningDeleted, true)
+    assert.equal(removedInstance.title, '已删除事项')
+    assert.equal(removedInstance.status, 'done')
+    assert.equal(removedInstance.plannedDate, '2026-10-10')
+    const day11 = result['2026-10-11']
+    const deleted = day11.find(item => item.id === 'repeat@2026-10-11')
+    assert.equal(deleted.title, '删除的改期实例')
+    assert.equal(deleted.status, 'failed')
+    assert.equal(deleted.plannedDate, '2026-10-11')
+    assert.equal(deleted.planningDeleted, true)
+    assert.equal(day11.find(item => item.id === 'changed-rule@2026-10-11').status, 'done')
+    assert.equal(day11.find(item => item.id === 'bare-repeat@2026-10-11').title, '已删除事项')
+    assert.equal(Object.hasOwn(day11.find(item => item.id === 'bare-repeat@2026-10-11'), 'status'), false)
+    assert.equal(day11.some(item => item.id.startsWith('child-repeat@')), false)
+    assert.equal(result['2026-09-01'].find(item => item.id === 'repeat@2026-09-01').planningDeleted, true)
+    assert.equal(result['2026-10-12'].some(item => item.id === deleted.id || item.id.startsWith('removed-repeat@')), false)
+    assert.equal(result['2026-11-01'].some(item => item.id.startsWith('removed-repeat@')), false)
+    assert.equal(store.findTask(deleted.id), null)
+    assert.equal(store.tasksForDate('2026-10-11').some(item => item.id === deleted.id), false)
+    assert.deepEqual(load(), snapshot)
+  } finally { saveStorage(before, { strict: true, remote: true }) }
+})
+
+test('规划状态读取真实删除和改期操作，不触发额外写入或提醒', async () => {
+  const before = structuredClone(load())
+  try {
+    saveStorage({ ...before, tasks: [], settings: { ...before.settings, hideCompletedByView: { month: true } } }, { strict: true, remote: true })
+    const parent = store.saveTask(task({ title: '普通事项' }), [{ title: '子项' }])
+    await parent.reminderPromise
+    const source = store.saveTask(task({ title: '重复事项', repeatRule: '{"kind":"daily"}' }))
+    await source.reminderPromise
+    const id = `${source.id}@2026-10-11`
+    const moved = store.saveTask({ id, title: '当次', plannedDate: '2026-10-12' }, undefined, { status: 'done' })
+    await moved.reminderPromise
+    store.removeTask(id)
+    store.removeTask(parent.id)
+    await syncTaskReminders(store.listTasks())
+    const snapshot = structuredClone(load())
+    const diskBefore = structuredClone(disk)
+    const count = writes
+    let reminders = 0
+    globalThis.plus = { os: { name: 'Android' }, android: { runtimeMainActivity: () => ({}), invoke: () => { reminders++; return '{"supported":true}' } } }
+    const result = store.planningTasksForDates(['2026-10-10', '2026-10-11', '2026-10-12'])
+    assert.equal(result['2026-10-10'].find(item => item.id === parent.id).planningDeleted, true)
+    assert.equal(result['2026-10-10'].some(item => item.parentTaskId), false)
+    const deleted = result['2026-10-11'].find(item => item.id === id)
+    assert.equal(deleted.planningDeleted, true)
+    assert.equal(deleted.status, 'done')
+    assert.equal(deleted.title, '当次')
+    assert.equal(deleted.plannedDate, '2026-10-11')
+    assert.equal(result['2026-10-12'].some(item => item.id === id), false)
+    assert.equal(store.findTask(id), null)
+    assert.deepEqual(load(), snapshot)
+    assert.deepEqual(disk, diskBefore)
+    assert.equal(writes, count)
+    assert.equal(reminders, 0)
+  } finally { delete globalThis.plus; saveStorage(before, { strict: true, remote: true }) }
+})
+
+test('规划状态一次调用只读取一次存储', async () => {
+  const data = structuredClone(load())
+  let reads = 0
+  const source = await readFile(new URL('../src/api/store.js', import.meta.url), 'utf8')
+  const dependencies = {
+    './storage.js': { load: () => { reads++; return data }, reset() {}, save() {} },
+    '../../../shared/anniversary.mjs': await import('../../shared/anniversary.mjs'),
+    '../utils/occurrence.js': await import('../src/utils/occurrence.js'),
+    '../utils/date.js': await import('../src/utils/date.js'),
+    '../utils/task.js': await import('../src/utils/task.js'),
+    './reminders.js': await import('../src/api/reminders.js'),
+    './sync-outbox.js': await import('../src/api/sync-outbox.js')
+  }
+  const context = vm.createContext({})
+  const module = new vm.SourceTextModule(source, { context })
+  await module.link(specifier => new vm.SyntheticModule(Object.keys(dependencies[specifier]), function () {
+    for (const [key, value] of Object.entries(dependencies[specifier])) this.setExport(key, value)
+  }, { context }))
+  await module.evaluate()
+  module.namespace.planningTasksForDates(['2026-10-10', '2026-10-11', '2026-10-12'])
+  assert.equal(reads, 1)
+  module.namespace.planningTasksForDates([])
+  assert.equal(reads, 2)
+})
+
 test('父子原子保存、全部子项删除、存储失败不污染缓存、不排程', async () => {
   const calls = []
   globalThis.plus = { os: { name: 'Android' }, android: { runtimeMainActivity: () => ({}), invoke: (_, method, context, snapshot) => { calls.push(snapshot); return '{"supported":true}' } } }

@@ -11,6 +11,9 @@
       <view role="tab" tabindex="0" :aria-selected="viewMode === 'week'" :class="['view-tab', { active: viewMode === 'week' }]" @click="switchView('week')" @keydown.enter.prevent="switchView('week')" @keydown.space.prevent="switchView('week')">周</view>
       <view role="tab" tabindex="0" :aria-selected="viewMode === 'month'" :class="['view-tab', { active: viewMode === 'month' }]" @click="switchView('month')" @keydown.enter.prevent="switchView('month')" @keydown.space.prevent="switchView('month')">月</view>
     </view>
+    <view class="status-filters" role="group" aria-label="筛选事项状态">
+      <view v-for="[value, label] in statusOptions" :key="value" role="button" tabindex="0" :aria-pressed="statusFilter === value" :class="['status-filter', { active: statusFilter === value }]" @click="statusFilter = value" @keydown.enter.prevent="statusFilter = value" @keydown.space.prevent="statusFilter = value">{{ label }}</view>
+    </view>
 
     <scroll-view class="month-scroll" scroll-y refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh">
       <view class="month-head">
@@ -35,8 +38,8 @@
             <text class="day-subtitle" :class="{ 'has-marker': calendarMeta[date].marker }">{{ calendarMeta[date].marker || calendarMeta[date].lunarLabel }}</text>
             <view class="day-items">
               <view v-for="item in dayData[date].anniversaries.slice(0, 2)" :key="item.anniversaryId" :class="['day-item', 'day-anniversary', `kind-${item.kind}`, { commemorated: item.record?.confirmedAt }]"><text>{{ marks[item.kind] }} {{ item.label }}{{ item.record?.confirmedAt ? ' ✓' : '' }}</text></view>
-              <view v-for="task in dayData[date].tasks.slice(0, Math.max(0, 2 - dayData[date].anniversaries.length))" :key="task.id" class="day-item" :style="{ background: colorOf(task) }">
-                <text class="day-task-mark">{{ taskMark(task) }}</text><text class="day-task-title">{{ task.title }}</text>
+              <view v-for="task in dayData[date].tasks.slice(0, Math.max(0, 2 - dayData[date].anniversaries.length))" :key="task.id" :class="['day-item', { 'day-task-ended': task.planningDeleted || task.status !== 'todo' }]" :style="{ background: colorOf(task) }" :aria-label="`${task.title}，${planningStatusLabel(task)}`">
+                <text class="day-task-mark">{{ task.planningDeleted ? '−' : taskMark(task) }}</text><text class="day-task-title">{{ task.title }}</text>
               </view>
               <text v-if="dayData[date].count > 2" class="day-more">+{{ dayData[date].count - 2 }}</text>
             </view>
@@ -89,9 +92,9 @@ import QuickAdjustSheet from '../../components/QuickAdjustSheet.vue'
 import AnniversaryRecordSheet from '../../components/AnniversaryRecordSheet.vue'
 import { anniversaryOccurrences, anniversaryTypes } from '../../../../shared/anniversary.mjs'
 import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../../api/holiday'
-import { tasksForDate, getCategories, listAnniversaries, listAnniversaryRecords } from '../../api/store'
+import { planningTasksForDates, getCategories, listAnniversaries, listAnniversaryRecords } from '../../api/store'
 import { addDays, monthDates, monthTitle, shiftMonth, todayString, weekDates, weekTitle, weekday } from '../../utils/date'
-import { taskMark } from '../../utils/task'
+import { planningStatusLabel, taskMark } from '../../utils/task'
 import { resolveCalendarMeta } from '../../utils/calendar-meta'
 import { usePullSync } from '../../utils/pull-sync.js'
 
@@ -110,7 +113,13 @@ const ready = ref(false)
 const loadError = ref('')
 const taskSheet = ref(null)
 const categories = ref([])
-const dayData = ref({})
+const allDayData = ref({})
+const statusFilter = ref('all')
+const statusOptions = [['all', '全部'], ['todo', '待办'], ['done', '已完成'], ['failed', '已失败'], ['deleted', '已删除']]
+const dayData = computed(() => Object.fromEntries(Object.entries(allDayData.value).map(([date, day]) => {
+  const tasks = statusFilter.value === 'all' ? day.tasks : day.tasks.filter(task => (task.planningDeleted ? 'deleted' : task.status) === statusFilter.value)
+  return [date, { ...day, tasks, count: tasks.length + day.anniversaries.length }]
+})))
 const selectedDate = ref('')
 const activeRecord = ref(null)
 const recordSheet = ref(null)
@@ -151,6 +160,7 @@ onBackPress(() => {
 function scheduleDay() { clearTimeout(dayTimer); const next = new Date(); next.setHours(24, 0, 0, 0); dayTimer = setTimeout(() => { reload(); scheduleDay() }, next.getTime() - Date.now() + 100) }
 function releasePage() {
   clearTimeout(dayTimer)
+  statusFilter.value = 'all'
   holidayRefreshRequestId++
   // #ifdef H5
   window.removeEventListener('focus', reload)
@@ -238,7 +248,7 @@ function openCreate(date) {
   sheetVisible.value = true
 }
 function editTask(task) {
-  if (Date.now() - longPressAt < 700) return
+  if (!task || task.planningDeleted || Date.now() - longPressAt < 700) return
   if (sheetVisible.value || !reload()) return
   editingTask.value = task
   if (viewMode.value === 'month') selectedDate.value = ''
@@ -248,7 +258,7 @@ function openRecord(item) {
   activeRecord.value = item
 }
 function openQuickAdjust(task) {
-  if (!task || sheetVisible.value || adjustVisible.value) return
+  if (!task || task.planningDeleted || sheetVisible.value || adjustVisible.value) return
   longPressAt = Date.now()
   if (!reload()) return
   adjustingTask.value = task
@@ -266,12 +276,12 @@ function reload() {
     const dates = days.value
     const cats = getCategories().map(cat => ({ ...cat }))
     const occurrences = anniversaryOccurrences(listAnniversaries(), dates[0], dates[dates.length - 1], listAnniversaryRecords({ startDate: dates[0], endDate: dates[dates.length - 1] }))
+    const tasksByDate = planningTasksForDates(dates)
     const map = {}
-    dates.forEach(date => { map[date] = { tasks: tasksForDate(date).map(task => ({ ...task })), anniversaries: [], count: 0 } })
+    dates.forEach(date => { map[date] = { tasks: tasksByDate[date], anniversaries: [] } })
     occurrences.forEach(item => { if (map[item.date]) map[item.date].anniversaries.push(item) })
-    dates.forEach(date => { map[date].count = map[date].tasks.length + map[date].anniversaries.length })
     categories.value = cats
-    dayData.value = map
+    allDayData.value = map
     loadError.value = ''
     ready.value = true
     return true
@@ -325,6 +335,30 @@ function reload() {
   color: #fff;
   font-weight: 600;
 }
+
+.status-filters {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8rpx;
+  padding: 0 28rpx 14rpx;
+  background: var(--panel);
+}
+
+.status-filter {
+  flex: 1;
+  min-width: 0;
+  border-radius: 12rpx;
+  background: #f3f7fb;
+  color: #5c7187;
+  font-size: 22rpx;
+  line-height: 56rpx;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.status-filter.active { background: #dceefe; color: #1668af; font-weight: 600; }
+.status-filter:focus-visible { outline: 4rpx solid #79a9d7; outline-offset: -4rpx; }
+.day-task-ended { opacity: .72; }
 
 .week-strip {
   display: flex;

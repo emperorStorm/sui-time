@@ -68,9 +68,9 @@
 
     <button class="fab" role="button" tabindex="0" aria-label="新增事项" @click="openEdit(null)" @keydown.enter.prevent="openEdit(null)" @keydown.space.prevent="openEdit(null)">＋</button>
 
-    <QuickAdjustSheet ref="adjustSheet" :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
-    <CategoryManageSheet ref="categorySheet" :visible="manageVisible" @close="manageVisible = false" @changed="onCategoriesChanged" />
     </template>
+    <QuickAdjustSheet v-if="ready || adjustVisible" ref="adjustSheet" :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
+    <CategoryManageSheet v-if="ready || manageVisible" ref="categorySheet" :visible="manageVisible" @close="manageVisible = false" @changed="onCategoriesChanged" />
     <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :task="editingTask" @close="closeSheet" @saved="reload" />
   </view>
 </template>

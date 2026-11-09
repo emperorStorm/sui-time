@@ -40,13 +40,14 @@
             </view>
             <text class="row-chevron">›</text>
           </button>
-          <view v-for="[view, label] in [['tasks', '事项列表'], ['month', '规划月历']]" :key="view" class="mine-row">
+          <view class="mine-row">
             <view>
-              <text class="row-title">{{ label }}隐藏已结束</text>
+              <text class="row-title">事项列表隐藏已结束</text>
               <text class="row-hint">隐藏已完成和已失败事项</text>
             </view>
-            <switch :key="`${view}-${switchRevision}`" role="switch" tabindex="0" :aria-label="`${label}隐藏已结束`" :aria-checked="settings.hideCompletedByView[view]" :checked="settings.hideCompletedByView[view]" color="#2996f6" @change="toggleHideCompleted(view, $event)" @keydown.enter.prevent="toggleHideCompleted(view, { detail: { value: !settings.hideCompletedByView[view] } })" @keydown.space.prevent="toggleHideCompleted(view, { detail: { value: !settings.hideCompletedByView[view] } })" />
+            <switch :key="`tasks-${switchRevision}`" role="switch" tabindex="0" aria-label="事项列表隐藏已结束" :aria-checked="settings.hideCompletedByView.tasks" :checked="settings.hideCompletedByView.tasks" color="#2996f6" @change="toggleHideCompleted('tasks', $event)" @keydown.enter.prevent="toggleHideCompleted('tasks', { detail: { value: !settings.hideCompletedByView.tasks } })" @keydown.space.prevent="toggleHideCompleted('tasks', { detail: { value: !settings.hideCompletedByView.tasks } })" />
           </view>
+          <view class="mine-row"><view><text class="row-title">规划事项状态</text><text class="row-hint">默认显示全部，可在规划页筛选</text></view></view>
         </view>
 
         <view class="mine-section panel">
@@ -68,14 +69,14 @@
       </view>
     </view>
 
-    <UpdateSheet :visible="updateVisible" :state="updateState" @close="closeUpdate" @download="downloadUpdate" @cancel="cancelDownload" @install="installDownloaded" @check="openUpdate" @browser="openUpdateInBrowser" />
     </template>
+    <UpdateSheet :visible="updateVisible" :state="updateState" @close="closeUpdate" @download="downloadUpdate" @cancel="cancelDownload" @install="installDownloaded" @check="openUpdate" @browser="openUpdateInBrowser" />
   </view>
 </template>
 
 <script setup>
 import { onBeforeUnmount, ref } from 'vue'
-import { onShow, onUnload } from '@dcloudio/uni-app'
+import { onBackPress, onShow, onUnload } from '@dcloudio/uni-app'
 import UpdateSheet from '../../components/UpdateSheet.vue'
 import { getProfile, getSettings, setHideCompleted, restoreDemoData, listTasks } from '../../api/store'
 import { reminderState, reminderSummary, subscribeReminderState, syncTaskReminders } from '../../api/reminders'
@@ -117,6 +118,11 @@ onShow(() => {
   load()
   reminder.value = reminderState()
   currentVersion.value = installedVersion().version
+})
+onBackPress(() => {
+  if (!updateVisible.value) return false
+  if (!['downloading', 'installing'].includes(updateState.value.status)) closeUpdate()
+  return true
 })
 
 function load() {

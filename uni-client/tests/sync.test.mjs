@@ -926,26 +926,36 @@ test('下拉控件防重入、反馈失败并在页面隐藏或重入后不跨�
 
 test('恢复演示数据依据账号状态提示影响范围并在确认时复核', async () => {
   const modals = [], messages = []
+  let back
   const meta = { deviceId: 'd1', remoteUserId: null }
   let restores = 0
   const context = vm.createContext({ uni: { showModal: options => modals.push(options) } })
   const dependencies = {
     vue: { ref: value => ({ value }), onBeforeUnmount() {} },
-    '@dcloudio/uni-app': { onShow: fn => fn(), onUnload() {} },
+    '@dcloudio/uni-app': { onShow: fn => fn(), onUnload() {}, onBackPress: fn => { back = fn } },
     '../../components/UpdateSheet.vue': { default: {} },
-    '../../api/store': { getProfile: () => ({}), getSettings: () => ({}), setHideCompleted() {}, restoreDemoData: () => { restores++ } },
+    '../../api/store': { getProfile: () => ({}), getSettings: () => ({}), setHideCompleted() {}, restoreDemoData: () => { restores++ }, listTasks: () => [] },
     '../../api/update': { checkUpdate() {}, downloadUpdate() {}, cancelDownload() {}, installDownloaded() {}, installedVersion: () => ({ version: '1.0.0' }), subscribeUpdate: () => () => {}, openUpdateInBrowser() {} },
+    '../../api/reminders': { reminderState: () => ({}), reminderSummary() {}, subscribeReminderState: () => () => {}, syncTaskReminders() {} },
+    '../../api/android': { androidSettings() {} },
+    '../../utils/occurrence': { repeatLabel() {} },
     '../../utils/platform': { toast: message => messages.push(message) },
     '../../api/storage.js': { load: () => ({ syncMeta: meta }) }
   }
   const source = await readFile(new URL('../src/pages/profile/index.vue', import.meta.url), 'utf8')
   const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1]
-  const module = new vm.SourceTextModule(`${script}\nexport { restore }`, { context })
+  const module = new vm.SourceTextModule(`${script}\nexport { restore, updateVisible, updateState }`, { context })
   await module.link(specifier => {
     const values = dependencies[specifier]
     return new vm.SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value) }, { context })
   })
   await module.evaluate()
+  assert.equal(back(), false)
+  module.namespace.updateVisible.value = true
+  module.namespace.updateState.value = { status: 'downloading' }
+  assert.equal(back(), true); assert.equal(module.namespace.updateVisible.value, true)
+  module.namespace.updateState.value = { status: 'ready' }
+  assert.equal(back(), true); assert.equal(module.namespace.updateVisible.value, false)
   module.namespace.restore(); module.namespace.restore()
   assert.equal(modals.length, 1); assert.match(modals[0].content, /以后绑定同步时.*可能上传到云端/)
   meta.remoteUserId = 'u1'; modals[0].success({ confirm: true }); modals[0].complete()
