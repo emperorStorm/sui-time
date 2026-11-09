@@ -1,6 +1,6 @@
 <template>
   <transition name="sheet">
-    <view v-if="visible" class="sheet-layer" :style="{ backgroundColor: `rgba(30, 44, 61, ${0.45 * (1 - Math.min(sheetOffset / 400, 1))})` }" @click="requestClose">
+    <view v-if="visible" v-show="!suspended" class="sheet-layer" :style="{ backgroundColor: `rgba(30, 44, 61, ${0.45 * (1 - Math.min(sheetOffset / 400, 1))})` }" @click="requestClose">
       <view :class="['sheet', { 'is-swiping': swipe.active }]" :style="{ '--sheet-offset': `${sheetOffset}px` }" @click.stop @touchmove="moveSheetSwipe" @touchend="endSheetSwipe" @touchcancel="cancelSheetSwipe">
       <view class="sheet-header" @touchstart="startSheetSwipe">
         <view class="sheet-grab" aria-hidden="true" />
@@ -83,6 +83,7 @@ import { toast } from '../utils/platform'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
+  suspended: { type: Boolean, default: false },
   task: { type: Object, default: null },
   presetDate: { type: String, default: '' }
 })
@@ -100,6 +101,10 @@ const reminderWarning = ref('')
 let initializing = false
 let revision = 0
 let generation = 0
+let interaction = 0
+let swipeToken = 0
+let swipeTimer
+let dragRecoveryTimer
 let newSession = false
 let expectedSnapshot = null
 let conflict = false
@@ -161,6 +166,7 @@ async function selectRepeatKind(kind) {
   if (occurrence.value || actionBusy.value) return
   if (!advancedRule.value) { draft.repeatKind = kind; return }
   const session = generation
+  const token = interaction
   const original = draft.repeatRule
   actionBusy.value = true
   try {
@@ -169,11 +175,11 @@ async function selectRepeatKind(kind) {
       content: `将用“${repeatLabel(kind)}”替换当前完整重复规则，包括间隔、结束条件等设置。此操作不能自动恢复。`,
       confirmText: '替换', success: resolve, fail: () => resolve({ confirm: false })
     }))
-    if (result.confirm && session === generation && props.visible && !closeEmitted && draft.repeatRule === original) {
+    if (result.confirm && session === generation && token === interaction && props.visible && !props.suspended && !closeEmitted && draft.repeatRule === original) {
       draft.repeatRule = JSON.stringify({ kind })
       draft.repeatKind = kind
     }
-  } finally { if (session === generation) actionBusy.value = false }
+  } finally { if (session === generation && token === interaction) actionBusy.value = false }
 }
 
 watch(
@@ -181,12 +187,12 @@ watch(
   (visible) => {
     clearTimeout(saveTimer)
     generation++
+    interaction++
     pendingClose = null
     closeEmitted = false
     saving.value = false
     actionBusy.value = false
-    swipe.tracking = false
-    swipe.active = false
+    cancelSheetSwipe()
     cancelSubtaskDrag()
     dragScrollTop.value = 0
     if (!visible) return
@@ -245,6 +251,17 @@ watch(
   }
 )
 
+watch(() => props.suspended, (suspended) => {
+  if (!props.visible || !suspended) return
+  interaction++
+  pendingClose = null
+  actionBusy.value = false
+  cancelSheetSwipe()
+  cancelSubtaskDrag()
+  clearTimeout(saveTimer)
+  void flushDraft()
+}, { flush: 'sync' })
+
 watch(draft, () => {
   if (initializing || !props.visible) return
   revision++
@@ -266,7 +283,15 @@ function onDateChange(event) {
   setTime({ plannedDate: event.detail.value })
 }
 
+function armSwipeRecovery() {
+  const token = swipeToken
+  clearTimeout(swipeTimer)
+  swipeTimer = setTimeout(() => { if (token === swipeToken) cancelSheetSwipe() }, 4000)
+}
+
 function startSheetSwipe(event, inBody = false) {
+  if (props.suspended) return
+  if (swipe.tracking) cancelSheetSwipe()
   if (event.touches?.length !== 1) { cancelSheetSwipe(); return }
   if (actionBusy.value || pendingClose || dragIndex.value >= 0 || drag.touching || (inBody && dragScrollTop.value > 0)) return
   const touch = event.touches[0]
@@ -276,16 +301,19 @@ function startSheetSwipe(event, inBody = false) {
   swipe.startY = swipe.lastY = touch.clientY
   swipe.lastTime = Date.now()
   swipe.velocity = 0
+  swipeToken++
+  armSwipeRecovery()
 }
 
 function moveSheetSwipe(event) {
   if (!swipe.tracking) return
+  armSwipeRecovery()
   if (event.touches?.length !== 1) { cancelSheetSwipe(); return }
   const touch = event.touches[0]
   const dx = touch.clientX - swipe.startX
   const dy = touch.clientY - swipe.startY
   if (!swipe.active && (dy < -8 || Math.abs(dx) > Math.max(12, dy))) { cancelSheetSwipe(); return }
-  if (!swipe.active && dy > 8) { swipe.active = true; swipe.blockClick = true }
+  if (!swipe.active && dy > 8) { clearTimeout(swipeBlockTimer); swipe.active = true; swipe.blockClick = true }
   if (!swipe.active) return
   event.preventDefault?.()
   const now = Date.now()
@@ -299,6 +327,8 @@ function moveSheetSwipe(event) {
 async function endSheetSwipe(event) {
   if (!swipe.tracking) return
   if (event.touches?.length) { cancelSheetSwipe(); return }
+  const token = ++swipeToken
+  clearTimeout(swipeTimer)
   const active = swipe.active
   const shouldClose = active && (sheetOffset.value >= 110 || (sheetOffset.value >= 35 && swipe.velocity >= 0.6 && Date.now() - swipe.lastTime < 120))
   swipe.tracking = false
@@ -310,11 +340,13 @@ async function endSheetSwipe(event) {
   if (shouldClose) {
     const session = generation
     const closed = await requestClose()
-    if (!closed && session === generation) sheetOffset.value = 0
+    if (!closed && session === generation && token === swipeToken) sheetOffset.value = 0
   } else sheetOffset.value = 0
 }
 
 function cancelSheetSwipe() {
+  swipeToken++
+  clearTimeout(swipeTimer)
   if (swipe.active) releaseSwipeBlock()
   swipe.tracking = false
   swipe.active = false
@@ -355,12 +387,21 @@ function moveSubtaskTo(from, to) {
   draft.subtasks = children
 }
 
+function armDragRecovery() {
+  const token = drag.token
+  clearTimeout(dragRecoveryTimer)
+  dragRecoveryTimer = setTimeout(() => { if (token === drag.token) cancelSubtaskDrag() }, 4000)
+}
+
 function recordSubtaskTouch(event) {
+  if (props.suspended) return
+  if (drag.touching) cancelSubtaskDrag()
   const touch = event.touches?.[0]
   if (!touch || dragIndex.value >= 0) return
   drag.touching = true
   drag.startY = touch.clientY
   drag.y = touch.clientY
+  armDragRecovery()
 }
 
 function startSubtaskDrag(index) {
@@ -369,6 +410,7 @@ function startSubtaskDrag(index) {
   if (Math.abs(drag.y - drag.startY) > 12) return
   if (typeof uni === 'undefined' || typeof uni.createSelectorQuery !== 'function') return
   const token = ++drag.token
+  armDragRecovery()
   const query = uni.createSelectorQuery().in(instance?.proxy)
   query.select('.sheet-body').boundingClientRect()
   query.select('.sheet-body').scrollOffset()
@@ -392,7 +434,8 @@ function startSubtaskDrag(index) {
 
 function moveSubtaskDrag(event) {
   const touch = event.touches?.[0]
-  if (!touch) return
+  if (!touch || !drag.touching) return
+  armDragRecovery()
   drag.y = touch.clientY
   if (dragIndex.value < 0) return
   event.preventDefault?.()
@@ -449,6 +492,7 @@ function cancelSubtaskDrag() {
 function stopSubtaskDrag() {
   drag.touching = false
   drag.token++
+  clearTimeout(dragRecoveryTimer)
   clearInterval(drag.timer)
   drag.timer = null
   drag.rows = []
@@ -496,10 +540,13 @@ async function drainDraft(session) {
   saving.value = true
   try {
     while (props.visible && session === generation && dirty.value) {
+      if (!draft.title.trim()) { error.value = '请先填写事项名称'; return false }
       const version = revision
       const options = { rememberDefaults: newSession }
       if (draft.id) options.expectedSnapshot = expectedSnapshot
-      const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), options)
+      let saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), options)
+      if (saved && typeof saved.then === 'function') saved = await saved
+      if (session !== generation) return false
       expectedSnapshot = saved.taskSnapshot
       conflict = false
       initializing = true
@@ -550,11 +597,11 @@ async function flushDraft(required = false) {
 }
 
 function requestClose() {
-  if (actionBusy.value || closeEmitted) return Promise.resolve(false)
+  if (props.suspended || actionBusy.value || closeEmitted) return Promise.resolve(false)
   return finishClose()
 }
 
-async function confirmDiscard(session) {
+async function confirmDiscard(session, token = interaction) {
   const version = revision
   const result = await new Promise(resolve => uni.showModal({
     title: '放弃未保存的修改？',
@@ -562,7 +609,7 @@ async function confirmDiscard(session) {
     success: resolve,
     fail: () => resolve({ confirm: false })
   }))
-  if (!result.confirm || session !== generation || revision !== version || !props.visible || closeEmitted) return false
+  if (!result.confirm || session !== generation || token !== interaction || props.suspended || revision !== version || !props.visible || closeEmitted) return false
   clearTimeout(saveTimer)
   dirty.value = false
   closeEmitted = true
@@ -571,7 +618,7 @@ async function confirmDiscard(session) {
 }
 
 function discardAndClose() {
-  if (actionBusy.value || closeEmitted) return Promise.resolve(false)
+  if (props.suspended || actionBusy.value || closeEmitted) return Promise.resolve(false)
   if (pendingClose) return pendingClose
   const operation = confirmDiscard(generation)
   pendingClose = operation
@@ -582,9 +629,10 @@ function discardAndClose() {
 function finishClose() {
   if (pendingClose) return pendingClose
   const session = generation
+  const token = interaction
   const operation = (async () => {
     cancelSubtaskDrag()
-    if (conflict) return confirmDiscard(session)
+    if (conflict) return confirmDiscard(session, token)
     if ((draft.id || dirty.value) && !draft.title.trim()) {
       const version = revision
       const result = await new Promise(resolve => uni.showModal({
@@ -593,7 +641,7 @@ function finishClose() {
         success: resolve,
         fail: () => resolve({ confirm: false })
       }))
-      if (session !== generation || revision !== version || !props.visible) return false
+      if (session !== generation || token !== interaction || props.suspended || revision !== version || !props.visible) return false
       if (!result.confirm) { error.value = '请先填写事项名称'; return false }
       dirty.value = false
       closeEmitted = true
@@ -602,10 +650,10 @@ function finishClose() {
     }
     if (draft.id || dirty.value) {
       do {
-        if (!await flushDraft(true) || session !== generation || !props.visible) return false
+        if (!await flushDraft(true) || session !== generation || token !== interaction || props.suspended || !props.visible) return false
       } while (dirty.value)
     }
-    if (session !== generation || !props.visible) return false
+    if (session !== generation || token !== interaction || props.suspended || !props.visible) return false
     if (reminderWarning.value) toast(reminderWarning.value)
     closeEmitted = true
     emit('close')
@@ -617,16 +665,17 @@ function finishClose() {
 }
 
 async function save() {
-  if (actionBusy.value || conflict) return
+  if (props.suspended || actionBusy.value || conflict) return
   if (!draft.title.trim()) { error.value = '请先填写事项名称'; return }
   await requestClose()
 }
 
 async function remove() {
-  if (actionBusy.value) return
+  if (props.suspended || actionBusy.value) return
   actionBusy.value = true
   clearTimeout(saveTimer)
   const session = generation
+  const token = interaction
   try {
     const result = await new Promise(resolve => uni.showModal({
       title: '删除事项',
@@ -634,9 +683,9 @@ async function remove() {
       success: resolve,
       fail: () => resolve({ confirm: false })
     }))
-    if (!result.confirm || session !== generation) return
+    if (!result.confirm || session !== generation || token !== interaction || props.suspended) return
     if (pendingSave) await pendingSave
-    if (session !== generation) return
+    if (session !== generation || token !== interaction || props.suspended) return
     removeTask(draft.id, { expectedSnapshot })
     dirty.value = false
     toast('已删除')
@@ -644,7 +693,7 @@ async function remove() {
     emit('close')
   } catch (cause) {
     if (session === generation) { conflict = cause.code === 'TASK_CONFLICT'; error.value = cause.message || String(cause) }
-  } finally { if (session === generation) actionBusy.value = false }
+  } finally { if (session === generation && token === interaction) actionBusy.value = false }
 }
 
 function setTime(patch) {
@@ -667,14 +716,15 @@ function toggleOffset(value) {
 async function allowNotifications() { await requestNotificationPermission(); permissions.value = reminderState(); if (!permissions.value.notifications) androidSettings('notifications') }
 function testReminder() { try { sendReminderTest(); toast('测试通知已提交，请查看通知栏') } catch (cause) { error.value = cause.message || String(cause) } }
 async function changeStatus(status) {
-  if (actionBusy.value) return
+  if (props.suspended || actionBusy.value) return
   actionBusy.value = true
   const session = generation
+  const token = interaction
   try {
-    if (!await flushDraft(true) || session !== generation || !props.visible) return
+    if (!await flushDraft(true) || session !== generation || token !== interaction || props.suspended || !props.visible) return
     if (status === 'done' && !occurrence.value && draft.subtasks.filter(child => child.title.trim()).length >= 2) {
       const result = await new Promise(resolve => uni.showModal({ title: '完成全部子事项？', content: '确认后将同时完成该事项及全部子事项。', success: resolve, fail: () => resolve({ confirm: false }) }))
-      if (!result.confirm || session !== generation) return
+      if (!result.confirm || session !== generation || token !== interaction || props.suspended) return
     }
     const version = revision
     const saved = saveTask(taskInput(), occurrence.value ? undefined : draft.subtasks.map(child => ({ ...child })), { status, rememberDefaults: newSession, expectedSnapshot })
@@ -687,11 +737,11 @@ async function changeStatus(status) {
     if (session === generation) await finishClose()
   } catch (cause) {
     if (session === generation) { conflict = cause.code === 'TASK_CONFLICT'; error.value = cause.message || String(cause) }
-  } finally { if (session === generation) actionBusy.value = false }
+  } finally { if (session === generation && token === interaction) actionBusy.value = false }
 }
 
 function refreshPermissions() { if (props.visible) permissions.value = reminderState() }
-function saveOnHide() { cancelSheetSwipe(); if (props.visible) void flushDraft() }
+function saveOnHide() { cancelSheetSwipe(); cancelSubtaskDrag(); if (props.visible && !props.suspended) void flushDraft() }
 function saveOnVisibilityChange() {
   // #ifdef H5
   if (document.visibilityState === 'hidden') saveOnHide()
@@ -703,6 +753,8 @@ uni.$on('reminder-permissions', refreshPermissions)
 onBeforeUnmount(() => {
   clearTimeout(saveTimer)
   clearTimeout(swipeBlockTimer)
+  clearTimeout(swipeTimer)
+  swipeToken++
   stopSubtaskDrag()
   generation++
   uni.$off('reminder-permissions', refreshPermissions)

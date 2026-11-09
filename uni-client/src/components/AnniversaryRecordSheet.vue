@@ -1,5 +1,5 @@
 <template>
-  <view v-if="occurrence" class="record-layer" @click="close">
+  <view v-if="occurrence && !suspended" class="record-layer" @click="close">
     <view class="record-sheet" @click.stop>
       <view class="record-header"><text>本次纪念</text><button :disabled="saving" aria-label="关闭" @click="close">×</button></view>
       <scroll-view class="record-body" scroll-y>
@@ -24,7 +24,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { getAnniversaryRecordSnapshot, saveAnniversaryRecord } from '../api/store'
 import { anniversaryRecordOccurrence } from '../../../shared/anniversary.mjs'
 import { anniversaryCalendar, localToday } from '../utils/anniversary'
-const props = defineProps({ occurrence: { type: Object, default: null }, today: { type: String, default: localToday } })
+const props = defineProps({ occurrence: { type: Object, default: null }, suspended: { type: Boolean, default: false }, today: { type: String, default: localToday } })
 const emit = defineEmits(['close', 'saved'])
 const notes = ref('')
 const record = ref(null)
@@ -56,9 +56,12 @@ watch(() => props.occurrence, (value, previous) => {
     } catch (cause) { error.value = cause.message || String(cause) }
   }
 }, { immediate: true, flush: 'sync' })
+watch(() => props.suspended, suspended => {
+  if (suspended) { generation++; pendingClose = false }
+}, { flush: 'sync' })
 onBeforeUnmount(() => { generation++ })
 async function leave(navigate) {
-  if (!props.occurrence || saving.value || pendingClose || closed) return false
+  if (props.suspended || !props.occurrence || saving.value || pendingClose || closed) return false
   const session = generation
   const current = notes.value
   const id = props.occurrence.anniversaryId
@@ -81,7 +84,7 @@ async function leave(navigate) {
 function close() { return leave(false) }
 function details() { return leave(true) }
 function save(confirmed) {
-  if (!props.occurrence || saving.value || future.value || pendingClose || closed || !snapshotReady) return
+  if (props.suspended || !props.occurrence || saving.value || future.value || pendingClose || closed || !snapshotReady) return
   saving.value = true
   error.value = ''
   try {

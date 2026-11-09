@@ -767,6 +767,72 @@ const base=process.env.MOBILE_TEST_URL || 'http://127.0.0.1:5187';
       await warningPage.locator('.reminder-status-toggle').filter({hasText:'提醒未安排'}).waitFor();
       results.push('提醒部分成功不弹阻断框、警告解除及权限不足状态');
     } finally { await warningPage.close(); }
+    const sessionPage = await context.newPage();
+    try {
+      await sessionPage.goto(base+'/#/pages/tasks/index');
+      await sessionPage.evaluate(() => {
+        const task = { id:'resume-task', title:'恢复测试事项', notes:'', status:'todo', categoryId:'work', plannedDate:'2026-10-01', priority:'not_urgent_not_important', scheduleKind:'all_day', repeatRule:'{"kind":"none"}', createdAt:1 };
+        const fixture = { profile:{name:'验收'}, categories:[{id:'work',name:'工作',color:'#7299d5'},{id:'life',name:'生活',color:'#ff8545'}], settings:{hideCompleted:true,hideCompletedByView:{tasks:true,month:true}}, anniversaries:[], anniversaryRecords:[], tasks:[task] };
+        localStorage.setItem('sui-time-mobile:v2', JSON.stringify({type:'object',data:fixture}));
+      });
+      await sessionPage.reload();
+      await sessionPage.locator('.fab').click();
+      await sessionPage.locator('.sheet .note-area textarea').fill('无标题草稿保留');
+      const switchTab = async name => { await sessionPage.locator('uni-tabbar .uni-tabbar__item').filter({hasText:name}).dispatchEvent('click'); };
+      for (const [name, selector] of [['规划','.planning-page'],['我的','.profile-page'],['目标','.placeholder-page'],['日记','.placeholder-page']]) {
+        await switchTab(name);
+        await sessionPage.locator(selector).waitFor();
+        await switchTab('事项');
+        await sessionPage.locator('.tasks-page').waitFor();
+        await sessionPage.locator('.draft-actions').getByText('继续编辑事项草稿',{exact:true}).waitFor();
+        await sessionPage.locator('.sheet').waitFor({state:'hidden'});
+      }
+      await sessionPage.getByText('继续编辑事项草稿',{exact:true}).click();
+      await sessionPage.locator('.sheet').waitFor();
+      assert.equal(await sessionPage.locator('.sheet .note-area textarea').inputValue(), '无标题草稿保留');
+      await sessionPage.locator('.sheet .title-input input').fill('恢复后新建');
+      await sessionPage.locator('.sheet-save').click();
+      await sessionPage.locator('.sheet').waitFor({state:'hidden'});
+      await sessionPage.locator('.task-item').filter({hasText:'恢复测试事项'}).waitFor();
+      const cdp = await context.newCDPSession(sessionPage);
+      const target = sessionPage.locator('.task-item').filter({hasText:'恢复测试事项'});
+      const box = await target.boundingBox();
+      const point = { x:box.x+box.width/2, y:box.y+box.height/2, id:1 };
+      await cdp.send('Input.dispatchTouchEvent', {type:'touchStart',touchPoints:[point]});
+      await sessionPage.waitForTimeout(500);
+      await cdp.send('Input.dispatchTouchEvent', {type:'touchEnd',touchPoints:[]});
+      await sessionPage.locator('.adjust-sheet').waitFor();
+      await sessionPage.locator('.adjust-sheet .option-chip').filter({hasText:'生活'}).click();
+      await switchTab('规划');
+      await sessionPage.locator('.planning-page').waitFor();
+      await switchTab('事项');
+      await sessionPage.getByText('继续快捷调整草稿',{exact:true}).waitFor();
+      await sessionPage.locator('.adjust-sheet').waitFor({state:'hidden'});
+      await sessionPage.getByText('继续快捷调整草稿',{exact:true}).click();
+      await sessionPage.locator('.adjust-sheet').waitFor();
+      assert.match(await sessionPage.locator('.adjust-sheet .option-chip.active').innerText(), /生活/);
+      await sessionPage.locator('.adjust-save').click();
+      await sessionPage.locator('.adjust-sheet').waitFor({state:'hidden'});
+      const saved = await sessionPage.evaluate(() => JSON.parse(localStorage.getItem('sui-time-mobile:v2')).data.tasks);
+      assert.equal(saved.find(task => task.id === 'resume-task').categoryId, 'life');
+      assert.equal(saved.filter(task => task.title === '恢复后新建').length, 1);
+      await switchTab('规划');
+      await sessionPage.locator('.planning-page').waitFor();
+      await sessionPage.locator('.view-tab').filter({hasText:'周'}).click();
+      await sessionPage.locator('.day-add').click();
+      await sessionPage.locator('.sheet .note-area textarea').fill('规划页未命名草稿');
+      await switchTab('事项');
+      await sessionPage.locator('.tasks-page').waitFor();
+      await switchTab('规划');
+      await sessionPage.getByText('继续编辑事项草稿',{exact:true}).waitFor();
+      await sessionPage.locator('.sheet').waitFor({state:'hidden'});
+      await sessionPage.getByText('继续编辑事项草稿',{exact:true}).click();
+      assert.equal(await sessionPage.locator('.sheet .note-area textarea').inputValue(), '规划页未命名草稿');
+      await sessionPage.locator('.sheet .title-input input').fill('规划草稿已保存');
+      await sessionPage.locator('.sheet-save').click();
+      await sessionPage.locator('.sheet').waitFor({state:'hidden'});
+      results.push('事项和规划菜单切换后弹窗关闭，空标题草稿和快捷调整可继续编辑且只保存一次');
+    } finally { await sessionPage.close(); }
   }
   const unexpected=failed.filter(item=>item.error!=='net::ERR_ABORTED');
   console.log(JSON.stringify({results,errors,unexpectedRequests:unexpected,navigationAborts:failed.filter(item=>item.error==='net::ERR_ABORTED').length,fixtures:['现有节假日接口休/班样本','现有Uni统计请求']},null,2));

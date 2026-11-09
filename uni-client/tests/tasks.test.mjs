@@ -952,6 +952,24 @@ test('纪念记录关闭和详情须确认，保存更新基线，失败保留�
   ui.unmount()
 })
 
+test('纪念记录切换菜单后保留备注并使旧确认失效', async () => {
+  const ui = await anniversarySheet('AnniversaryRecordSheet')
+  ui.notes.value = '保留的备注'
+  const pending = ui.details()
+  ui.props.suspended = true
+  ui.modals[0].success({ confirm: true })
+  assert.equal(await pending, false)
+  assert.equal(ui.notes.value, '保留的备注')
+  assert.equal(ui.events.length, 0)
+  assert.equal(ui.navigation.length, 0)
+  ui.props.suspended = false
+  const close = ui.close()
+  ui.modals[1].success({ confirm: true })
+  assert.equal(await close, true)
+  assert.equal(ui.events.at(-1)[0], 'close')
+  ui.unmount()
+})
+
 test('确认放弃后才关闭或导航，旧会话与卸载后的确认不能影响新草稿', async () => {
   const edit = await anniversarySheet('AnniversaryEditSheet')
   edit.draft.photos.push('照片')

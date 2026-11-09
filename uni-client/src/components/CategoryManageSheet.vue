@@ -1,6 +1,6 @@
 <template>
   <transition name="page">
-    <view v-if="visible" class="manage-page">
+    <view v-if="visible" v-show="!suspended" class="manage-page">
       <view class="manage-topbar">
         <button class="topbar-back" aria-label="返回" @click="requestClose">‹</button>
         <view class="topbar-center">
@@ -76,7 +76,8 @@ import { getCategories, saveCategory, removeCategory, reorderCategories, listTas
 import { toast } from '../utils/platform'
 
 const props = defineProps({
-  visible: { type: Boolean, default: false }
+  visible: { type: Boolean, default: false },
+  suspended: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['close', 'changed'])
@@ -111,6 +112,13 @@ watch(
   },
   { immediate: true, flush: 'sync' }
 )
+watch(() => props.suspended, suspended => {
+  if (!suspended) return
+  editGeneration++
+  confirmingClose.value = false
+  submitting.value = false
+  cancelDrag()
+}, { flush: 'sync' })
 
 function reload() {
   try {
@@ -128,14 +136,14 @@ function reload() {
 }
 
 function requestClose() {
-  if (submitting.value || confirmingClose.value) return
+  if (props.suspended || submitting.value || confirmingClose.value) return
   if (dragIndex.value >= 0) cancelDrag()
   if (editing.value) { void closeEdit(); return }
   emit('close')
 }
 
 async function closeEdit() {
-  if (!editing.value || submitting.value || confirmingClose.value) return false
+  if (props.suspended || !editing.value || submitting.value || confirmingClose.value) return false
   const session = editGeneration
   const current = JSON.stringify(draft)
   if (current !== editBaseline) {
@@ -186,7 +194,7 @@ function startEdit(cat) {
 }
 
 function save() {
-  if (submitting.value || confirmingClose.value) return
+  if (props.suspended || submitting.value || confirmingClose.value) return
   const name = draft.name.trim()
   if (!name) { toast('请填写分类名称'); return }
   submitting.value = true
@@ -201,14 +209,15 @@ function save() {
 }
 
 function confirmRemove() {
-  if (submitting.value || confirmingClose.value) return
+  if (props.suspended || submitting.value || confirmingClose.value) return
   submitting.value = true
+  const session = editGeneration
   const id = draft.id
   uni.showModal({
     title: '删除分类',
     content: `删除「${draft.name}」后，该分类下的事项将变为未分类。`,
     success: (res) => {
-      if (!res.confirm) return
+      if (!res.confirm || session !== editGeneration || props.suspended) return
       try {
         removeCategory(id)
         if (!reload()) return
@@ -217,8 +226,8 @@ function confirmRemove() {
         emit('changed')
       } catch (error) { toast(error.message || String(error)); reload() }
     },
-    fail: () => toast('无法打开确认窗口，请重试'),
-    complete: () => { submitting.value = false }
+    fail: () => { if (session === editGeneration && !props.suspended) toast('无法打开确认窗口，请重试') },
+    complete: () => { if (session === editGeneration) submitting.value = false }
   })
 }
 

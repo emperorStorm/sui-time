@@ -11,3 +11,8 @@
     </view>
   </view>
 </template>
+
+<script setup>
+import { useMainTabTap } from '../../utils/main-tab.js'
+useMainTabTap('pages/diary/index', () => {})
+</script>

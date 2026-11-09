@@ -5,6 +5,11 @@
       <view class="topbar-action" role="button" tabindex="0" :aria-label="viewMode === 'week' ? '回到本周' : '回到今天'" @click="resetView" @keydown.enter.prevent="resetView" @keydown.space.prevent="resetView">↻</view>
     </view>
 
+    <view v-if="sheetSuspended || adjustSuspended || recordSuspended" class="draft-actions" role="status">
+      <button v-if="sheetSuspended" @click="resumeDraft('task')">继续编辑事项草稿</button>
+      <button v-if="adjustSuspended" @click="resumeDraft('adjust')">继续快捷调整草稿</button>
+      <button v-if="recordSuspended" @click="recordSuspended = false">继续编辑纪念备注</button>
+    </view>
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="reload">重试读取</button></view>
     <template v-else-if="ready">
     <view class="view-tabs" role="tablist">
@@ -77,9 +82,9 @@
       </view>
     </view>
     </template>
-    <QuickAdjustSheet v-if="ready || adjustVisible" ref="adjustSheet" :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
-    <AnniversaryRecordSheet v-if="ready || activeRecord" ref="recordSheet" :occurrence="activeRecord" :today="today" @close="activeRecord = null" @saved="reload" />
-    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
+    <QuickAdjustSheet v-if="ready || adjustVisible" ref="adjustSheet" :visible="adjustVisible" :suspended="adjustSuspended" :task="adjustingTask" :categories="categories" @close="closeAdjust" @saved="reload" />
+    <AnniversaryRecordSheet v-if="ready || activeRecord" ref="recordSheet" :occurrence="activeRecord" :suspended="recordSuspended" :today="today" @close="closeRecord" @saved="reload" />
+    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :suspended="sheetSuspended" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
   </view>
 </template>
 
@@ -97,6 +102,33 @@ import { addDays, monthDates, monthTitle, shiftMonth, todayString, weekDates, we
 import { planningStatusLabel, taskMark } from '../../utils/task'
 import { resolveCalendarMeta } from '../../utils/calendar-meta'
 import { usePullSync } from '../../utils/pull-sync.js'
+import { toast } from '../../utils/platform'
+import { useMainTabTap, registerTabDrafts, pendingTabDraft } from '../../utils/main-tab.js'
+
+const sheetSuspended = ref(false)
+const adjustSuspended = ref(false)
+const recordSuspended = ref(false)
+registerTabDrafts('pages/planning/index', '规划', () => sheetSuspended.value || adjustSuspended.value || recordSuspended.value)
+useMainTabTap('pages/planning/index', () => {
+  if (sheetVisible.value) sheetSuspended.value = true
+  if (adjustVisible.value) adjustSuspended.value = true
+  if (activeRecord.value) recordSuspended.value = true
+  if (viewMode.value === 'month') selectedDate.value = ''
+})
+function draftBlocked() {
+  const page = pendingTabDraft()
+  if (!page) return false
+  toast(`请返回${page}页，继续处理已保留的草稿`)
+  return true
+}
+function resumeDraft(kind) {
+  if (kind === 'task' && adjustVisible.value && !adjustSuspended.value) return
+  if (kind === 'adjust' && sheetVisible.value && !sheetSuspended.value) return
+  if (kind === 'task') sheetSuspended.value = false
+  else adjustSuspended.value = false
+}
+function closeAdjust() { adjustVisible.value = false; adjustSuspended.value = false; adjustingTask.value = null }
+function closeRecord() { activeRecord.value = null; recordSuspended.value = false }
 
 const { refreshing, refresh } = usePullSync(reload)
 
@@ -149,9 +181,9 @@ onHide(releasePage)
 onUnload(releasePage)
 onBeforeUnmount(releasePage)
 onBackPress(() => {
-  if (adjustVisible.value) { adjustSheet.value?.requestClose(); return true }
-  if (activeRecord.value) { recordSheet.value?.close(); return true }
-  if (sheetVisible.value) { taskSheet.value?.requestClose(); return true }
+  if (adjustVisible.value && !adjustSuspended.value) { adjustSheet.value?.requestClose(); return true }
+  if (activeRecord.value && !recordSuspended.value) { recordSheet.value?.close(); return true }
+  if (sheetVisible.value && !sheetSuspended.value) { taskSheet.value?.requestClose(); return true }
   if (viewMode.value === 'week') { switchView('month'); return true }
   if (selectedDate.value) { selectedDate.value = ''; return true }
   return false
@@ -241,7 +273,8 @@ function weekdayLabel(date) {
 }
 
 function openCreate(date) {
-  if (sheetVisible.value || !reload()) return
+  if (draftBlocked()) return
+  if (sheetVisible.value || adjustVisible.value || !reload()) return
   presetDate.value = date
   editingTask.value = null
   if (viewMode.value === 'month') selectedDate.value = ''
@@ -249,15 +282,19 @@ function openCreate(date) {
 }
 function editTask(task) {
   if (!task || task.planningDeleted || Date.now() - longPressAt < 700) return
-  if (sheetVisible.value || !reload()) return
+  if (draftBlocked()) return
+  if (sheetVisible.value || adjustVisible.value || !reload()) return
   editingTask.value = task
   if (viewMode.value === 'month') selectedDate.value = ''
   sheetVisible.value = true
 }
 function openRecord(item) {
+  if (draftBlocked()) return
+  if (activeRecord.value || sheetVisible.value || adjustVisible.value) { toast('请先继续处理已打开的草稿'); return }
   activeRecord.value = item
 }
 function openQuickAdjust(task) {
+  if (draftBlocked()) return
   if (!task || task.planningDeleted || sheetVisible.value || adjustVisible.value) return
   longPressAt = Date.now()
   if (!reload()) return
@@ -267,6 +304,7 @@ function openQuickAdjust(task) {
 
 function closeSheet() {
   sheetVisible.value = false
+  sheetSuspended.value = false
   reload()
 }
 
@@ -294,6 +332,8 @@ function reload() {
 </script>
 
 <style scoped>
+.draft-actions { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 12rpx; padding: 12rpx 28rpx; background: #eef6ff; }
+.draft-actions button { margin: 0; color: #176ab7; background: #fff; font-size: 24rpx; line-height: 64rpx; }
 .day-subtitle { display: block; height: 28rpx; line-height: 28rpx; font-size: 19rpx; text-align: center; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .day-subtitle.has-marker { color: #7898b8; }
 .day-calendar-detail { padding: 0 32rpx 12rpx; color: #8493a4; font-size: 24rpx; line-height: 1.6; overflow-wrap: anywhere; }

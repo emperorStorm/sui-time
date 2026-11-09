@@ -14,8 +14,8 @@ globalThis.uni = { getStorageSync: () => disk, setStorageSync: (_key, value) => 
 
 const source = (await readFile(new URL('../src/components/TaskEditSheet.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
 
-async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, repeatRule = '{"kind":"none"}', selectorQuery = null } = {}) {
-  const props = vue.reactive({ visible: false, task, presetDate: '' })
+async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, repeatRule = '{"kind":"none"}', selectorQuery = null, timers = { setTimeout, clearTimeout } } = {}) {
+  const props = vue.reactive({ visible: false, suspended: false, task, presetDate: '' })
   const events = []
   const writes = []
   const callbacks = []
@@ -26,7 +26,7 @@ async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, 
   let confirmed = false
   const parent = { id: 'parent', title: '原名称', notes: '', repeatRule, priority: 'not_urgent_not_important' }
   const context = vm.createContext({
-    setTimeout, clearTimeout, setInterval, clearInterval, console,
+    setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout, setInterval, clearInterval, console,
     window: { addEventListener() {}, removeEventListener() {} },
     document: { addEventListener() {}, removeEventListener() {}, visibilityState: 'visible' },
     defineProps: () => props,
@@ -92,7 +92,7 @@ test('快捷调整分别提示部分成功和真正错误', async () => {
   const context = vm.createContext({ defineProps: () => ({ visible: false }), defineEmits: () => () => {}, defineExpose() {} })
   const modules = {
     vue: { ...vue, onBeforeUnmount() {} },
-    '../api/store': { findTask() {}, saveTask() {} },
+    '../api/store': { findTask() {}, getTaskSnapshot() {}, saveTask() {} },
     '../utils/occurrence': { parseOccurrenceId() {}, parseRepeatRule() {} },
     '../utils/platform': { toast: message => messages.push(message) },
     '../api/reminders': { reminderSaveMessage }
@@ -122,7 +122,7 @@ async function quickEditor() {
   const context = vm.createContext({ Date: FakeDate, defineProps: () => props, defineEmits: () => (...event) => events.push(event), defineExpose() {}, uni: { showModal: options => modals.push(options) } })
   const modules = {
     vue: { ...vue, onBeforeUnmount: callback => callbacks.push(callback) },
-    '../api/store': { findTask: () => props.task, saveTask: input => { if (fail) throw Error('写入失败'); writes.push(input); return input } },
+    '../api/store': { findTask: () => props.task, getTaskSnapshot: () => ({ id: props.task.id }), saveTask: input => { if (fail) throw Error('写入失败'); writes.push(input); return input } },
     '../utils/occurrence': { parseOccurrenceId: () => null, parseRepeatRule: value => JSON.parse(value) },
     '../utils/platform': { toast() {} }, '../api/reminders': { reminderSaveMessage: () => '' }
   }
@@ -249,7 +249,8 @@ test('任务页读取失败时保留打开的调整和分类组件及草稿，�
     '../../utils/task': { compareTasks: () => 0, matchesTaskFilter: () => true, taskMark: () => '', validateTaskDateRange() {} },
     '../../utils/date': { shortDate: () => '', weekday: () => '', todayString: () => '2026-10-01' },
     '../../utils/platform': { toast() {} },
-    '../../utils/pull-sync.js': { usePullSync: () => ({ refreshing: vue.ref(false), refresh() {} }) }
+    '../../utils/pull-sync.js': { usePullSync: () => ({ refreshing: vue.ref(false), refresh() {} }) },
+    '../../utils/main-tab.js': { useMainTabTap() {}, registerTabDrafts() {}, pendingTabDraft: () => null }
   }
   const context = vm.createContext({ setTimeout, clearTimeout, console })
   const module = new vm.SourceTextModule(compiled, { context })
@@ -258,7 +259,7 @@ test('任务页读取失败时保留打开的调整和分类组件及草稿，�
   }, { context }))
   await module.evaluate()
   const renderer = vue.createRenderer({
-    createElement: type => ({ type, children: [], props: {} }), createText: text => ({ text }), createComment: text => ({ text }),
+    createElement: type => ({ type, children: [], props: {}, style: {} }), createText: text => ({ text }), createComment: text => ({ text }),
     setText: (node, text) => { node.text = text }, setElementText: (node, text) => { node.text = text; node.children = [] },
     patchProp: (node, key, _old, value) => { node.props[key] = value },
     insert: (node, parent, anchor) => { if (node.parent) { const old = node.parent.children.indexOf(node); if (old >= 0) node.parent.children.splice(old, 1) }; node.parent = parent; const index = parent.children.indexOf(anchor); parent.children.splice(index < 0 ? parent.children.length : index, 0, node) },
@@ -711,6 +712,133 @@ test('有效子事项拖动可换位，抬手保存，取消恢复顺序', async
     await vue.nextTick()
     assert.equal(ui.writes.at(-1).children.map(item => item.id).join(','), 'b,a')
     assert.equal(ui.drag.timer, null)
+  } finally { ui.close() }
+})
+
+test('挂起保留草稿和冲突，旧删除及关闭确认失效', async () => {
+  let confirmation
+  const item = realStore.saveTask({ title: '挂起事项' }, [{ title: '子项' }])
+  const ui = await editor({ storeApi: realStore, task: { id: item.id }, modal: options => { confirmation = options } })
+  try {
+    ui.draft.notes = '保留草稿'
+    remoteTask(item.id, { title: '外部修改' })
+    assert.equal(await ui.flushDraft(true), false)
+    const closing = ui.discardAndClose()
+    ui.props.suspended = true
+    ui.props.suspended = false
+    confirmation.success({ confirm: true })
+    assert.equal(await closing, false)
+    assert.equal(ui.draft.notes, '保留草稿')
+    assert.equal(ui.draft.subtasks[0].title, '子项')
+    assert.equal(ui.dirty.value, true)
+    assert.match(ui.error.value, /更改或删除/)
+    const deleting = ui.remove()
+    ui.props.suspended = true
+    ui.props.suspended = false
+    confirmation.success({ confirm: true })
+    await deleting
+    assert.equal(realStore.findTask(item.id).title, '外部修改')
+    assert.equal(ui.events.some(event => event[0] === 'close'), false)
+  } finally { ui.close() }
+})
+
+test('挂起期间异步新建完成后保留 ID 和快照并串行保存后续草稿', async () => {
+  let release
+  const writes = []
+  const storeApi = {
+    getCategories: () => [], getNewTaskDefaults: () => ({ categoryId: null, priority: 'urgent_important' }),
+    findTask: () => null, listChildren: () => [], getTaskSnapshot: () => null,
+    saveTask: (input, children, options) => {
+      writes.push({ input, children, options })
+      if (writes.length === 1) return new Promise(resolve => { release = resolve })
+      return { id: 'created', taskSnapshot: { version: 2 }, reminderPromise: Promise.resolve({ supported: false }) }
+    }, removeTask() {}
+  }
+  const ui = await editor({ storeApi, task: null })
+  try {
+    ui.draft.title = '第一版'
+    const saving = ui.flushDraft(true)
+    ui.props.suspended = true
+    ui.saveOnHide()
+    ui.draft.notes = '第二版'
+    release({ id: 'created', taskSnapshot: { version: 1 }, reminderPromise: Promise.resolve({ supported: false }) })
+    assert.equal(await saving, true)
+    ui.props.suspended = false
+    assert.equal(ui.draft.id, 'created')
+    assert.equal(ui.draft.notes, '第二版')
+    assert.equal(writes.length, 2)
+    assert.equal(writes[1].input.id, 'created')
+    assert.equal(writes[1].options.expectedSnapshot.version, 1)
+    assert.equal(ui.dirty.value, false)
+  } finally { ui.close() }
+})
+
+test('挂起使完成确认失效，空标题和单次草稿恢复', async () => {
+  let confirmation
+  const ui = await editor({ modal: options => { confirmation = options } })
+  try {
+    ui.draft.subtasks = [{ id: 'a', title: '甲' }, { id: 'b', title: '乙' }]
+    const completing = ui.changeStatus('done')
+    await new Promise(resolve => setImmediate(resolve))
+    ui.props.suspended = true
+    ui.props.suspended = false
+    confirmation.success({ confirm: true })
+    await completing
+    assert.equal(ui.writes.some(write => write.options.status), false)
+    ui.draft.id = 'parent@2026-10-27'
+    ui.draft.title = ''
+    ui.draft.notes = '单次备注'
+    ui.props.suspended = true
+    ui.props.suspended = false
+    assert.equal(ui.draft.id, 'parent@2026-10-27')
+    assert.equal(ui.draft.notes, '单次备注')
+    assert.equal(ui.dirty.value, true)
+    assert.match(ui.error.value, /填写事项名称/)
+  } finally { ui.close() }
+})
+
+test('弹层挂起保留 DOM，手势新操作可恢复丢失的结束事件', async () => {
+  const file = await readFile(new URL('../src/components/TaskEditSheet.vue', import.meta.url), 'utf8')
+  assert.match(file, /v-if="visible" v-show="!suspended"/)
+  const ui = await editor()
+  try {
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(80))
+    ui.startSheetSwipe(touch(10))
+    assert.equal(ui.sheetOffset.value, 0)
+    ui.moveSheetSwipe(touch(40))
+    assert.equal(ui.sheetOffset.value, 30)
+    ui.props.suspended = true
+    assert.equal(ui.sheetOffset.value, 0)
+    assert.equal(ui.swipe.tracking, false)
+    ui.props.suspended = false
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(20))
+    assert.equal(ui.swipe.blockClick, true)
+  } finally { ui.close() }
+})
+
+test('手势超时回弹，失效的旧计时器不干扰新手势', async () => {
+  const scheduled = []
+  const timers = { setTimeout: (fn, delay) => { const timer = { fn, delay }; scheduled.push(timer); return timer }, clearTimeout() {} }
+  const ui = await editor({ timers })
+  try {
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(70))
+    const old = scheduled.filter(timer => timer.delay === 4000).at(-1)
+    ui.startSheetSwipe(touch(10))
+    ui.moveSheetSwipe(touch(50))
+    old.fn()
+    assert.equal(ui.sheetOffset.value, 40)
+    scheduled.filter(timer => timer.delay === 4000).at(-1).fn()
+    assert.equal(ui.sheetOffset.value, 0)
+    assert.equal(ui.swipe.tracking, false)
+    assert.equal(ui.swipe.blockClick, true)
+    scheduled.filter(timer => timer.delay === 600).at(-1).fn()
+    assert.equal(ui.swipe.blockClick, false)
+    ui.recordSubtaskTouch(touch(10))
+    scheduled.filter(timer => timer.delay === 4000).at(-1).fn()
+    assert.equal(ui.drag.touching, false)
   } finally { ui.close() }
 })
 

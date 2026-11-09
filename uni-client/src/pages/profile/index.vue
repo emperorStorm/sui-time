@@ -5,6 +5,7 @@
       <view class="topbar-action spacer" />
     </view>
 
+    <button v-if="updateSuspended" class="resume-update" @click="updateSuspended = false">继续查看应用更新</button>
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="load">重试读取</button></view>
     <template v-else-if="ready">
     <view class="profile-scroll">
@@ -70,7 +71,7 @@
     </view>
 
     </template>
-    <UpdateSheet :visible="updateVisible" :state="updateState" @close="closeUpdate" @download="downloadUpdate" @cancel="cancelDownload" @install="installDownloaded" @check="openUpdate" @browser="openUpdateInBrowser" />
+    <UpdateSheet :visible="updateVisible && !updateSuspended" :state="updateState" @close="closeUpdate" @download="downloadUpdate" @cancel="cancelDownload" @install="installDownloaded" @check="openUpdate" @browser="openUpdateInBrowser" />
   </view>
 </template>
 
@@ -85,6 +86,11 @@ import { repeatLabel } from '../../utils/occurrence'
 import { checkUpdate, downloadUpdate, cancelDownload, installDownloaded, installedVersion, subscribeUpdate, openUpdateInBrowser } from '../../api/update'
 import { toast } from '../../utils/platform'
 import { load as loadStorage } from '../../api/storage.js'
+import { useMainTabTap } from '../../utils/main-tab.js'
+
+useMainTabTap('pages/profile/index', () => {
+  if (updateVisible.value) updateSuspended.value = true
+})
 
 function openAnniversaries() { uni.navigateTo({ url: '/pages/anniversaries/index' }) }
 function openAccount() { uni.navigateTo({ url: '/pages/account/index' }) }
@@ -108,6 +114,7 @@ const ready = ref(false)
 const loadError = ref('')
 const switchRevision = ref(0)
 const updateVisible = ref(false)
+const updateSuspended = ref(false)
 const currentVersion = ref(installedVersion().version)
 const updateState = ref({ status: 'idle', currentVersion: currentVersion.value })
 const unsubscribeUpdate = subscribeUpdate(state => { updateState.value = state; currentVersion.value = state.currentVersion })
@@ -120,7 +127,7 @@ onShow(() => {
   currentVersion.value = installedVersion().version
 })
 onBackPress(() => {
-  if (!updateVisible.value) return false
+  if (!updateVisible.value || updateSuspended.value) return false
   if (!['downloading', 'installing'].includes(updateState.value.status)) closeUpdate()
   return true
 })
@@ -159,12 +166,14 @@ function toggleHideCompleted(view, event) {
 }
 
 async function openUpdate() {
+  if (updateSuspended.value) { updateSuspended.value = false; return }
   updateVisible.value = true
   await checkUpdate()
 }
 
 function closeUpdate() {
   updateVisible.value = false
+  updateSuspended.value = false
 }
 
 let restoreConfirming = false
@@ -199,6 +208,7 @@ function restore() {
 </script>
 
 <style scoped>
+.resume-update { margin: 12rpx 28rpx; color: #176ab7; background: #eef6ff; font-size: 24rpx; line-height: 64rpx; }
 .mine-group-title { display: block; color: #929daa; font-size: 24rpx; margin: 24rpx 10rpx 16rpx; }
 .profile-page {
   display: flex;

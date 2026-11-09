@@ -926,7 +926,7 @@ test('下拉控件防重入、反馈失败并在页面隐藏或重入后不跨�
 
 test('恢复演示数据依据账号状态提示影响范围并在确认时复核', async () => {
   const modals = [], messages = []
-  let back
+  let back, leaveTab
   const meta = { deviceId: 'd1', remoteUserId: null }
   let restores = 0
   const context = vm.createContext({ uni: { showModal: options => modals.push(options) } })
@@ -940,11 +940,12 @@ test('恢复演示数据依据账号状态提示影响范围并在确认时复�
     '../../api/android': { androidSettings() {} },
     '../../utils/occurrence': { repeatLabel() {} },
     '../../utils/platform': { toast: message => messages.push(message) },
+    '../../utils/main-tab.js': { useMainTabTap: (_page, fn) => { leaveTab = fn } },
     '../../api/storage.js': { load: () => ({ syncMeta: meta }) }
   }
   const source = await readFile(new URL('../src/pages/profile/index.vue', import.meta.url), 'utf8')
   const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1]
-  const module = new vm.SourceTextModule(`${script}\nexport { restore, updateVisible, updateState }`, { context })
+  const module = new vm.SourceTextModule(`${script}\nexport { restore, updateVisible, updateState, updateSuspended, openUpdate }`, { context })
   await module.link(specifier => {
     const values = dependencies[specifier]
     return new vm.SyntheticModule(Object.keys(values), function () { for (const [key, value] of Object.entries(values)) this.setExport(key, value) }, { context })
@@ -954,6 +955,13 @@ test('恢复演示数据依据账号状态提示影响范围并在确认时复�
   module.namespace.updateVisible.value = true
   module.namespace.updateState.value = { status: 'downloading' }
   assert.equal(back(), true); assert.equal(module.namespace.updateVisible.value, true)
+  leaveTab()
+  assert.equal(module.namespace.updateSuspended.value, true)
+  assert.equal(module.namespace.updateState.value.status, 'downloading')
+  assert.equal(back(), false)
+  await module.namespace.openUpdate()
+  assert.equal(module.namespace.updateSuspended.value, false)
+  assert.equal(module.namespace.updateState.value.status, 'downloading')
   module.namespace.updateState.value = { status: 'ready' }
   assert.equal(back(), true); assert.equal(module.namespace.updateVisible.value, false)
   module.namespace.restore(); module.namespace.restore()

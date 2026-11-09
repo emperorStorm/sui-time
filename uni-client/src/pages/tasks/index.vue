@@ -5,6 +5,11 @@
       <view v-if="ready" class="task-summary" role="status" :aria-label="`待办 ${todoCount} 项`"><text>待办</text><text>{{ todoCount > 99 ? '99+' : todoCount }}</text></view>
     </view>
 
+    <view v-if="sheetSuspended || adjustSuspended || manageSuspended" class="draft-actions" role="status">
+      <button v-if="sheetSuspended" @click="resumeDraft('task')">继续编辑事项草稿</button>
+      <button v-if="adjustSuspended" @click="resumeDraft('adjust')">继续快捷调整草稿</button>
+      <button v-if="manageSuspended" @click="manageSuspended = false">继续分类管理</button>
+    </view>
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="load">重试读取</button></view>
     <template v-else-if="ready">
     <view v-if="showReminderStatus" class="reminder-status" role="status">
@@ -22,7 +27,7 @@
       <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', 'chip-cat', filter === cat.id ? 'active' : '']" :style="{ background: cat.color, '--chip-color': cat.color }" role="button" tabindex="0" :aria-pressed="filter === cat.id" @click="filter = cat.id" @keydown.enter.prevent="filter = cat.id" @keydown.space.prevent="filter = cat.id">
         <text>{{ cat.name }}</text>
       </view>
-      <view class="filter-chip chip-add" role="button" tabindex="0" aria-label="管理分类" @click="manageVisible = true" @keydown.enter.prevent="manageVisible = true" @keydown.space.prevent="manageVisible = true"><text>＋</text></view>
+      <view class="filter-chip chip-add" role="button" tabindex="0" aria-label="管理分类" @click="openCategories" @keydown.enter.prevent="openCategories" @keydown.space.prevent="openCategories"><text>＋</text></view>
     </scroll-view>
 
     <view class="search-tools">
@@ -69,9 +74,9 @@
     <button class="fab" role="button" tabindex="0" aria-label="新增事项" @click="openEdit(null)" @keydown.enter.prevent="openEdit(null)" @keydown.space.prevent="openEdit(null)">＋</button>
 
     </template>
-    <QuickAdjustSheet v-if="ready || adjustVisible" ref="adjustSheet" :visible="adjustVisible" :task="adjustingTask" :categories="categories" @close="adjustVisible = false" @saved="reload" />
-    <CategoryManageSheet v-if="ready || manageVisible" ref="categorySheet" :visible="manageVisible" @close="manageVisible = false" @changed="onCategoriesChanged" />
-    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :task="editingTask" @close="closeSheet" @saved="reload" />
+    <QuickAdjustSheet v-if="ready || adjustVisible" ref="adjustSheet" :visible="adjustVisible" :suspended="adjustSuspended" :task="adjustingTask" :categories="categories" @close="closeAdjust" @saved="reload" />
+    <CategoryManageSheet v-if="ready || manageVisible" ref="categorySheet" :visible="manageVisible" :suspended="manageSuspended" @close="closeManage" @changed="onCategoriesChanged" />
+    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :suspended="sheetSuspended" :task="editingTask" @close="closeSheet" @saved="reload" />
   </view>
 </template>
 
@@ -90,6 +95,35 @@ import { compareTasks, matchesTaskFilter, taskMark, validateTaskDateRange } from
 import { shortDate, weekday, todayString } from '../../utils/date'
 import { toast } from '../../utils/platform'
 import { usePullSync } from '../../utils/pull-sync.js'
+import { useMainTabTap, registerTabDrafts, pendingTabDraft } from '../../utils/main-tab.js'
+
+const sheetSuspended = ref(false)
+const adjustSuspended = ref(false)
+const manageSuspended = ref(false)
+registerTabDrafts('pages/tasks/index', '事项', () => sheetSuspended.value || adjustSuspended.value || manageSuspended.value)
+useMainTabTap('pages/tasks/index', () => {
+  if (sheetVisible.value) sheetSuspended.value = true
+  if (adjustVisible.value) adjustSuspended.value = true
+  if (manageVisible.value) manageSuspended.value = true
+})
+function draftBlocked() {
+  const page = pendingTabDraft()
+  if (!page) return false
+  toast(`请返回${page}页，继续处理已保留的草稿`)
+  return true
+}
+function resumeDraft(kind) {
+  if (kind === 'task' && adjustVisible.value && !adjustSuspended.value) return
+  if (kind === 'adjust' && sheetVisible.value && !sheetSuspended.value) return
+  if (kind === 'task') sheetSuspended.value = false
+  else adjustSuspended.value = false
+}
+function openCategories() {
+  if (draftBlocked() || sheetVisible.value || adjustVisible.value || manageVisible.value) return
+  manageVisible.value = true
+}
+function closeAdjust() { adjustVisible.value = false; adjustSuspended.value = false; adjustingTask.value = null }
+function closeManage() { manageVisible.value = false; manageSuspended.value = false }
 
 const { refreshing, refresh } = usePullSync(load)
 const reminder = ref(reminderState())
@@ -176,9 +210,9 @@ const groups = computed(() => {
 
 onShow(() => { load(); reminder.value = reminderState() })
 onBackPress(() => {
-  if (adjustVisible.value) { adjustSheet.value?.requestClose(); return true }
-  if (sheetVisible.value) { taskSheet.value?.requestClose(); return true }
-  if (manageVisible.value) { categorySheet.value?.requestClose(); return true }
+  if (adjustVisible.value && !adjustSuspended.value) { adjustSheet.value?.requestClose(); return true }
+  if (sheetVisible.value && !sheetSuspended.value) { taskSheet.value?.requestClose(); return true }
+  if (manageVisible.value && !manageSuspended.value) { categorySheet.value?.requestClose(); return true }
   return false
 })
 
@@ -281,13 +315,15 @@ async function toggle(task) {
 
 function openEdit(task) {
   if (Date.now() - longPressAt < 700) return
-  if (toggling.value || sheetVisible.value || !ready.value || !load()) return
+  if (draftBlocked()) return
+  if (toggling.value || sheetVisible.value || adjustVisible.value || !ready.value || !load()) return
   editingTask.value = task ? allTasks.value.find(item => item.id === task.id) : null
   if (task && !editingTask.value) { toast('事项不存在'); return }
   sheetVisible.value = true
 }
 
 function openQuickAdjust(task) {
+  if (draftBlocked()) return
   if (toggling.value || sheetVisible.value || adjustVisible.value || !ready.value) return
   longPressAt = Date.now()
   if (!load()) return
@@ -297,6 +333,7 @@ function openQuickAdjust(task) {
 
 function closeSheet() {
   sheetVisible.value = false
+  sheetSuspended.value = false
   editingTask.value = null
 }
 
@@ -307,6 +344,8 @@ function reload() {
 </script>
 
 <style scoped>
+.draft-actions { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 12rpx; padding: 12rpx 28rpx; background: #eef6ff; }
+.draft-actions button { margin: 0; color: #176ab7; background: #fff; font-size: 24rpx; line-height: 64rpx; }
 .search-tools { flex: 0 0 auto; padding: 16rpx 28rpx; background: var(--panel); font-size: 24rpx; }
 .search-row, .date-inputs, .date-actions { display: flex; align-items: center; gap: 16rpx; }
 .search-input { flex: 1; min-width: 0; height: 64rpx; padding: 0 16rpx; background: #f4f7fa; border-radius: 10rpx; font-size: 26rpx; }

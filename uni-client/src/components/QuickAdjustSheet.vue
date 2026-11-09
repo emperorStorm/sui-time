@@ -1,6 +1,6 @@
 <template>
   <transition name="sheet">
-    <view v-if="visible" class="adjust-layer" @click="onBackdrop">
+    <view v-if="visible && !suspended" class="adjust-layer" @click="onBackdrop">
       <view class="adjust-sheet" @click.stop>
         <view class="adjust-header">
           <text class="adjust-title">调整事项</text>
@@ -36,13 +36,14 @@
 
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { findTask, saveTask } from '../api/store'
+import { findTask, getTaskSnapshot, saveTask } from '../api/store'
 import { parseOccurrenceId, parseRepeatRule } from '../utils/occurrence'
 import { toast } from '../utils/platform'
 import { reminderSaveMessage } from '../api/reminders'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
+  suspended: { type: Boolean, default: false },
   task: { type: Object, default: null },
   categories: { type: Array, default: () => [] }
 })
@@ -56,6 +57,8 @@ const error = ref('')
 const openedAt = ref(0)
 let generation = 0
 let closed = false
+let expectedSnapshot = null
+let snapshotReady = false
 const draft = reactive({ plannedDate: '', categoryId: null })
 const initial = { plannedDate: '', categoryId: null }
 
@@ -73,7 +76,14 @@ watch(
     error.value = ''
     openedAt.value = Date.now()
     let task = props.task
-    try { task = (props.task && findTask(props.task.id)) || props.task } catch (cause) { error.value = cause.message || String(cause) }
+    expectedSnapshot = null
+    snapshotReady = false
+    try {
+      task = props.task?.id ? findTask(props.task.id) : null
+      expectedSnapshot = props.task?.id ? getTaskSnapshot(props.task.id) : null
+      if (!task || !expectedSnapshot) throw new Error('事项已更改或删除，请保留草稿并重新打开')
+      snapshotReady = true
+    } catch (cause) { error.value = cause.message || String(cause) }
     current.value = task
     initial.plannedDate = task?.plannedDate || ''
     initial.categoryId = task?.categoryId ?? null
@@ -81,6 +91,11 @@ watch(
     draft.categoryId = initial.categoryId
   }
 )
+watch(() => props.suspended, (suspended) => {
+  generation++
+  confirming.value = false
+  if (!suspended) openedAt.value = Date.now()
+}, { flush: 'sync' })
 onBeforeUnmount(() => { generation++ })
 
 function changed() {
@@ -94,7 +109,7 @@ function onBackdrop() {
 }
 
 async function requestClose() {
-  if (!props.visible || busy.value || confirming.value || closed) return false
+  if (!props.visible || props.suspended || busy.value || confirming.value || closed) return false
   const session = generation
   const snapshot = JSON.stringify(draft)
   if (changed()) {
@@ -120,8 +135,9 @@ async function requestClose() {
 }
 
 async function save() {
-  if (busy.value || confirming.value || closed || !current.value) return
+  if (busy.value || confirming.value || closed || !props.visible || props.suspended || !current.value) return
   if (!changed()) { closed = true; emit('close'); return }
+  if (!snapshotReady) { if (!error.value) error.value = '无法读取事项，请保留草稿并重新打开'; return }
   busy.value = true
   error.value = ''
   try {
@@ -129,7 +145,7 @@ async function save() {
       id: current.value.id,
       ...(isRepeatSource.value ? {} : { plannedDate: draft.plannedDate || null }),
       categoryId: draft.categoryId
-    })
+    }, undefined, { expectedSnapshot })
     busy.value = false
     closed = true
     emit('saved', saved)
