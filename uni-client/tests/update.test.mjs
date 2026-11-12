@@ -2,10 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { copyFileSync, existsSync, unlinkSync } from 'node:fs'
 import vm from 'node:vm'
 import { generateAndroidUpdate } from '../scripts/generate-android-update.mjs'
 
-async function updateHarness(cached = null) {
+async function updateHarness(cached = null, stage = null) {
   const requests = [], downloads = [], installs = [], settings = [], calls = []
   let permission = false, current = { version: '0.6.2', versionCode: '602' }, state, available = true, stageError = '', installError = '', removeError = '', storageError = false
   const name = '12345678-1234-1234-1234-123456789abc.apk'
@@ -18,6 +19,7 @@ async function updateHarness(cached = null) {
     this.setExport('androidPermissions', () => ({ install: permission })); this.setExport('androidSettings', kind => settings.push(kind))
     this.setExport('androidUpdate', (method, ...args) => {
       calls.push([method, ...args])
+      if (method === 'stage' && stage) return stage(...args)
       if (method === 'stage') return stageError ? { ok: false, message: stageError } : { ok: true, name, size: 4 }
       if (method === 'inspect') return available ? { ok: true } : { ok: false, message: '文件不可读' }
       if (method === 'install') { installs.push(args[0]); return installError ? { ok: false, message: installError } : { ok: true } }
@@ -190,6 +192,108 @@ test('下载完成的文件无法读取时不安装，重试重新下载', async
   h.requests.at(-1).options.success({ statusCode: 206, data: new Uint8Array([0x50, 0x4b, 3, 4]).buffer })
   await retry
   assert.equal(h.downloads.length, 2)
+})
+
+async function startDownload(h) {
+  await found(h)
+  const pending = h.api.downloadUpdate()
+  h.requests.at(-1).options.success({ statusCode: 206, data: new Uint8Array([0x50, 0x4b, 3, 4]).buffer })
+  await pending
+  return h.downloads.at(-1)
+}
+
+test('SDK 中止会删除源 APK 时仍能保留已转存的安装包', async () => {
+  const directory = await mkdtemp(`${tmpdir()}/sui-time-download-`)
+  try {
+    const source = `${directory}/source.apk`, destination = `${directory}/cached.apk`
+    const bytes = new Uint8Array([0x50, 0x4b, 3, 4])
+    await writeFile(source, bytes)
+    const h = await updateHarness(null, path => {
+      copyFileSync(path, destination)
+      return { ok: true, name: h.name, size: 4 }
+    })
+    h.context.plus.io.convertLocalFileSystemURL = path => path.endsWith('/') ? directory : source
+    const { task, done } = await startDownload(h)
+    task.abort = () => unlinkSync(source)
+    done(task, 200)
+    assert.equal(existsSync(source), false)
+    assert.deepEqual(new Uint8Array(await readFile(destination)), bytes)
+    assert.equal(h.state().status, 'waiting')
+    h.permit(); h.api.resumeUpdateInstallation()
+    assert.equal(h.installs.length, 1)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('转存完成前不释放下载文件，释放后不读取任务属性且忽略重复回调', async () => {
+  const h = await updateHarness()
+  h.permit()
+  const { task, done } = await startDownload(h)
+  let releases = 0
+  task.abort = () => {
+    assert.equal(h.calls.filter(call => call[0] === 'stage').length, 1)
+    releases++
+    for (const key of ['filename', 'downloadedSize', 'totalSize']) {
+      Object.defineProperty(task, key, { get() { throw new Error('读取已释放任务') } })
+    }
+    task.progress({ downloadedSize: 0, totalSize: 0 })
+    done(task, 200)
+  }
+  done(task, 200)
+  assert.equal(h.state().status, 'waiting')
+  assert.equal(h.state().progress, 100)
+  assert.equal(h.installs.length, 1)
+  assert.equal(releases, 1)
+  done(task, 200)
+  assert.equal(h.installs.length, 1)
+})
+
+test('HTTP 完成状态与字节数必须通过完整性校验', async () => {
+  for (const scenario of [
+    { status: 200, total: 4, size: 4, ok: true },
+    { status: 200, total: 0, size: 4, ok: true },
+    { status: 200, total: 8, size: 4 },
+    { status: 206, total: 4, size: 4, range: 'bytes 0-3/4', ok: true },
+    { status: 206, total: 2, size: 4, range: 'bytes 2-3/4', ok: true },
+    { status: 206, total: 4, size: 4, range: 'bytes 4-3/4' },
+    { status: 206, total: 4, size: 4 },
+    { status: 206, total: 4, size: 4, range: 'bytes 0-1/4' },
+    { status: 206, total: 4, size: 4, range: 'bytes 0-3/8' },
+    { status: 500, total: 4, size: 4 }
+  ]) {
+    const h = await updateHarness()
+    const { task, done } = await startDownload(h)
+    task.totalSize = scenario.total; task.downloadedSize = scenario.size
+    task.getResponseHeader = () => scenario.range || ''
+    done(task, scenario.status)
+    assert.equal(h.state().status, scenario.ok ? 'waiting' : 'download-error', JSON.stringify(scenario))
+    assert.equal(h.calls.some(call => call[0] === 'stage'), !!scenario.ok)
+    assert.equal(task.aborted, true)
+  }
+})
+
+test('读取响应头或转换路径失败仍释放任务且不安装', async () => {
+  for (const failure of ['header', 'path']) {
+    const h = await updateHarness()
+    const { task, done } = await startDownload(h)
+    if (failure === 'header') task.getResponseHeader = () => { throw new Error('响应头读取失败') }
+    else h.context.plus.io.convertLocalFileSystemURL = () => { throw new Error('路径解析失败') }
+    assert.doesNotThrow(() => done(task, 200))
+    assert.equal(task.aborted, true)
+    assert.equal(h.state().status, 'download-error')
+    assert.equal(h.calls.length, 0)
+  }
+})
+
+test('释放下载任务异常不掩盖转存结果', async () => {
+  for (const failed of [false, true]) {
+    const h = await updateHarness()
+    const { task, done } = await startDownload(h)
+    if (failed) h.stageFail()
+    task.abort = () => { throw new Error('释放失败') }
+    assert.doesNotThrow(() => done(task, 200))
+    assert.equal(h.state().status, failed ? 'download-error' : 'waiting')
+    if (failed) assert.match(h.state().message, /文件不可读/)
+  }
 })
 
 test('原生提供者仅暴露更新子目录且使用 APK 系统安装器', async () => {

@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.net.Uri;
+import android.util.Log;
 import androidx.core.content.FileProvider;
 import org.json.JSONObject;
 import java.io.File;
@@ -39,11 +40,36 @@ public final class ApkInstallBridge {
         return file;
     }
 
-    private static void validate(File file, long size) throws IOException {
-        if (size < 4 || !file.isFile() || !file.canRead() || file.length() != size) throw new IOException("安装包不存在、不可读或大小不匹配");
+    static void validate(File file, long size) throws IOException {
+        if (size < 4) throw new IOException("安装包预期大小无效");
+        if (!file.isFile()) throw new IOException("安装包文件不存在");
+        if (!file.canRead()) throw new IOException("安装包文件不可读");
+        if (file.length() != size) throw new IOException("安装包大小不匹配");
         try (FileInputStream input = new FileInputStream(file)) {
             if (input.read() != 0x50 || input.read() != 0x4b) throw new IOException("安装包文件格式无效");
         }
+    }
+
+    static void copy(File source, File destination, long size) throws IOException {
+        validate(source, size);
+        try {
+            try (FileInputStream input = new FileInputStream(source); FileOutputStream output = new FileOutputStream(destination)) {
+                byte[] buffer = new byte[32768];
+                int read;
+                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                output.getFD().sync();
+            }
+            validate(destination, size);
+        } catch (IOException error) {
+            destination.delete();
+            throw error;
+        }
+    }
+
+    private static void logFile(String stage, File file, long size) {
+        Log.i("SuiTimeUpdate", stage + " path=" + file + " expected=" + size
+                + " actual=" + file.length() + " exists=" + file.exists()
+                + " isFile=" + file.isFile() + " readable=" + file.canRead());
     }
 
     private static void validatePackage(Context context, File file) throws IOException {
@@ -61,21 +87,18 @@ public final class ApkInstallBridge {
             boolean privateRoot = within(directory, context.getFilesDir().getParentFile())
                     || (external != null && within(directory, external.getParentFile()));
             if (!privateRoot || !"updates".equals(directory.getName()) || !directory.equals(source.getParentFile())) throw new IOException("下载文件不在应用私有更新目录");
+            logFile("stage/source", source, size);
             validate(source, size);
             String name = UUID.randomUUID().toString() + ".apk";
             destination = target(context, name);
             File root = destination.getParentFile();
             if (!root.isDirectory() && !root.mkdirs()) throw new IOException("无法创建私有更新目录");
-            try (FileInputStream input = new FileInputStream(source); FileOutputStream output = new FileOutputStream(destination)) {
-                byte[] buffer = new byte[32768];
-                int read;
-                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-                output.getFD().sync();
-            }
-            validate(destination, size);
+            copy(source, destination, size);
+            logFile("stage/target", destination, size);
             validatePackage(context, destination);
             return result(true, "", name, size);
         } catch (Exception error) {
+            Log.e("SuiTimeUpdate", "stage failed", error);
             if (destination != null) destination.delete();
             return result(false, error.getMessage() == null ? "无法读取或保存下载的安装包" : error.getMessage(), null, 0);
         }
@@ -85,6 +108,7 @@ public final class ApkInstallBridge {
         try {
             long size = Long.parseLong(expectedSize);
             File file = target(context, name);
+            logFile("inspect", file, size);
             validate(file, size);
             validatePackage(context, file);
             return result(true, "", name, size);
@@ -96,7 +120,9 @@ public final class ApkInstallBridge {
     public static String install(Context context, String name, String expectedSize) {
         try {
             File file = target(context, name);
-            validate(file, Long.parseLong(expectedSize));
+            long size = Long.parseLong(expectedSize);
+            logFile("install", file, size);
+            validate(file, size);
             validatePackage(context, file);
             Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".updates.fileprovider", file);
             Intent intent = new Intent(Intent.ACTION_VIEW);

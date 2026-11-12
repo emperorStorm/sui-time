@@ -141,31 +141,43 @@ export async function downloadUpdate(force = false) {
     publish({ status: 'downloading', progress: 0, downloadedBytes: 0, totalBytes: 0, message: '' })
     try {
       if (!await verifyDownload(state.downloadUrl, token) || token !== generation) return
+      let completed = false
       downloadTask = plus.downloader.createDownload(state.downloadUrl, { filename: `_doc/updates/sui-time-${state.latestVersion}-${state.latestCode}.apk`, retry: 1, timeout: 30 }, (task, status) => {
-        if (token !== generation) return
+        if (token !== generation || completed) return
+        completed = true
         downloadTask = null
-        const rangeSize = Number(/\/(\d+)$/.exec(task.getResponseHeader?.('Content-Range') || '')?.[1] || 0)
-        const expectedSize = status === 206 ? rangeSize : task.totalSize
-        // 删除下载任务以释放 SDK 回调；完成文件保留供安装和授权往返复用。
-        task.abort()
-        if (![200, 206].includes(status) || task.downloadedSize < 4 || (status === 206 && !rangeSize) || (expectedSize > 0 && task.downloadedSize !== expectedSize)) { publish({ status: 'download-error', message: `下载未完成（HTTP ${status}），请重试或使用浏览器下载` }); return }
+        let staged = false
         try {
-          const source = plus.io.convertLocalFileSystemURL(task.filename)
+          const { filename, downloadedSize, totalSize } = task
+          const contentRange = task.getResponseHeader?.('Content-Range') || ''
+          const range = /^bytes\s+(\d+)-(\d+)\/(\d+)$/i.exec(contentRange.trim())
+          const expectedSize = status === 206 ? Number(range?.[3] || 0) : totalSize
+          console.info('[SuiTimeUpdate] download', { status, filename, downloadedSize, totalSize, contentRange })
+          if (![200, 206].includes(status) || !Number.isSafeInteger(downloadedSize) || downloadedSize < 4 ||
+            (status === 206 && (!range || Number(range[1]) > Number(range[2]) || Number(range[2]) !== expectedSize - 1)) ||
+            (expectedSize > 0 && downloadedSize !== expectedSize)) throw new Error(`下载未完成（HTTP ${status}）`)
+          const source = plus.io.convertLocalFileSystemURL(filename)
           const directory = plus.io.convertLocalFileSystemURL('_doc/updates/')
           if (!source || !directory) throw new Error('无法解析下载文件路径')
-          const result = androidUpdate('stage', source, directory, String(task.downloadedSize))
+          const result = androidUpdate('stage', source, directory, String(downloadedSize))
           if (!result.ok) throw new Error(result.message || '无法读取下载的安装包')
           downloaded = { url: state.downloadUrl, name: result.name, size: Number(result.size), version: state.latestVersion, code: state.latestCode }
           if (!validCache(downloaded)) throw new Error('安装包缓存信息无效')
           try { uni.setStorageSync(CACHE_KEY, downloaded) } catch { /* 缓存失败不影响本次安装。 */ }
-          publish({ status: 'ready', progress: 100 })
-          installDownloaded()
+          staged = true
         } catch (error) {
           cacheFailed(error.message || '无法读取下载的安装包')
+        } finally {
+          // SDK 的 abort 会异步删除源 APK，必须先完成私有缓存转存。
+          try { task.abort() } catch (error) { console.error('[SuiTimeUpdate] release', error) }
+        }
+        if (staged) {
+          publish({ status: 'ready', progress: 100 })
+          installDownloaded()
         }
       })
       downloadTask.addEventListener('statechanged', task => {
-        if (token !== generation) return
+        if (token !== generation || completed) return
         publish({ downloadedBytes: task.downloadedSize || 0, totalBytes: task.totalSize || 0, progress: task.totalSize ? Math.min(99, Math.floor(task.downloadedSize / task.totalSize * 100)) : 0 })
       })
       downloadTask.start()
