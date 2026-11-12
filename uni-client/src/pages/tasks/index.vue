@@ -5,10 +5,15 @@
       <view v-if="ready" class="task-summary" role="status" :aria-label="`待办 ${todoCount} 项`"><text>待办</text><text>{{ todoCount > 99 ? '99+' : todoCount }}</text></view>
     </view>
 
-    <view v-if="sheetSuspended || adjustSuspended || manageSuspended" class="draft-actions" role="status">
-      <button v-if="sheetSuspended" @click="resumeDraft('task')">继续编辑事项草稿</button>
-      <button v-if="adjustSuspended" @click="resumeDraft('adjust')">继续快捷调整草稿</button>
-      <button v-if="manageSuspended" @click="manageSuspended = false">继续分类管理</button>
+    <view v-if="ready" class="today-overview" role="status" :aria-label="`${todayLabel} ${todayWeekday}，已完成 ${todayDoneCount} 项，共 ${todayTasks.length} 项`">
+      <view class="today-overview-date"><text>{{ todayLabel }}</text><text class="today-overview-weekday">{{ todayWeekday }}</text></view>
+      <view class="today-progress">
+        <view class="today-progress-label"><text>{{ todayTasks.length ? `已完成 ${todayDoneCount}/${todayTasks.length}` : '今天暂无安排' }}</text><text v-if="todayTasks.length">{{ todayProgress }}%</text></view>
+        <view v-if="todayTasks.length" class="today-progress-track"><view class="today-progress-value" :style="{ width: `${todayProgress}%` }"></view></view>
+      </view>
+    </view>
+    <view v-if="manageSuspended" class="draft-actions" role="status">
+      <button @click="manageSuspended = false">继续分类管理</button>
     </view>
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="load">重试读取</button></view>
     <template v-else-if="ready">
@@ -52,7 +57,7 @@
             </view>
           </view>
           <template v-if="!isCollapsed(group.label)">
-            <view v-for="task in group.items" :key="task.id" class="task-item" role="button" tabindex="0" :aria-label="`编辑事项 ${task.title}`" @click="openEdit(task)" @longpress="openQuickAdjust(task)" @keydown.enter.prevent="openEdit(task)" @keydown.space.prevent="openEdit(task)">
+            <view v-for="task in group.items" :key="task.id" class="task-item" role="button" tabindex="0" :aria-label="`编辑事项 ${task.title}`" @click="openEdit(task)" @keydown.enter.prevent="openEdit(task)" @keydown.space.prevent="openEdit(task)">
               <button class="task-check-target" role="button" tabindex="0" :aria-label="`${task.status === 'done' ? '恢复待办' : '完成事项'} ${task.title}`" @click.stop="toggle(task)" @longpress.stop @keydown.enter.stop.prevent="toggle(task)" @keydown.space.stop.prevent="toggle(task)">
                 <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="checkStyle(task)"><text v-if="task.status === 'done'">✓</text></view>
               </button>
@@ -60,7 +65,7 @@
                 <text :class="['task-title', task.status === 'done' ? 'is-done' : '']"><text class="task-priority">{{ taskMark(task) }}</text>{{ task.title }}</text>
                 <text class="task-meta">{{ metaOf(task) }}</text>
               </view>
-              <text class="task-chevron">⌄</text>
+              <button class="task-adjust" :aria-label="`调整事项 ${task.title}`" @click.stop="openQuickAdjust(task)" @keydown.stop>调整</button>
             </view>
           </template>
         </view>
@@ -74,17 +79,13 @@
     <button class="fab" role="button" tabindex="0" aria-label="新增事项" @click="openEdit(null)" @keydown.enter.prevent="openEdit(null)" @keydown.space.prevent="openEdit(null)">＋</button>
 
     </template>
-    <QuickAdjustSheet v-if="ready || adjustVisible" ref="adjustSheet" :visible="adjustVisible" :suspended="adjustSuspended" :task="adjustingTask" :categories="categories" @close="closeAdjust" @saved="reload" />
     <CategoryManageSheet v-if="ready || manageVisible" ref="categorySheet" :visible="manageVisible" :suspended="manageSuspended" @close="closeManage" @changed="onCategoriesChanged" />
-    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :suspended="sheetSuspended" :task="editingTask" @close="closeSheet" @saved="reload" />
   </view>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { onShow, onBackPress, onUnload } from '@dcloudio/uni-app'
-import TaskEditSheet from '../../components/TaskEditSheet.vue'
-import QuickAdjustSheet from '../../components/QuickAdjustSheet.vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { onShow, onHide, onBackPress, onUnload } from '@dcloudio/uni-app'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
 import { getCategories, listTasks, setTaskStatus, getSettings, getHideCompleted, toggleGroupCollapsed } from '../../api/store'
 import { repeatLabel, parseRepeatRule } from '../../utils/occurrence'
@@ -97,13 +98,9 @@ import { toast } from '../../utils/platform'
 import { usePullSync } from '../../utils/pull-sync.js'
 import { useMainTabTap, registerTabDrafts, pendingTabDraft } from '../../utils/main-tab.js'
 
-const sheetSuspended = ref(false)
-const adjustSuspended = ref(false)
 const manageSuspended = ref(false)
-registerTabDrafts('pages/tasks/index', '事项', () => sheetSuspended.value || adjustSuspended.value || manageSuspended.value)
+registerTabDrafts('pages/tasks/index', '事项', () => manageSuspended.value)
 useMainTabTap('pages/tasks/index', () => {
-  if (sheetVisible.value) sheetSuspended.value = true
-  if (adjustVisible.value) adjustSuspended.value = true
   if (manageVisible.value) manageSuspended.value = true
 })
 function draftBlocked() {
@@ -112,17 +109,10 @@ function draftBlocked() {
   toast(`请返回${page}页，继续处理已保留的草稿`)
   return true
 }
-function resumeDraft(kind) {
-  if (kind === 'task' && adjustVisible.value && !adjustSuspended.value) return
-  if (kind === 'adjust' && sheetVisible.value && !sheetSuspended.value) return
-  if (kind === 'task') sheetSuspended.value = false
-  else adjustSuspended.value = false
-}
 function openCategories() {
-  if (draftBlocked() || sheetVisible.value || adjustVisible.value || manageVisible.value) return
+  if (draftBlocked() || navigating || manageVisible.value) return
   manageVisible.value = true
 }
-function closeAdjust() { adjustVisible.value = false; adjustSuspended.value = false; adjustingTask.value = null }
 function closeManage() { manageVisible.value = false; manageSuspended.value = false }
 
 const { refreshing, refresh } = usePullSync(load)
@@ -142,17 +132,22 @@ async function retryReminders() {
 const categories = ref([])
 const ready = ref(false)
 const loadError = ref('')
-const taskSheet = ref(null)
 const categorySheet = ref(null)
-const adjustSheet = ref(null)
-const adjustVisible = ref(false)
-const adjustingTask = ref(null)
-let longPressAt = 0
+let navigating = false
+let navigationHidden = false
+let showRevision = 0
 const toggling = ref(false)
 const filter = ref('all')
 const allTasks = ref([])
-const sheetVisible = ref(false)
-const editingTask = ref(null)
+const today = ref(todayString())
+const todayLabel = computed(() => {
+  const [, month, day] = today.value.split('-')
+  return `${Number(month)}月${Number(day)}日`
+})
+const todayWeekday = computed(() => weekday(today.value))
+const todayTasks = computed(() => allTasks.value.filter(task => !task.parentTaskId && occursOnToday(task, today.value)))
+const todayDoneCount = computed(() => todayTasks.value.filter(task => task.status === 'done').length)
+const todayProgress = computed(() => todayTasks.value.length ? Math.round(todayDoneCount.value / todayTasks.value.length * 100) : 0)
 const manageVisible = ref(false)
 const collapsedGroups = ref([])
 const hideCompleted = ref(true)
@@ -208,10 +203,15 @@ const groups = computed(() => {
   return Object.keys(bucket).map((label) => ({ label, items: bucket[label].sort(compareTasks) })).filter((group) => group.items.length)
 })
 
-onShow(() => { load(); reminder.value = reminderState() })
+onShow(() => {
+  today.value = todayString()
+  if (navigationHidden) { navigating = false; navigationHidden = false }
+  const revision = ++showRevision
+  void nextTick(() => { if (revision === showRevision) { load(); reminder.value = reminderState() } })
+})
+onHide(() => { showRevision++; if (navigating) navigationHidden = true })
+onUnload(() => { showRevision++ })
 onBackPress(() => {
-  if (adjustVisible.value && !adjustSuspended.value) { adjustSheet.value?.requestClose(); return true }
-  if (sheetVisible.value && !sheetSuspended.value) { taskSheet.value?.requestClose(); return true }
   if (manageVisible.value && !manageSuspended.value) { categorySheet.value?.requestClose(); return true }
   return false
 })
@@ -293,7 +293,7 @@ function metaOf(task) {
 }
 
 async function toggle(task) {
-  if (toggling.value || sheetVisible.value || loadError.value) return
+  if (toggling.value || navigating || manageVisible.value || loadError.value) return
   if (parseKind(task.repeatRule) !== 'none') { toast('请在规划月历中更新当次事项状态'); return }
   toggling.value = true
   try {
@@ -314,31 +314,20 @@ async function toggle(task) {
 }
 
 function openEdit(task) {
-  if (Date.now() - longPressAt < 700) return
-  if (draftBlocked()) return
-  if (toggling.value || sheetVisible.value || adjustVisible.value || !ready.value || !load()) return
-  editingTask.value = task ? allTasks.value.find(item => item.id === task.id) : null
-  if (task && !editingTask.value) { toast('事项不存在'); return }
-  sheetVisible.value = true
+  if (draftBlocked() || toggling.value || navigating || manageVisible.value || !ready.value || !load()) return
+  if (task && !allTasks.value.some(item => item.id === task.id)) { toast('事项不存在'); return }
+  navigateToTask(`/pages/task-edit/index${task ? `?id=${encodeURIComponent(task.id)}` : ''}`)
 }
 
 function openQuickAdjust(task) {
-  if (draftBlocked()) return
-  if (toggling.value || sheetVisible.value || adjustVisible.value || !ready.value) return
-  longPressAt = Date.now()
-  if (!load()) return
-  adjustingTask.value = task
-  adjustVisible.value = true
+  if (draftBlocked() || toggling.value || navigating || manageVisible.value || !ready.value || !load()) return
+  if (!allTasks.value.some(item => item.id === task.id)) { toast('事项不存在'); return }
+  navigateToTask(`/pages/task-adjust/index?id=${encodeURIComponent(task.id)}`)
 }
 
-function closeSheet() {
-  sheetVisible.value = false
-  sheetSuspended.value = false
-  editingTask.value = null
-}
-
-function reload() {
-  load()
+function navigateToTask(url) {
+  navigating = true
+  uni.navigateTo({ url, fail: error => { navigating = false; toast(`无法打开事项页面：${error.errMsg || '请重试'}`) } })
 }
 
 </script>
@@ -364,6 +353,8 @@ function reload() {
 .clear-filters { margin: 24rpx auto; width: fit-content; }
 .filter-bar, .task-scroll { width: 100%; box-sizing: border-box; }
 .task-priority { display: inline-block; min-width: 44rpx; margin-right: 8rpx; color: #97a6b9; font-size: 23rpx; }
+.task-adjust { flex: 0 0 auto; margin: 0; min-width: 88rpx; padding: 0 12rpx; line-height: 72rpx; font-size: 24rpx; color: var(--blue); background: #eef6ff; }
+.task-adjust::after { border: 0; }
 .tasks-page {
   height: 100vh;
   display: flex;
@@ -397,6 +388,75 @@ function reload() {
   font-size: 23rpx;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.today-overview {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  min-height: 104rpx;
+  padding: 12rpx 32rpx;
+  background: var(--panel);
+  border-bottom: 1rpx solid var(--line);
+  animation: today-fade-in 280ms ease-out both;
+}
+
+.today-overview-date {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  color: var(--ink);
+  font-size: 32rpx;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.today-overview-weekday {
+  color: var(--muted);
+  font-size: 23rpx;
+  font-weight: 400;
+}
+
+.today-progress {
+  flex: 1;
+  min-width: 0;
+  animation: today-fade-in 360ms 60ms ease-out both;
+}
+
+.today-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12rpx;
+  color: var(--muted);
+  font-size: 23rpx;
+  font-variant-numeric: tabular-nums;
+}
+
+.today-progress-track {
+  height: 8rpx;
+  margin-top: 12rpx;
+  overflow: hidden;
+  border-radius: 999rpx;
+  background: #e8eef4;
+}
+
+.today-progress-value {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width 240ms ease-out;
+}
+
+@keyframes today-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .today-overview, .today-progress, .task-scroll { animation: none; }
+  .today-progress-value { transition: none; }
 }
 
 .filter-bar {
@@ -460,6 +520,7 @@ function reload() {
   height: 0;
   min-height: 0;
   padding: 28rpx 28rpx 40rpx;
+  animation: today-fade-in 320ms 70ms ease-out both;
 }
 
 .task-group {
@@ -573,11 +634,6 @@ function reload() {
   font-size: 24rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.task-chevron {
-  color: #d3d7dc;
-  font-size: 30rpx;
 }
 
 .list-empty {

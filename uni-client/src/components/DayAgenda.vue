@@ -12,10 +12,11 @@
       <text>{{ item.record?.confirmedAt ? '✓ 已纪念' : '›' }}</text>
     </view>
     <text v-if="tasks.length" class="day-group">事项</text>
-    <view v-for="task in tasks" :key="task.id" :class="['day-list-task', { 'is-ended': task.planningDeleted || task.status !== 'todo' }]" :role="task.planningDeleted ? undefined : 'button'" :tabindex="task.planningDeleted ? undefined : 0" :aria-label="`${task.title}，${planningStatusLabel(task)}${task.planningDeleted ? '' : '，编辑事项'}`" @click="!task.planningDeleted && $emit('edit-task', task)" @longpress="!task.planningDeleted && $emit('adjust-task', task)" @keydown.enter.prevent="!task.planningDeleted && $emit('edit-task', task)" @keydown.space.prevent="!task.planningDeleted && $emit('edit-task', task)">
+    <view v-for="task in tasks" :key="task.id" :class="['day-list-task', { 'is-ended': task.planningDeleted || task.status !== 'todo' }]" :role="task.planningDeleted ? undefined : 'button'" :tabindex="task.planningDeleted ? undefined : 0" :aria-label="`${task.title}，${planningStatusLabel(task)}${task.planningDeleted ? '' : '，编辑事项'}`" @click="!task.planningDeleted && $emit('edit-task', task)" @keydown.enter.prevent="!task.planningDeleted && $emit('edit-task', task)" @keydown.space.prevent="!task.planningDeleted && $emit('edit-task', task)">
       <text class="day-list-mark" :style="{ color: colorOf(task) }">{{ task.planningDeleted ? '−' : taskMark(task) }}</text>
       <text>{{ task.title }}</text>
-      <text>{{ timeText(task) }} · {{ planningStatusLabel(task) }}</text>
+      <text class="day-task-status">{{ timeText(task) }} · {{ planningStatusLabel(task) }}</text>
+      <button v-if="!task.planningDeleted" class="day-adjust" :aria-label="`调整事项 ${task.title}`" @click.stop="$emit('adjust-task', task)" @keydown.stop>调整</button>
     </view>
     <text v-if="!count" class="day-empty">这一天还没有安排</text>
   </view>
@@ -80,6 +81,9 @@ function timeText(task) {
   overflow-wrap: anywhere;
   word-break: break-all;
 }
+.day-list-task .day-task-status { flex: 0 1 auto; max-width: 30%; color: #667d94; text-align: right; overflow-wrap: anywhere; }
+.day-adjust { flex: 0 0 auto; margin: 0; min-width: 80rpx; padding: 0 12rpx; line-height: 68rpx; font-size: 23rpx; color: #176ab7; background: #e4f0fd; }
+.day-adjust::after { border: 0; }
 .day-list-task { background: #f3f7fb; color: #304c67; }
 .day-list-task.is-ended { background: #f6f8fa; color: #65788a; }
 .day-list-mark { font-size: 26rpx; font-weight: 700; }

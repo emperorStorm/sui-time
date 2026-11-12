@@ -1145,11 +1145,171 @@ test('无记录时同步新增及墓碑变化均阻止覆盖，兼容未传基�
   } finally { ui.unmount() }
 })
 
-test('列表读取失败不展示空态，规划错误分支保留打开的弹层', async () => {
+test('列表读取失败不展示空态，规划错误分支保留打开的纪念记录', async () => {
   const list = await readFile(new URL('../src/pages/anniversaries/index.vue', import.meta.url), 'utf8')
   const planning = await readFile(new URL('../src/pages/planning/index.vue', import.meta.url), 'utf8')
   assert.match(list, /v-if="!error && !visibleItems\.length"/)
   assert.match(list, /@click="refresh">重试读取/)
-  assert.match(planning, /<\/template>\s*<QuickAdjustSheet v-if="ready \|\| adjustVisible"/)
-  assert.match(planning, /<AnniversaryRecordSheet v-if="ready \|\| activeRecord"/)
+  assert.match(planning, /<\/template>\s*<AnniversaryRecordSheet v-if="ready \|\| activeRecord"/)
+})
+
+test('规划页面传递完整当次 ID，防止重复导航并在导航失败后可重试', async () => {
+  const source = await readFile(new URL('../src/pages/planning/index.vue', import.meta.url), 'utf8')
+  const actions = source.slice(source.indexOf('function openCreate(date)'), source.indexOf('function reload()'))
+  assert.ok(actions.includes('function navigateToTask(url)'))
+  const calls = [], messages = []
+  const context = vm.createContext({
+    activeRecord: { value: null }, draftBlocked: () => false, reload: () => true,
+    uni: { navigateTo: options => calls.push(options) }, toast: text => messages.push(text)
+  })
+  const api = vm.runInContext(`let navigating = false; ${actions}\n({ openCreate, editTask, openQuickAdjust })`, context)
+  const item = { id: 'source@2026-10-01' }
+  api.openQuickAdjust(item)
+  assert.equal(calls[0].url, '/pages/task-adjust/index?id=source%402026-10-01')
+  api.editTask(item)
+  assert.equal(calls.length, 1)
+  calls[0].fail({ errMsg: '导航失败' })
+  assert.match(messages[0], /无法打开事项页面/)
+  api.editTask(item)
+  assert.equal(calls[1].url, '/pages/task-edit/index?id=source%402026-10-01')
+  calls[1].fail({})
+  api.openCreate('2026-10-02')
+  assert.equal(calls[2].url, '/pages/task-edit/index?date=2026-10-02')
+  calls[2].fail({})
+  api.openQuickAdjust({ ...item, planningDeleted: true })
+  assert.equal(calls.length, 3)
+})
+
+test('事项页面检查事项仍然存在且导航失败后可重试', async () => {
+  const source = await readFile(new URL('../src/pages/tasks/index.vue', import.meta.url), 'utf8')
+  const actions = source.slice(source.indexOf('function openEdit(task)'), source.indexOf('</script>'))
+  assert.ok(actions.includes('function navigateToTask(url)'))
+  const calls = [], messages = []
+  const context = vm.createContext({
+    draftBlocked: () => false, toggling: { value: false }, manageVisible: { value: false },
+    ready: { value: true }, allTasks: { value: [{ id: 'a' }] }, load: () => true,
+    uni: { navigateTo: options => calls.push(options) }, toast: text => messages.push(text)
+  })
+  const api = vm.runInContext(`let navigating = false; ${actions}\n({ openEdit, openQuickAdjust })`, context)
+  api.openQuickAdjust({ id: 'missing' })
+  assert.match(messages[0], /事项不存在/)
+  assert.equal(calls.length, 0)
+  api.openEdit({ id: 'a' })
+  assert.equal(calls[0].url, '/pages/task-edit/index?id=a')
+  api.openEdit(null)
+  assert.equal(calls.length, 1)
+  calls[0].fail({})
+  api.openEdit(null)
+  assert.equal(calls[1].url, '/pages/task-edit/index')
+})
+
+async function adjustPageHarness(findTask) {
+  const source = (await readFile(new URL('../src/pages/task-adjust/index.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+  const hooks = {}, navigations = []
+  const context = vm.createContext({
+    getCurrentPages: () => [{}, {}],
+    uni: { navigateBack: options => navigations.push(options) }
+  })
+  const dependencies = {
+    vue,
+    '@dcloudio/uni-app': { onLoad: fn => { hooks.load = fn }, onBackPress: fn => { hooks.back = fn }, onUnload() {} },
+    '../../components/QuickAdjustSheet.vue': { default: {} },
+    '../../api/store': { findTask, getCategories: () => [] }
+  }
+  const module = new vm.SourceTextModule(`${source}\nexport { task, adjustSheet, loadError, navigationError, navigating, requestClose, leavePage };`, { context })
+  await module.link(specifier => new vm.SyntheticModule(Object.keys(dependencies[specifier]), function () {
+    for (const [key, value] of Object.entries(dependencies[specifier])) this.setExport(key, value)
+  }, { context }))
+  await module.evaluate()
+  return { ...module.namespace, hooks, navigations }
+}
+
+test('调整页面完整读取当次 ID 并由系统返回执行草稿处理', async () => {
+  let readId
+  const page = await adjustPageHarness(id => { readId = id; return { id } })
+  page.hooks.load({ id: 'source@2026-10-01' })
+  assert.equal(readId, 'source@2026-10-01')
+  let requested = 0, error = ''
+  page.adjustSheet.value = { requestClose: () => { requested++ }, resumeAfterCloseFailure: message => { error = message } }
+  assert.equal(page.hooks.back({ from: 'backbutton' }), true)
+  assert.equal(requested, 1)
+  assert.equal(page.navigations.length, 0)
+  page.leavePage()
+  assert.equal(page.navigations.length, 1)
+  assert.equal(page.hooks.back({ from: 'navigateBack' }), false)
+  page.navigations[0].fail()
+  assert.equal(page.navigating.value, false)
+  assert.match(error, /返回失败/)
+  page.leavePage()
+  assert.equal(page.navigations.length, 2)
+})
+
+test('调整页面事项不存在时明确阻断而非进入新建', async () => {
+  const page = await adjustPageHarness(() => null)
+  page.hooks.load({ id: 'missing' })
+  assert.equal(page.task.value, null)
+  assert.match(page.loadError.value, /不存在或已删除/)
+  page.requestClose()
+  assert.equal(page.navigations.length, 1)
+})
+
+test('规划导航期间同步刷新不解除防重入且返回保留筛选', async () => {
+  const source = await readFile(new URL('../src/pages/planning/index.vue', import.meta.url), 'utf8')
+  const show = source.slice(source.indexOf('onShow(() => {'), source.indexOf('onHide(releasePage)'))
+  const hide = source.slice(source.indexOf('function releasePage()'), source.indexOf('function visibilityChanged()'))
+  const hooks = {}, pending = []
+  let loads = 0
+  const context = vm.createContext({
+    onShow: fn => { hooks.show = fn }, nextTick: fn => pending.push(fn), reload: () => { loads++ }, scheduleDay() {}, refreshVisibleHolidayCalendar() {}, clearTimeout() {},
+    window: { addEventListener() {}, removeEventListener() {} },
+    document: { addEventListener() {}, removeEventListener() {} }, visibilityChanged() {}
+  })
+  const api = vm.runInContext(`let navigating = true, navigationHidden = false, showRevision = 0, dayTimer, holidayRefreshRequestId = 0; const statusFilter = { value: 'done' }; ${show} ${hide}\n({ releasePage, state: () => ({ navigating, navigationHidden, filter: statusFilter.value }) })`, context)
+  hooks.show()
+  assert.equal(api.state().navigating, true)
+  api.releasePage()
+  pending.shift()()
+  assert.equal(loads, 0)
+  assert.equal(api.state().navigationHidden, true)
+  assert.equal(api.state().filter, 'done')
+  hooks.show()
+  pending.shift()()
+  assert.equal(loads, 1)
+  assert.equal(api.state().navigating, false)
+  assert.equal(api.state().navigationHidden, false)
+  assert.equal(api.state().filter, 'done')
+  api.releasePage()
+  assert.equal(api.state().filter, 'all')
+})
+
+test('编辑页面初始化读取分类失败时阻断并提供重试入口', async () => {
+  const component = (await readFile(new URL('../src/components/TaskEditSheet.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
+  const events = []
+  const context = vm.createContext({
+    defineProps: () => ({ visible: true, task: null, presetDate: '' }),
+    defineEmits: () => (...args) => events.push(args), defineExpose() {},
+    setTimeout, clearTimeout, setInterval, clearInterval,
+    uni: { $on() {}, $off() {} }
+  })
+  const deps = {
+    vue: { ...vue, onBeforeUnmount() {} },
+    '@dcloudio/uni-app': { onShow() {}, onHide() {} },
+    '../api/store': { getCategories: () => { throw new Error('读取分类失败') }, getNewTaskDefaults() {}, saveTask() {}, removeTask() {}, findTask() {}, listChildren() {}, getTaskSnapshot() {} },
+    '../utils/occurrence': { parseOccurrenceId() {}, parseRepeatRule() {}, repeatLabel() {} },
+    '../utils/task': { applyTaskTime() {}, hasReminderTime() {}, priorities: [], reminderOptions: [] },
+    '../utils/date': { todayString() {} },
+    '../api/reminders': { reminderState: () => ({}), reminderSaveMessage() {}, sendReminderTest() {} },
+    '../api/android': { androidSettings() {}, requestNotificationPermission() {} },
+    '../utils/platform': { toast() {} }
+  }
+  const module = new vm.SourceTextModule(component, { context })
+  await module.link(specifier => new vm.SyntheticModule(Object.keys(deps[specifier]), function () {
+    for (const [key, value] of Object.entries(deps[specifier])) this.setExport(key, value)
+  }, { context }))
+  await module.evaluate()
+  assert.equal(events[0][0], 'load-error')
+  assert.match(events[0][1], /读取分类失败/)
+  const page = await readFile(new URL('../src/pages/task-edit/index.vue', import.meta.url), 'utf8')
+  assert.match(page, /@load-error="editorLoadFailed"/)
+  assert.match(page, /@click="loadTask">重试读取/)
 })

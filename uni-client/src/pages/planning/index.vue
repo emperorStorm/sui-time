@@ -5,10 +5,8 @@
       <view class="topbar-action" role="button" tabindex="0" :aria-label="viewMode === 'week' ? '回到本周' : '回到今天'" @click="resetView" @keydown.enter.prevent="resetView" @keydown.space.prevent="resetView">↻</view>
     </view>
 
-    <view v-if="sheetSuspended || adjustSuspended || recordSuspended" class="draft-actions" role="status">
-      <button v-if="sheetSuspended" @click="resumeDraft('task')">继续编辑事项草稿</button>
-      <button v-if="adjustSuspended" @click="resumeDraft('adjust')">继续快捷调整草稿</button>
-      <button v-if="recordSuspended" @click="recordSuspended = false">继续编辑纪念备注</button>
+    <view v-if="recordSuspended" class="draft-actions" role="status">
+      <button @click="recordSuspended = false">继续编辑纪念备注</button>
     </view>
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="reload">重试读取</button></view>
     <template v-else-if="ready">
@@ -82,18 +80,14 @@
       </view>
     </view>
     </template>
-    <QuickAdjustSheet v-if="ready || adjustVisible" ref="adjustSheet" :visible="adjustVisible" :suspended="adjustSuspended" :task="adjustingTask" :categories="categories" @close="closeAdjust" @saved="reload" />
     <AnniversaryRecordSheet v-if="ready || activeRecord" ref="recordSheet" :occurrence="activeRecord" :suspended="recordSuspended" :today="today" @close="closeRecord" @saved="reload" />
-    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :suspended="sheetSuspended" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
   </view>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { onShow, onHide, onUnload, onBackPress } from '@dcloudio/uni-app'
-import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import DayAgenda from '../../components/DayAgenda.vue'
-import QuickAdjustSheet from '../../components/QuickAdjustSheet.vue'
 import AnniversaryRecordSheet from '../../components/AnniversaryRecordSheet.vue'
 import { anniversaryOccurrences, anniversaryTypes } from '../../../../shared/anniversary.mjs'
 import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../../api/holiday'
@@ -105,13 +99,9 @@ import { usePullSync } from '../../utils/pull-sync.js'
 import { toast } from '../../utils/platform'
 import { useMainTabTap, registerTabDrafts, pendingTabDraft } from '../../utils/main-tab.js'
 
-const sheetSuspended = ref(false)
-const adjustSuspended = ref(false)
 const recordSuspended = ref(false)
-registerTabDrafts('pages/planning/index', '规划', () => sheetSuspended.value || adjustSuspended.value || recordSuspended.value)
+registerTabDrafts('pages/planning/index', '规划', () => recordSuspended.value)
 useMainTabTap('pages/planning/index', () => {
-  if (sheetVisible.value) sheetSuspended.value = true
-  if (adjustVisible.value) adjustSuspended.value = true
   if (activeRecord.value) recordSuspended.value = true
   if (viewMode.value === 'month') selectedDate.value = ''
 })
@@ -121,29 +111,18 @@ function draftBlocked() {
   toast(`请返回${page}页，继续处理已保留的草稿`)
   return true
 }
-function resumeDraft(kind) {
-  if (kind === 'task' && adjustVisible.value && !adjustSuspended.value) return
-  if (kind === 'adjust' && sheetVisible.value && !sheetSuspended.value) return
-  if (kind === 'task') sheetSuspended.value = false
-  else adjustSuspended.value = false
-}
-function closeAdjust() { adjustVisible.value = false; adjustSuspended.value = false; adjustingTask.value = null }
 function closeRecord() { activeRecord.value = null; recordSuspended.value = false }
 
 const { refreshing, refresh } = usePullSync(reload)
 
 const anchor = ref(todayString())
 const viewMode = ref('month')
-const adjustVisible = ref(false)
-const adjustSheet = ref(null)
-const adjustingTask = ref(null)
-let longPressAt = 0
+let navigating = false
+let navigationHidden = false
+let showRevision = 0
 const today = ref(todayString())
-const sheetVisible = ref(false)
-const presetDate = ref('')
 const ready = ref(false)
 const loadError = ref('')
-const taskSheet = ref(null)
 const categories = ref([])
 const allDayData = ref({})
 const statusFilter = ref('all')
@@ -155,7 +134,6 @@ const dayData = computed(() => Object.fromEntries(Object.entries(allDayData.valu
 const selectedDate = ref('')
 const activeRecord = ref(null)
 const recordSheet = ref(null)
-const editingTask = ref(null)
 const marks = Object.fromEntries(anniversaryTypes.map(type => [type.value, type.mark]))
 let dayTimer
 const holidayByDate = ref({})
@@ -169,7 +147,9 @@ const visibleHolidayYears = computed(() => [...new Set(days.value.map((date) => 
 const selectedDay = computed(() => dayData.value[selectedDate.value] || { tasks: [], anniversaries: [], count: 0 })
 
 onShow(() => {
-  reload()
+  if (navigationHidden) { navigating = false; navigationHidden = false }
+  const revision = ++showRevision
+  void nextTick(() => { if (revision === showRevision) reload() })
   scheduleDay()
   // #ifdef H5
   window.addEventListener('focus', reload)
@@ -181,9 +161,7 @@ onHide(releasePage)
 onUnload(releasePage)
 onBeforeUnmount(releasePage)
 onBackPress(() => {
-  if (adjustVisible.value && !adjustSuspended.value) { adjustSheet.value?.requestClose(); return true }
   if (activeRecord.value && !recordSuspended.value) { recordSheet.value?.close(); return true }
-  if (sheetVisible.value && !sheetSuspended.value) { taskSheet.value?.requestClose(); return true }
   if (viewMode.value === 'week') { switchView('month'); return true }
   if (selectedDate.value) { selectedDate.value = ''; return true }
   return false
@@ -191,8 +169,10 @@ onBackPress(() => {
 
 function scheduleDay() { clearTimeout(dayTimer); const next = new Date(); next.setHours(24, 0, 0, 0); dayTimer = setTimeout(() => { reload(); scheduleDay() }, next.getTime() - Date.now() + 100) }
 function releasePage() {
+  showRevision++
   clearTimeout(dayTimer)
-  statusFilter.value = 'all'
+  if (navigating) navigationHidden = true
+  else statusFilter.value = 'all'
   holidayRefreshRequestId++
   // #ifdef H5
   window.removeEventListener('focus', reload)
@@ -273,39 +253,25 @@ function weekdayLabel(date) {
 }
 
 function openCreate(date) {
-  if (draftBlocked()) return
-  if (sheetVisible.value || adjustVisible.value || !reload()) return
-  presetDate.value = date
-  editingTask.value = null
-  if (viewMode.value === 'month') selectedDate.value = ''
-  sheetVisible.value = true
+  if (draftBlocked() || navigating || activeRecord.value || !reload()) return
+  navigateToTask(`/pages/task-edit/index?date=${encodeURIComponent(date)}`)
 }
 function editTask(task) {
-  if (!task || task.planningDeleted || Date.now() - longPressAt < 700) return
-  if (draftBlocked()) return
-  if (sheetVisible.value || adjustVisible.value || !reload()) return
-  editingTask.value = task
-  if (viewMode.value === 'month') selectedDate.value = ''
-  sheetVisible.value = true
+  if (!task || task.planningDeleted || draftBlocked() || navigating || activeRecord.value || !reload()) return
+  navigateToTask(`/pages/task-edit/index?id=${encodeURIComponent(task.id)}`)
 }
 function openRecord(item) {
   if (draftBlocked()) return
-  if (activeRecord.value || sheetVisible.value || adjustVisible.value) { toast('请先继续处理已打开的草稿'); return }
+  if (activeRecord.value || navigating) { toast('请先继续处理已打开的草稿'); return }
   activeRecord.value = item
 }
 function openQuickAdjust(task) {
-  if (draftBlocked()) return
-  if (!task || task.planningDeleted || sheetVisible.value || adjustVisible.value) return
-  longPressAt = Date.now()
-  if (!reload()) return
-  adjustingTask.value = task
-  adjustVisible.value = true
+  if (!task || task.planningDeleted || draftBlocked() || navigating || activeRecord.value || !reload()) return
+  navigateToTask(`/pages/task-adjust/index?id=${encodeURIComponent(task.id)}`)
 }
-
-function closeSheet() {
-  sheetVisible.value = false
-  sheetSuspended.value = false
-  reload()
+function navigateToTask(url) {
+  navigating = true
+  uni.navigateTo({ url, fail: error => { navigating = false; toast(`无法打开事项页面：${error.errMsg || '请重试'}`) } })
 }
 
 function reload() {
