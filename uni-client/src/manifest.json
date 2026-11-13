@@ -2,8 +2,8 @@
   "name": "岁岁时光",
   "appid": "__UNI__DACC2E3",
   "description": "本地优先的待办与时间规划",
-  "versionName": "0.7.6",
-  "versionCode": "706",
+  "versionName": "0.7.7",
+  "versionCode": "707",
   "transformPx": false,
   "h5": {
     "router": {
@@ -17,6 +17,12 @@
   "app-plus": {
     "compilerVersion": 3,
     "nvueCompiler": "uni-app",
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "autoclose": true,
+      "waiting": false,
+      "delay": 0
+    },
     "compatible": {
       "ignoreVersion": true
     },

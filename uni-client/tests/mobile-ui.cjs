@@ -26,6 +26,15 @@ const base=process.env.MOBILE_TEST_URL || 'http://127.0.0.1:5187';
   });
   await context.route('https://tongji-collector.dcloud.net.cn/**', route=>route.fulfill({status:200,contentType:'image/gif',body:Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7','base64')}));
   const page = await context.newPage();
+  if (process.env.MOBILE_TEST_WITHOUT_CAPTURE) {
+    await page.addInitScript(() => {
+      const add = EventTarget.prototype.addEventListener;
+      EventTarget.prototype.addEventListener = function (type, listener, options) {
+        if (this.classList?.contains('sheet-layer') && options?.capture) return;
+        return add.call(this, type, listener, options);
+      };
+    });
+  }
   async function interceptStoreReads(target) {
     await target.route('**/src/api/store.js*', async route => {
       const response = await route.fetch();
@@ -293,6 +302,9 @@ const base=process.env.MOBILE_TEST_URL || 'http://127.0.0.1:5187';
     await page.locator('.sheet-close').tap();
     discardTask = page.locator('uni-modal').filter({hasText:'放弃未保存的修改'});
     await discardTask.getByText('确定',{exact:true}).tap();
+    await page.locator('.sheet').waitFor({state:'hidden'});
+    await page.locator('.tasks-page .task-item').filter({hasText:'Alpha 标题'}).tap();
+    await page.locator('.sheet-close').dispatchEvent('click');
     await page.locator('.sheet').waitFor({state:'hidden'});
     await page.locator('.tasks-page .task-item').filter({hasText:'Alpha 标题'}).tap();
     await dragSheet(30, true);

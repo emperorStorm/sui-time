@@ -1,31 +1,31 @@
 <template>
   <transition name="sheet">
-    <view v-if="visible" v-show="!suspended" class="sheet-layer" :style="{ backgroundColor: `rgba(30, 44, 61, ${0.45 * (1 - Math.min(sheetOffset / 400, 1))})` }" @touchstart.capture="beginSheetTouch" @pointerdown.capture="beginSheetTouch" @keydown.capture="beginSheetTouch" @click="guardSheetClick() && (requestClose())">
+    <view v-if="visible" v-show="!suspended" class="sheet-layer" :style="{ backgroundColor: `rgba(30, 44, 61, ${0.45 * (1 - Math.min(sheetOffset / 400, 1))})` }" @touchstart="beginSheetTouch" @pointerdown="beginSheetTouch" @keydown="beginSheetTouch" @click="guardSheetClick() && (requestClose())">
       <view :class="['sheet', { 'is-swiping': swipe.active }]" :style="{ '--sheet-offset': `${sheetOffset}px` }" @click.stop @touchmove="moveSheetSwipe" @touchend="endSheetSwipe" @touchcancel="cancelSheetSwipe">
       <view class="sheet-header" @touchstart="startSheetSwipe">
         <view class="sheet-grab" aria-hidden="true" />
-        <view class="header-actions"><button class="sheet-close" aria-label="关闭" @touchstart.stop @click="guardSheetClick() && (requestClose())">×</button><view v-if="loaded && draft.id" class="sheet-delete" @touchstart.stop @click="guardSheetClick() && (remove())">删除</view></view>
+        <view class="header-actions"><button class="sheet-close" aria-label="关闭" @touchstart.stop="beginSheetTouch" @click="guardSheetClick() && (requestClose())">×</button><view v-if="loaded && draft.id" class="sheet-delete" @touchstart.stop="beginSheetTouch" @click="guardSheetClick() && (remove())">删除</view></view>
         <text class="sheet-title">{{ task?.id || draft.id ? '编辑事项' : '新建事项' }}</text>
-        <view v-if="loaded" class="sheet-save" @touchstart.stop @click="guardSheetClick() && (save())">{{ saving ? '保存中' : '保存' }}</view>
+        <view v-if="loaded" class="sheet-save" @touchstart.stop="beginSheetTouch" @click="guardSheetClick() && (save())">{{ saving ? '保存中' : '保存' }}</view>
       </view>
       <scroll-view v-if="loaded" :class="['sheet-body', { 'is-busy': actionBusy }]" scroll-y :scroll-into-view="scrollTarget" :scroll-top="dragScrollTop" :scroll-with-animation="false" @scroll="onSubtaskScroll" @touchstart="startSheetSwipe($event, true)">
-        <input @touchstart.stop class="title-input" v-model="draft.title" placeholder="输入事项名称" :maxlength="Math.max(120, draft.title.length)" @blur="flushDraft()" />
+        <input @touchstart.stop="beginSheetTouch" class="title-input" v-model="draft.title" placeholder="输入事项名称" :maxlength="Math.max(120, draft.title.length)" @blur="flushDraft()" />
         <view class="sheet-row">
           <text class="row-label">◷ 日期</text>
-          <picker @touchstart.stop mode="date" :value="draft.plannedDate || ''" @change="onDateChange">
+          <picker @touchstart.stop="beginSheetTouch" mode="date" :value="draft.plannedDate || ''" @change="onDateChange">
             <view class="row-value">{{ draft.plannedDate || '未设置' }} ›</view>
           </picker>
         </view>
-        <view @touchstart.stop class="option-grid time-types"><button v-for="[value, label] in [['all_day', '全天'], ['point', '时间点'], ['range', '时间段']]" :key="value" :class="['option-chip', { active: draft.scheduleKind === value }]" @click="guardSheetClick() && (setTime({ scheduleKind: value }))">{{ label }}</button></view>
-        <view v-if="draft.scheduleKind !== 'all_day'" class="sheet-row"><text class="row-label">开始时间</text><picker @touchstart.stop mode="time" :value="draft.plannedTime || '09:00'" @change="setTime({ plannedTime: $event.detail.value })"><view class="row-value">{{ draft.plannedTime || '请选择' }} ›</view></picker></view>
-        <view v-if="draft.scheduleKind === 'range'" class="sheet-row"><text class="row-label">结束时间</text><picker @touchstart.stop mode="time" :value="draft.plannedEndTime || '10:00'" @change="setTime({ plannedEndTime: $event.detail.value })"><view class="row-value">{{ draft.plannedEndTime || '请选择' }} ›</view></picker></view>
-        <button @touchstart.stop class="clear-time" @click="guardSheetClick() && (setTime({ plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day' }))">清除日期与时间</button>
-        <template v-if="canRemind"><view class="sheet-row"><text class="row-label">♧ 是否提醒</text><switch @touchstart.stop :checked="draft.reminderOffsets.length > 0" color="#2996f6" @change="draft.reminderOffsets = $event.detail.value ? [0] : []" /></view><view v-if="draft.reminderOffsets.length" @touchstart.stop class="option-grid"><button v-for="[value, label] in reminderOptions" :key="value" :class="['option-chip', { active: draft.reminderOffsets.includes(value) }]" @click="guardSheetClick() && (toggleOffset(value))">{{ label }}</button></view><text class="permission-hint">{{ permissionMessage }}</text><view v-if="permissions.supported" @touchstart.stop class="permission-actions"><button v-if="!permissions.notifications" @click="guardSheetClick() && (allowNotifications())">允许系统通知</button><button v-if="!permissions.exactAlarm" @click="guardSheetClick() && (androidSettings('alarm'))">允许准时提醒</button><button @click="guardSheetClick() && (androidSettings('notifications'))">通知设置</button><button v-if="permissions.notifications" @click="guardSheetClick() && (testReminder())">测试通知</button></view></template>
+        <view @touchstart.stop="beginSheetTouch" class="option-grid time-types"><button v-for="[value, label] in [['all_day', '全天'], ['point', '时间点'], ['range', '时间段']]" :key="value" :class="['option-chip', { active: draft.scheduleKind === value }]" @click="guardSheetClick() && (setTime({ scheduleKind: value }))">{{ label }}</button></view>
+        <view v-if="draft.scheduleKind !== 'all_day'" class="sheet-row"><text class="row-label">开始时间</text><picker @touchstart.stop="beginSheetTouch" mode="time" :value="draft.plannedTime || '09:00'" @change="setTime({ plannedTime: $event.detail.value })"><view class="row-value">{{ draft.plannedTime || '请选择' }} ›</view></picker></view>
+        <view v-if="draft.scheduleKind === 'range'" class="sheet-row"><text class="row-label">结束时间</text><picker @touchstart.stop="beginSheetTouch" mode="time" :value="draft.plannedEndTime || '10:00'" @change="setTime({ plannedEndTime: $event.detail.value })"><view class="row-value">{{ draft.plannedEndTime || '请选择' }} ›</view></picker></view>
+        <button @touchstart.stop="beginSheetTouch" class="clear-time" @click="guardSheetClick() && (setTime({ plannedDate: null, plannedTime: null, plannedEndTime: null, scheduleKind: 'all_day' }))">清除日期与时间</button>
+        <template v-if="canRemind"><view class="sheet-row"><text class="row-label">♧ 是否提醒</text><switch @touchstart.stop="beginSheetTouch" :checked="draft.reminderOffsets.length > 0" color="#2996f6" @change="draft.reminderOffsets = $event.detail.value ? [0] : []" /></view><view v-if="draft.reminderOffsets.length" @touchstart.stop="beginSheetTouch" class="option-grid"><button v-for="[value, label] in reminderOptions" :key="value" :class="['option-chip', { active: draft.reminderOffsets.includes(value) }]" @click="guardSheetClick() && (toggleOffset(value))">{{ label }}</button></view><text class="permission-hint">{{ permissionMessage }}</text><view v-if="permissions.supported" @touchstart.stop="beginSheetTouch" class="permission-actions"><button v-if="!permissions.notifications" @click="guardSheetClick() && (allowNotifications())">允许系统通知</button><button v-if="!permissions.exactAlarm" @click="guardSheetClick() && (androidSettings('alarm'))">允许准时提醒</button><button @click="guardSheetClick() && (androidSettings('notifications'))">通知设置</button><button v-if="permissions.notifications" @click="guardSheetClick() && (testReminder())">测试通知</button></view></template>
         <view class="sheet-row">
           <text class="row-label">⌁ 重复</text>
         </view>
         <text v-if="advancedRule" class="permission-hint">当前规则：{{ advancedRuleDescription }}。{{ occurrence ? '当次编辑不能更改规则。' : '现有设置将保留；选择下方基本规则时需确认替换。' }}</text>
-        <view @touchstart.stop class="option-grid">
+        <view @touchstart.stop="beginSheetTouch" class="option-grid">
           <view v-for="kind in repeatKinds" :key="kind" :class="['option-chip', !advancedRule && draft.repeatKind === kind ? 'active' : '']" @click="guardSheetClick() && (selectRepeatKind(kind))">
             <text>{{ repeatLabel(kind) }}</text>
           </view>
@@ -33,7 +33,7 @@
         <view class="sheet-row">
           <text class="row-label">⚑ 优先级</text>
         </view>
-        <view @touchstart.stop class="option-grid">
+        <view @touchstart.stop="beginSheetTouch" class="option-grid">
           <view v-for="[value, label] in priorities" :key="value" :class="['option-chip', draft.priority === value ? 'active' : '']" @click="guardSheetClick() && (draft.priority = value)">
             <text>{{ label }}</text>
           </view>
@@ -41,20 +41,20 @@
         <view class="sheet-row">
           <text class="row-label">▦ 分类</text>
         </view>
-        <view @touchstart.stop class="option-grid">
+        <view @touchstart.stop="beginSheetTouch" class="option-grid">
           <view :class="['option-chip', draft.categoryId === null ? 'active' : '']" @click="guardSheetClick() && (draft.categoryId = null)"><text>未分类</text></view>
           <view v-for="cat in categories" :key="cat.id" :class="['option-chip', draft.categoryId === cat.id ? 'active' : '']" :style="draft.categoryId === cat.id ? { borderColor: cat.color, background: cat.color, color: '#fff' } : {}" @click="guardSheetClick() && (draft.categoryId = cat.id)">
             <text>{{ cat.name }}</text>
           </view>
         </view>
         <template v-if="!occurrence">
-          <view @touchstart.stop class="subtask-add" @click="guardSheetClick() && (addSubtask())"><text>＋ 添加子事项</text></view>
+          <view @touchstart.stop="beginSheetTouch" class="subtask-add" @click="guardSheetClick() && (addSubtask())"><text>＋ 添加子事项</text></view>
           <view v-for="(subtask, index) in draft.subtasks" :key="subtask.id" :id="`subtask-${subtask.id}`" :class="['subtask-row', { 'is-dragging': dragIndex === index }]">
             <view class="subtask-drag" :class="{ active: dragIndex === index }" role="button" aria-label="长按拖动排序" @touchstart="recordSubtaskTouch" @longpress="startSubtaskDrag(index)" @touchmove.stop="moveSubtaskDrag" @touchend="landSubtaskDrag" @touchcancel="cancelSubtaskDrag">⋮⋮</view>
-            <button @touchstart.stop v-if="draft.repeatKind === 'none'" :class="['subtask-check', { done: subtask.status === 'done' }]" :aria-label="subtask.status === 'done' ? '恢复子事项' : '完成子事项'" @click="guardSheetClick() && (toggleSubtask(subtask))">{{ subtask.status === 'done' ? '✓' : '○' }}</button>
-            <input @touchstart.stop v-model="subtask.title" :focus="focusedChild === subtask.id" @focus="focusedChild = subtask.id" @blur="flushDraft()" @confirm="addSubtask(index + 1)" placeholder="子事项" :maxlength="Math.max(120, subtask.title.length)" confirm-type="next" />
-            <view @touchstart.stop class="subtask-order"><button :disabled="index === 0" aria-label="上移子事项" @click="guardSheetClick() && (moveSubtask(index, -1))">↑</button><button :disabled="index === draft.subtasks.length - 1" aria-label="下移子事项" @click="guardSheetClick() && (moveSubtask(index, 1))">↓</button></view>
-            <button @touchstart.stop class="subtask-remove" aria-label="删除子事项" @click="guardSheetClick() && (removeSubtask(index))">×</button>
+            <button @touchstart.stop="beginSheetTouch" v-if="draft.repeatKind === 'none'" :class="['subtask-check', { done: subtask.status === 'done' }]" :aria-label="subtask.status === 'done' ? '恢复子事项' : '完成子事项'" @click="guardSheetClick() && (toggleSubtask(subtask))">{{ subtask.status === 'done' ? '✓' : '○' }}</button>
+            <input @touchstart.stop="beginSheetTouch" v-model="subtask.title" :focus="focusedChild === subtask.id" @focus="focusedChild = subtask.id" @blur="flushDraft()" @confirm="addSubtask(index + 1)" placeholder="子事项" :maxlength="Math.max(120, subtask.title.length)" confirm-type="next" />
+            <view @touchstart.stop="beginSheetTouch" class="subtask-order"><button :disabled="index === 0" aria-label="上移子事项" @click="guardSheetClick() && (moveSubtask(index, -1))">↑</button><button :disabled="index === draft.subtasks.length - 1" aria-label="下移子事项" @click="guardSheetClick() && (moveSubtask(index, 1))">↓</button></view>
+            <button @touchstart.stop="beginSheetTouch" class="subtask-remove" aria-label="删除子事项" @click="guardSheetClick() && (removeSubtask(index))">×</button>
           </view>
         </template>
         <template v-if="occurrence">
@@ -62,11 +62,11 @@
           <view class="source-subtasks" v-if="draft.subtasks.length"><text class="row-label">源子事项（只读）</text><text v-for="child in draft.subtasks" :key="child.id" class="source-subtask">{{ child.title }}</text></view>
         </template>
         <text class="row-label">备注</text>
-        <textarea @touchstart.stop class="note-area" v-model="draft.notes" auto-height :maxlength="Math.max(1000, draft.notes.length)" @blur="flushDraft()" placeholder="备注：记录一些细节，未来的自己会感谢你。" />
+        <textarea @touchstart.stop="beginSheetTouch" class="note-area" v-model="draft.notes" auto-height :maxlength="Math.max(1000, draft.notes.length)" @blur="flushDraft()" placeholder="备注：记录一些细节，未来的自己会感谢你。" />
       </scroll-view>
       <view class="sheet-footer" @touchstart="startSheetSwipe">
-        <view class="save-feedback" aria-live="polite"><text :class="{ 'save-error': error }">{{ error || reminderWarning || (saving ? '正在保存…' : dirty ? '有未保存的修改' : draft.id ? '已保存' : '填写后保存') }}</text><view v-if="error" class="save-error-actions"><button @touchstart.stop @click="guardSheetClick() && (retryDraft())">重试</button><button @touchstart.stop @click="guardSheetClick() && (loaded ? discardAndClose() : requestClose())">{{ loaded ? '放弃并关闭' : '关闭' }}</button></view></view>
-        <view v-if="loaded && draft.id && (occurrence || draft.repeatKind === 'none')" class="occurrence-status" @touchstart.stop><button :disabled="actionBusy" @click="guardSheetClick() && (changeStatus('todo'))">恢复待办</button><button :disabled="actionBusy" @click="guardSheetClick() && (changeStatus('done'))">{{ occurrence ? '完成本次' : '完成事项' }}</button><button :disabled="actionBusy" @click="guardSheetClick() && (changeStatus('failed'))">标记失败</button></view>
+        <view class="save-feedback" aria-live="polite"><text :class="{ 'save-error': error }">{{ error || reminderWarning || (saving ? '正在保存…' : dirty ? '有未保存的修改' : draft.id ? '已保存' : '填写后保存') }}</text><view v-if="error" class="save-error-actions"><button @touchstart.stop="beginSheetTouch" @click="guardSheetClick() && (retryDraft())">重试</button><button @touchstart.stop="beginSheetTouch" @click="guardSheetClick() && (loaded ? discardAndClose() : requestClose())">{{ loaded ? '放弃并关闭' : '关闭' }}</button></view></view>
+        <view v-if="loaded && draft.id && (occurrence || draft.repeatKind === 'none')" class="occurrence-status" @touchstart.stop="beginSheetTouch"><button :disabled="actionBusy" @click="guardSheetClick() && (changeStatus('todo'))">恢复待办</button><button :disabled="actionBusy" @click="guardSheetClick() && (changeStatus('done'))">{{ occurrence ? '完成本次' : '完成事项' }}</button><button :disabled="actionBusy" @click="guardSheetClick() && (changeStatus('failed'))">标记失败</button></view>
       </view>
       </view>
     </view>
@@ -120,7 +120,6 @@ let pendingClose = null
 let reminderToken = 0
 let swipeBlockTimer
 let closeEmitted = false
-let touchReady = false
 let refreshPending = false
 const sheetOffset = ref(0)
 const swipe = reactive({ tracking: false, active: false, startX: 0, startY: 0, lastY: 0, lastTime: 0, velocity: 0, blockClick: false })
@@ -197,7 +196,6 @@ watch(
     interaction++
     pendingClose = null
     closeEmitted = false
-    touchReady = false
     saving.value = false
     actionBusy.value = false
     cancelSheetSwipe()
@@ -300,7 +298,6 @@ watch(() => [saving.value, actionBusy.value, dragIndex.value, swipe.tracking], (
 })
 
 watch(() => props.suspended, (suspended) => {
-  touchReady = false
   if (!props.visible) return
   if (!suspended) { refreshStoredDraft(); return }
   interaction++
@@ -334,7 +331,6 @@ function onDateChange(event) {
 }
 
 function beginSheetTouch() {
-  touchReady = true
   if (!swipe.tracking) {
     clearTimeout(swipeBlockTimer)
     swipe.blockClick = false
@@ -342,7 +338,7 @@ function beginSheetTouch() {
 }
 
 function guardSheetClick() {
-  return touchReady && !swipe.blockClick
+  return props.visible && !props.suspended && !swipe.blockClick
 }
 
 function armSwipeRecovery() {
@@ -353,6 +349,7 @@ function armSwipeRecovery() {
 
 function startSheetSwipe(event, inBody = false) {
   if (props.suspended) return
+  beginSheetTouch()
   if (swipe.tracking) cancelSheetSwipe()
   if (event.touches?.length !== 1) { cancelSheetSwipe(); return }
   if (actionBusy.value || pendingClose || dragIndex.value >= 0 || drag.touching || (inBody && dragScrollTop.value > 0)) return

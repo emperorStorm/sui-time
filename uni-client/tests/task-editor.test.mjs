@@ -501,6 +501,20 @@ function touch(y, x = 0) {
   return { touches: [{ clientX: x, clientY: y }], preventDefault() {}, stopPropagation() {} }
 }
 
+test('打开和恢复弹窗后普通点击不依赖前置捕获事件，挂起时仍阻止操作', async () => {
+  const ui = await editor()
+  try {
+    assert.equal(ui.guardSheetClick(), true)
+    ui.props.suspended = true
+    assert.equal(ui.guardSheetClick(), false)
+    ui.props.suspended = false
+    assert.equal(ui.guardSheetClick(), true)
+    assert.equal(await ui.requestClose(), true)
+    ui.props.visible = false
+    assert.equal(ui.guardSheetClick(), false)
+  } finally { ui.close() }
+})
+
 test('下滑后的补发点击被拦截，新触摸不等待计时器即可操作', async () => {
   const ui = await editor()
   try {
