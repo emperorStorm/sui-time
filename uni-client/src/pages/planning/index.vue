@@ -5,8 +5,9 @@
       <view class="topbar-action" role="button" tabindex="0" :aria-label="viewMode === 'week' ? '回到本周' : '回到今天'" @click="resetView" @keydown.enter.prevent="resetView" @keydown.space.prevent="resetView">↻</view>
     </view>
 
-    <view v-if="recordSuspended" class="draft-actions" role="status">
-      <button @click="recordSuspended = false">继续编辑纪念备注</button>
+    <view v-if="sheetSuspended || recordSuspended" class="draft-actions" role="status">
+      <button v-if="sheetSuspended" @click="sheetSuspended = false">继续编辑事项草稿</button>
+      <button v-if="recordSuspended" @click="recordSuspended = false">继续编辑纪念备注</button>
     </view>
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="reload">重试读取</button></view>
     <template v-else-if="ready">
@@ -64,29 +65,31 @@
         </view>
         <view class="week-agenda panel">
           <view class="week-agenda-head"><text>{{ selectedDate }} · 当天事项</text><text v-if="selectedDay.count">{{ selectedDay.count }} 项</text></view>
-          <DayAgenda :tasks="selectedDay.tasks" :anniversaries="selectedDay.anniversaries" :count="selectedDay.count" :meta="selectedMeta" :holiday="holidayOf(selectedDate)" :marks="marks" :color-of="colorOf" @edit-task="editTask" @open-anniversary="openRecord" @adjust-task="openQuickAdjust" />
+          <DayAgenda :tasks="selectedDay.tasks" :anniversaries="selectedDay.anniversaries" :count="selectedDay.count" :meta="selectedMeta" :holiday="holidayOf(selectedDate)" :marks="marks" :color-of="colorOf" @edit-task="editTask" @open-anniversary="openRecord" />
           <button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button>
         </view>
       </template>
     </scroll-view>
 
-    <view v-if="selectedDate && viewMode === 'month'" class="day-layer" @click="selectedDate = ''">
+    <view v-if="selectedDate && viewMode === 'month' && !sheetVisible" class="day-layer" @click="selectedDate = ''">
       <view class="day-sheet" @click.stop>
         <view class="day-sheet-header"><text>{{ selectedDate }} · 当天事项</text><button aria-label="关闭当天事项" @click="selectedDate = ''">×</button></view>
         <scroll-view class="day-sheet-list" scroll-y>
-          <DayAgenda :tasks="selectedDay.tasks" :anniversaries="selectedDay.anniversaries" :count="selectedDay.count" :meta="selectedMeta" :holiday="holidayOf(selectedDate)" :marks="marks" :color-of="colorOf" @edit-task="editTask" @open-anniversary="openRecord" @adjust-task="openQuickAdjust" />
+          <DayAgenda :tasks="selectedDay.tasks" :anniversaries="selectedDay.anniversaries" :count="selectedDay.count" :meta="selectedMeta" :holiday="holidayOf(selectedDate)" :marks="marks" :color-of="colorOf" @edit-task="editTask" @open-anniversary="openRecord" />
         </scroll-view>
         <button class="day-add" @click="openCreate(selectedDate)">＋ 新增当天待办</button>
       </view>
     </view>
     </template>
     <AnniversaryRecordSheet v-if="ready || activeRecord" ref="recordSheet" :occurrence="activeRecord" :suspended="recordSuspended" :today="today" @close="closeRecord" @saved="reload" />
+    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :suspended="sheetSuspended" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
   </view>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { onShow, onHide, onUnload, onBackPress } from '@dcloudio/uni-app'
+import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import DayAgenda from '../../components/DayAgenda.vue'
 import AnniversaryRecordSheet from '../../components/AnniversaryRecordSheet.vue'
 import { anniversaryOccurrences, anniversaryTypes } from '../../../../shared/anniversary.mjs'
@@ -99,11 +102,13 @@ import { usePullSync } from '../../utils/pull-sync.js'
 import { toast } from '../../utils/platform'
 import { useMainTabTap, registerTabDrafts, pendingTabDraft } from '../../utils/main-tab.js'
 
+const sheetSuspended = ref(false)
 const recordSuspended = ref(false)
-registerTabDrafts('pages/planning/index', '规划', () => recordSuspended.value)
+registerTabDrafts('pages/planning/index', '规划', () => sheetSuspended.value || recordSuspended.value)
 useMainTabTap('pages/planning/index', () => {
+  if (sheetVisible.value) sheetSuspended.value = true
   if (activeRecord.value) recordSuspended.value = true
-  if (viewMode.value === 'month') selectedDate.value = ''
+  if (viewMode.value === 'month' && !sheetVisible.value) selectedDate.value = ''
 })
 function draftBlocked() {
   const page = pendingTabDraft()
@@ -117,12 +122,13 @@ const { refreshing, refresh } = usePullSync(reload)
 
 const anchor = ref(todayString())
 const viewMode = ref('month')
-let navigating = false
-let navigationHidden = false
-let showRevision = 0
+let sheetDateContext = null
 const today = ref(todayString())
+const sheetVisible = ref(false)
+const presetDate = ref('')
 const ready = ref(false)
 const loadError = ref('')
+const taskSheet = ref(null)
 const categories = ref([])
 const allDayData = ref({})
 const statusFilter = ref('all')
@@ -134,6 +140,7 @@ const dayData = computed(() => Object.fromEntries(Object.entries(allDayData.valu
 const selectedDate = ref('')
 const activeRecord = ref(null)
 const recordSheet = ref(null)
+const editingTask = ref(null)
 const marks = Object.fromEntries(anniversaryTypes.map(type => [type.value, type.mark]))
 let dayTimer
 const holidayByDate = ref({})
@@ -147,9 +154,7 @@ const visibleHolidayYears = computed(() => [...new Set(days.value.map((date) => 
 const selectedDay = computed(() => dayData.value[selectedDate.value] || { tasks: [], anniversaries: [], count: 0 })
 
 onShow(() => {
-  if (navigationHidden) { navigating = false; navigationHidden = false }
-  const revision = ++showRevision
-  void nextTick(() => { if (revision === showRevision) reload() })
+  reload()
   scheduleDay()
   // #ifdef H5
   window.addEventListener('focus', reload)
@@ -160,7 +165,13 @@ onShow(() => {
 onHide(releasePage)
 onUnload(releasePage)
 onBeforeUnmount(releasePage)
+function refreshStore() { reload() }
+uni.$on('store-refresh', refreshStore)
+const releaseStoreRefresh = () => uni.$off('store-refresh', refreshStore)
+onUnload(releaseStoreRefresh)
+onBeforeUnmount(releaseStoreRefresh)
 onBackPress(() => {
+  if (sheetVisible.value && !sheetSuspended.value) { taskSheet.value?.requestClose(); return true }
   if (activeRecord.value && !recordSuspended.value) { recordSheet.value?.close(); return true }
   if (viewMode.value === 'week') { switchView('month'); return true }
   if (selectedDate.value) { selectedDate.value = ''; return true }
@@ -169,10 +180,8 @@ onBackPress(() => {
 
 function scheduleDay() { clearTimeout(dayTimer); const next = new Date(); next.setHours(24, 0, 0, 0); dayTimer = setTimeout(() => { reload(); scheduleDay() }, next.getTime() - Date.now() + 100) }
 function releasePage() {
-  showRevision++
   clearTimeout(dayTimer)
-  if (navigating) navigationHidden = true
-  else statusFilter.value = 'all'
+  statusFilter.value = 'all'
   holidayRefreshRequestId++
   // #ifdef H5
   window.removeEventListener('focus', reload)
@@ -253,25 +262,48 @@ function weekdayLabel(date) {
 }
 
 function openCreate(date) {
-  if (draftBlocked() || navigating || activeRecord.value || !reload()) return
-  navigateToTask(`/pages/task-edit/index?date=${encodeURIComponent(date)}`)
+  if (draftBlocked()) return
+  if (sheetVisible.value || activeRecord.value || !reload()) return
+  presetDate.value = date
+  editingTask.value = null
+  sheetDateContext = viewMode.value === 'month' ? { date: selectedDate.value, anchor: anchor.value } : null
+  sheetVisible.value = true
 }
 function editTask(task) {
-  if (!task || task.planningDeleted || draftBlocked() || navigating || activeRecord.value || !reload()) return
-  navigateToTask(`/pages/task-edit/index?id=${encodeURIComponent(task.id)}`)
+  if (!task || task.planningDeleted) return
+  if (draftBlocked()) return
+  if (sheetVisible.value || activeRecord.value || !reload()) return
+  const current = allDayData.value[selectedDate.value]?.tasks.find(item => item.id === task.id && !item.planningDeleted)
+  if (!current) { toast('事项不存在'); return }
+  editingTask.value = current
+  presetDate.value = ''
+  sheetDateContext = viewMode.value === 'month' ? { date: selectedDate.value, anchor: anchor.value } : null
+  sheetVisible.value = true
 }
 function openRecord(item) {
   if (draftBlocked()) return
-  if (activeRecord.value || navigating) { toast('请先继续处理已打开的草稿'); return }
+  if (activeRecord.value || sheetVisible.value) { toast('请先继续处理已打开的草稿'); return }
   activeRecord.value = item
 }
-function openQuickAdjust(task) {
-  if (!task || task.planningDeleted || draftBlocked() || navigating || activeRecord.value || !reload()) return
-  navigateToTask(`/pages/task-adjust/index?id=${encodeURIComponent(task.id)}`)
-}
-function navigateToTask(url) {
-  navigating = true
-  uni.navigateTo({ url, fail: error => { navigating = false; toast(`无法打开事项页面：${error.errMsg || '请重试'}`) } })
+
+function closeSheet() {
+  // saved 包括自动保存，只有真正关闭后才恢复打开编辑器前的月历上下文。
+  const context = sheetDateContext
+  sheetDateContext = null
+  const viewChanged = context && (viewMode.value !== 'month' || anchor.value !== context.anchor)
+  if (context) {
+    viewMode.value = 'month'
+    anchor.value = context.anchor
+    selectedDate.value = context.date
+  }
+  sheetVisible.value = false
+  sheetSuspended.value = false
+  editingTask.value = null
+  presetDate.value = ''
+  if (viewChanged) {
+    reload()
+    void refreshVisibleHolidayCalendar(false)
+  } else refreshStore()
 }
 
 function reload() {
@@ -313,7 +345,9 @@ function reload() {
 .day-task-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .day-item.day-anniversary, .day-list-anniversary { background: #eaf2fc; color: #6686a8; border-left: 3rpx solid #acc4df; }.day-item.day-anniversary.kind-birthday, .day-list-anniversary.kind-birthday { background: #fff0e6; color: #a97959; border-left-color: #e9c2a6; }.day-item.day-anniversary.kind-anniversary, .day-list-anniversary.kind-anniversary { background: #faedf2; color: #a27286; border-left-color: #dcb9c9; }.commemorated { opacity: .7; }.day-layer { position: fixed; inset: 0; z-index: 1000; background: #17243166; display: flex; align-items: flex-end; }.day-sheet { width: 100%; max-height: 80vh; background: var(--panel); border-radius: 28rpx 28rpx 0 0; padding-bottom: env(safe-area-inset-bottom); }.day-sheet-header { display: flex; justify-content: space-between; align-items: center; padding: 20rpx 32rpx; color: #657c96; font-size: 27rpx; }.day-sheet-header button { margin: 0; width: 64rpx; line-height: 64rpx; padding: 0; background: transparent; color: #8291a2; font-size: 40rpx; }.day-sheet button::after { border: 0; }.day-sheet-list { max-height: 56vh; }.day-group { display: block; padding: 12rpx 32rpx; color: #99a5b2; font-size: 24rpx; }.day-list-anniversary, .day-list-task { display: flex; align-items: center; gap: 18rpx; margin: 12rpx 32rpx; padding: 24rpx 20rpx; border-radius: 10rpx; font-size: 27rpx; }.day-list-anniversary > text:nth-child(2), .day-list-task > text:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }.day-list-anniversary > text:last-child, .day-list-task > text:last-child { flex-shrink: 0; font-size: 22rpx; }.day-list-task { background: #f6f8fb; color: #71859c; }.day-task-dot { width: 12rpx; height: 12rpx; border-radius: 50%; flex-shrink: 0; }.day-empty { display: block; text-align: center; color: #a0aab7; padding: 60rpx 0; font-size: 28rpx; }.day-add { margin: 24rpx 32rpx; background: #7299d5; color: #fff; font-size: 27rpx; line-height: 88rpx; }
 .planning-page {
-  height: 100vh;
+  height: calc(100vh - var(--window-bottom, 0px));
+  min-height: 0;
+  padding-bottom: 0;
   display: flex;
   flex-direction: column;
 }

@@ -1,40 +1,37 @@
 <template>
-  <view v-if="visible && !suspended" class="adjust-sheet">
-    <view class="adjust-header">
-      <text class="adjust-name">{{ current?.title || '' }}</text>
-    </view>
-    <scroll-view class="adjust-body" scroll-y>
-      <view class="adjust-row">
-        <text class="row-label">◷ 日期</text>
-        <picker v-if="!isRepeatSource" mode="date" :value="draft.plannedDate || ''" :disabled="locked" @change="setDate">
-          <view class="row-value">{{ draft.plannedDate || '未设置' }} ›</view>
-        </picker>
-        <text v-else class="row-value is-disabled">{{ draft.plannedDate || '未设置' }}</text>
-      </view>
-      <text v-if="isRepeatSource" class="adjust-hint">重复事项的当次日期请在规划页调整；修改分类会影响整个重复规则。</text>
-      <text v-else-if="occurrence" class="adjust-hint">只调整 {{ occurrence.date }} 这一次，重复规则和其他日期保持不变。</text>
-      <text class="field-label">分类</text>
-      <view class="option-grid">
-        <view :class="['option-chip', draft.categoryId === null ? 'active' : '']" @click="setCategory(null)"><text>未分类</text></view>
-        <view v-for="cat in categories" :key="cat.id" :class="['option-chip', draft.categoryId === cat.id ? 'active' : '']" :style="draft.categoryId === cat.id ? { borderColor: cat.color, background: cat.color, color: '#fff' } : {}" @click="setCategory(cat.id)">
-          <text>{{ cat.name }}</text>
+  <transition name="sheet">
+    <view v-if="visible && !suspended" class="adjust-layer" @touchstart.capture="beginSheetTouch" @pointerdown.capture="beginSheetTouch" @keydown.capture="beginSheetTouch" @click="guardSheetClick() && (requestClose())">
+      <view class="adjust-sheet" @click.stop>
+        <view class="adjust-header">
+          <view class="adjust-heading"><text class="adjust-title">调整事项</text><button class="adjust-close" aria-label="关闭调整事项" :disabled="busy || confirming" @click="guardSheetClick() && (requestClose())">×</button></view>
+          <text class="adjust-name">{{ current?.title || '' }}</text>
+        </view>
+        <view class="adjust-body">
+          <view class="adjust-row">
+            <text class="row-label">◷ 日期</text>
+            <picker v-if="!isRepeatSource" mode="date" :value="draft.plannedDate || ''" @change="draft.plannedDate = $event.detail.value">
+              <view class="row-value">{{ draft.plannedDate || '未设置' }} ›</view>
+            </picker>
+            <text v-else class="row-value is-disabled">{{ draft.plannedDate || '未设置' }}</text>
+          </view>
+          <text v-if="isRepeatSource" class="adjust-hint">重复事项的当次日期请在规划页调整；修改分类会影响整个重复规则。</text>
+          <text v-else-if="occurrence" class="adjust-hint">只调整 {{ occurrence.date }} 这一次，重复规则和其他日期保持不变。</text>
+          <text class="field-label">分类</text>
+          <view class="option-grid">
+            <view :class="['option-chip', draft.categoryId === null ? 'active' : '']" @click="guardSheetClick() && (draft.categoryId = null)"><text>未分类</text></view>
+            <view v-for="cat in categories" :key="cat.id" :class="['option-chip', draft.categoryId === cat.id ? 'active' : '']" :style="draft.categoryId === cat.id ? { borderColor: cat.color, background: cat.color, color: '#fff' } : {}" @click="guardSheetClick() && (draft.categoryId = cat.id)">
+              <text>{{ cat.name }}</text>
+            </view>
+          </view>
+          <text v-if="error" class="adjust-error">{{ error }}</text>
+        </view>
+        <view class="adjust-footer">
+          <button class="adjust-cancel" :disabled="busy || confirming" @click="guardSheetClick() && (requestClose())">取消</button>
+          <button class="adjust-save" :disabled="busy || confirming" @click="guardSheetClick() && (save())">{{ busy ? '保存中' : '保存' }}</button>
         </view>
       </view>
-      <text v-if="error" class="adjust-error" role="alert">{{ error }}</text>
-    </scroll-view>
-    <view v-if="confirming" class="confirm-panel" role="alert">
-      <text class="confirm-title">放弃未保存的调整？</text>
-      <text class="adjust-hint">关闭后，本次日期和分类的调整将不会保存。</text>
-      <view class="confirm-actions">
-        <button class="adjust-cancel" @click="continueEditing">继续编辑</button>
-        <button class="discard-button" @click="discardAndClose">放弃调整</button>
-      </view>
     </view>
-    <view class="adjust-footer">
-      <button class="adjust-cancel" :disabled="locked" @click="requestClose">取消</button>
-      <button class="adjust-save" :disabled="locked || !current" @click="save">{{ busy ? '保存中' : '保存' }}</button>
-    </view>
-  </view>
+  </transition>
 </template>
 
 <script setup>
@@ -57,16 +54,14 @@ const current = ref(null)
 const busy = ref(false)
 const confirming = ref(false)
 const error = ref('')
-const closing = ref(false)
+let touchReady = false
 let generation = 0
-let confirmationGeneration = 0
-let confirmationDraft = ''
+let closed = false
 let expectedSnapshot = null
 let snapshotReady = false
 const draft = reactive({ plannedDate: '', categoryId: null })
 const initial = { plannedDate: '', categoryId: null }
 
-const locked = computed(() => busy.value || confirming.value || closing.value || props.suspended)
 const occurrence = computed(() => current.value?.id ? parseOccurrenceId(current.value.id) : null)
 const isRepeatSource = computed(() => !occurrence.value && Boolean(current.value) && parseRepeatRule(current.value.repeatRule).kind !== 'none')
 
@@ -75,10 +70,11 @@ watch(
   (visible) => {
     generation++
     confirming.value = false
-    closing.value = false
+    closed = false
     if (!visible) return
     busy.value = false
     error.value = ''
+    touchReady = false
     let task = props.task
     expectedSnapshot = null
     snapshotReady = false
@@ -93,12 +89,12 @@ watch(
     initial.categoryId = task?.categoryId ?? null
     draft.plannedDate = initial.plannedDate
     draft.categoryId = initial.categoryId
-  },
-  { immediate: true, flush: 'sync' }
+  }
 )
-watch(() => props.suspended, () => {
+watch(() => props.suspended, (suspended) => {
   generation++
   confirming.value = false
+  touchReady = false
 }, { flush: 'sync' })
 onBeforeUnmount(() => { generation++ })
 
@@ -106,52 +102,43 @@ function changed() {
   return draft.plannedDate !== initial.plannedDate || draft.categoryId !== initial.categoryId
 }
 
-function setDate(event) {
-  if (!locked.value) draft.plannedDate = event.detail.value
+function beginSheetTouch() {
+  touchReady = true
 }
 
-function setCategory(id) {
-  if (!locked.value) draft.categoryId = id
+function guardSheetClick() {
+  return touchReady
 }
 
-function requestClose() {
-  if (!props.visible || locked.value) return false
+async function requestClose() {
+  if (!props.visible || props.suspended || busy.value || confirming.value || closed) return false
+  const session = generation
+  const snapshot = JSON.stringify(draft)
   if (changed()) {
-    confirmationGeneration = generation
-    confirmationDraft = JSON.stringify(draft)
     confirming.value = true
-    return false
+    try {
+      const result = await new Promise((resolve, reject) => uni.showModal({
+        title: '放弃未保存的调整？',
+        content: '关闭后，本次日期和分类的调整将不会保存。',
+        confirmText: '放弃',
+        success: resolve,
+        fail: reject
+      }))
+      if (!result.confirm || session !== generation || !props.visible || JSON.stringify(draft) !== snapshot) return false
+    } catch {
+      if (session === generation) error.value = '确认窗口无法打开，请重试'
+      return false
+    } finally { if (session === generation) confirming.value = false }
   }
-  closing.value = true
+  if (session !== generation || !props.visible) return false
+  closed = true
   emit('close')
   return true
 }
 
-function continueEditing() {
-  confirming.value = false
-}
-
-function discardAndClose() {
-  if (!confirming.value || busy.value || closing.value || props.suspended || !props.visible) return
-  if (confirmationGeneration !== generation || confirmationDraft !== JSON.stringify(draft)) {
-    confirming.value = false
-    error.value = '草稿已发生变化，请重新确认是否放弃'
-    return
-  }
-  confirming.value = false
-  closing.value = true
-  emit('close')
-}
-
-// 页面返回失败时解锁，保留尚未放弃的草稿供用户重试。
-function resumeAfterCloseFailure(message) {
-  closing.value = false
-  if (message) error.value = message
-}
-
-function save() {
-  if (locked.value || !props.visible || !current.value) return
-  if (!changed()) { closing.value = true; emit('close'); return }
+async function save() {
+  if (busy.value || confirming.value || closed || !props.visible || props.suspended || !current.value) return
+  if (!changed()) { closed = true; emit('close'); return }
   if (!snapshotReady) { if (!error.value) error.value = '无法读取事项，请保留草稿并重新打开'; return }
   busy.value = true
   error.value = ''
@@ -161,18 +148,15 @@ function save() {
       ...(isRepeatSource.value ? {} : { plannedDate: draft.plannedDate || null }),
       categoryId: draft.categoryId
     }, undefined, { expectedSnapshot })
-    initial.plannedDate = draft.plannedDate
-    initial.categoryId = draft.categoryId
-    expectedSnapshot = saved.taskSnapshot
-    snapshotReady = Boolean(expectedSnapshot)
-    current.value = saved
-    closing.value = true
+    busy.value = false
+    closed = true
     emit('saved', saved)
     emit('close')
     void notifyReminder(saved)
   } catch (cause) {
-    error.value = cause?.message || String(cause)
-  } finally { busy.value = false }
+    error.value = cause.message || String(cause)
+    busy.value = false
+  }
 }
 
 async function notifyReminder(saved) {
@@ -185,17 +169,28 @@ async function notifyReminder(saved) {
   }
 }
 
-defineExpose({ requestClose, resumeAfterCloseFailure })
+defineExpose({ requestClose })
 </script>
 
 <style scoped>
+.adjust-layer {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(30, 44, 61, 0.45);
+}
+
 .adjust-sheet {
   display: flex;
-  flex: 1;
   flex-direction: column;
   width: 100%;
-  min-height: 0;
+  max-height: 76vh;
+  overflow: hidden;
+  border-radius: 32rpx 32rpx 0 0;
   background: var(--panel);
+  box-shadow: 0 -12rpx 48rpx rgba(34, 74, 115, 0.12);
 }
 
 .adjust-header {
@@ -206,6 +201,10 @@ defineExpose({ requestClose, resumeAfterCloseFailure })
   padding: 28rpx 32rpx 20rpx;
   border-bottom: 2rpx solid var(--line);
 }
+
+.adjust-heading { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+.adjust-close { flex: 0 0 auto; width: 80rpx; height: 80rpx; margin: -12rpx -12rpx -12rpx 0; padding: 0; background: transparent; color: #55728e; font-size: 40rpx; line-height: 80rpx; }
+.adjust-close::after { border: 0; }
 
 .adjust-title {
   color: #26282d;
@@ -224,9 +223,8 @@ defineExpose({ requestClose, resumeAfterCloseFailure })
 .adjust-body {
   flex: 1;
   min-height: 0;
-  height: 0;
-  box-sizing: border-box;
   padding: 8rpx 32rpx 24rpx;
+  overflow-y: auto;
 }
 
 .adjust-row {
@@ -328,18 +326,23 @@ defineExpose({ requestClose, resumeAfterCloseFailure })
   font-weight: 600;
 }
 
-.confirm-panel {
-  flex: 0 0 auto;
-  margin: 16rpx 32rpx;
-  padding: 24rpx;
-  border: 2rpx solid var(--line);
-  border-radius: 16rpx;
-  background: #f7f9fc;
+.sheet-enter-active,
+.sheet-leave-active {
+  transition: opacity 0.28s ease;
 }
 
-.confirm-title { color: #26282d; font-size: 28rpx; font-weight: 600; }
-.confirm-actions { display: flex; gap: 20rpx; margin-top: 20rpx; }
-.confirm-actions button { flex: 1; margin: 0; font-size: 28rpx; line-height: 80rpx; }
-.confirm-actions button::after { border: 0; }
-.discard-button { border-radius: 16rpx; background: #fff0ef; color: #b33c35; }
+.sheet-enter-from,
+.sheet-leave-to {
+  opacity: 0;
+}
+
+.sheet-enter-active .adjust-sheet,
+.sheet-leave-active .adjust-sheet {
+  transition: transform 0.28s ease;
+}
+
+.sheet-enter-from .adjust-sheet,
+.sheet-leave-to .adjust-sheet {
+  transform: translateY(100%);
+}
 </style>

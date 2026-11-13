@@ -12,8 +12,9 @@
         <view v-if="todayTasks.length" class="today-progress-track"><view class="today-progress-value" :style="{ width: `${todayProgress}%` }"></view></view>
       </view>
     </view>
-    <view v-if="manageSuspended" class="draft-actions" role="status">
-      <button @click="manageSuspended = false">继续分类管理</button>
+    <view v-if="sheetSuspended || manageSuspended" class="draft-actions" role="status">
+      <button v-if="sheetSuspended" @click="sheetSuspended = false">继续编辑事项草稿</button>
+      <button v-if="manageSuspended" @click="manageSuspended = false">继续分类管理</button>
     </view>
     <view v-if="loadError" class="storage-error panel"><text>本机数据暂时无法读取</text><text class="storage-error-detail">{{ loadError }}</text><button @click="load">重试读取</button></view>
     <template v-else-if="ready">
@@ -46,7 +47,7 @@
       </view>
     </view>
 
-    <scroll-view class="task-scroll" scroll-y refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh">
+    <scroll-view class="task-scroll" scroll-y refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh" @scroll="taskTouchMoved = true">
       <view v-if="groups.length" class="shell">
         <view v-for="group in groups" :key="group.label" class="task-group panel">
           <view class="group-header" role="button" tabindex="0" :aria-expanded="!isCollapsed(group.label)" @click="toggleGroup(group.label)" @keydown.enter.prevent="toggleGroup(group.label)" @keydown.space.prevent="toggleGroup(group.label)">
@@ -57,15 +58,14 @@
             </view>
           </view>
           <template v-if="!isCollapsed(group.label)">
-            <view v-for="task in group.items" :key="task.id" class="task-item" role="button" tabindex="0" :aria-label="`编辑事项 ${task.title}`" @click="openEdit(task)" @keydown.enter.prevent="openEdit(task)" @keydown.space.prevent="openEdit(task)">
-              <button class="task-check-target" role="button" tabindex="0" :aria-label="`${task.status === 'done' ? '恢复待办' : '完成事项'} ${task.title}`" @click.stop="toggle(task)" @longpress.stop @keydown.enter.stop.prevent="toggle(task)" @keydown.space.stop.prevent="toggle(task)">
+            <view v-for="task in group.items" :key="task.id" class="task-item" role="button" tabindex="0" :aria-label="`编辑事项 ${task.title}`" @click="!taskTouchMoved && openEdit(task)" @touchstart="taskTouchMoved = false" @pointerdown="taskTouchMoved = false" @touchmove="taskTouchMoved = true" @touchcancel="taskTouchMoved = true" @keydown.enter.prevent="openEdit(task)" @keydown.space.prevent="openEdit(task)">
+              <button class="task-check-target" role="button" tabindex="0" :aria-label="`${task.status === 'done' ? '恢复待办' : '完成事项'} ${task.title}`" @click.stop="!taskTouchMoved && toggle(task)" @keydown.enter.stop.prevent="toggle(task)" @keydown.space.stop.prevent="toggle(task)">
                 <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="checkStyle(task)"><text v-if="task.status === 'done'">✓</text></view>
               </button>
               <view class="task-main">
                 <text :class="['task-title', task.status === 'done' ? 'is-done' : '']"><text class="task-priority">{{ taskMark(task) }}</text>{{ task.title }}</text>
                 <text class="task-meta">{{ metaOf(task) }}</text>
               </view>
-              <button class="task-adjust" :aria-label="`调整事项 ${task.title}`" @click.stop="openQuickAdjust(task)" @keydown.stop>调整</button>
             </view>
           </template>
         </view>
@@ -80,12 +80,14 @@
 
     </template>
     <CategoryManageSheet v-if="ready || manageVisible" ref="categorySheet" :visible="manageVisible" :suspended="manageSuspended" @close="closeManage" @changed="onCategoriesChanged" />
+    <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :suspended="sheetSuspended" :task="editingTask" @close="closeSheet" @saved="reload" />
   </view>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { onShow, onHide, onBackPress, onUnload } from '@dcloudio/uni-app'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { onShow, onBackPress, onUnload } from '@dcloudio/uni-app'
+import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
 import { getCategories, listTasks, setTaskStatus, getSettings, getHideCompleted, toggleGroupCollapsed } from '../../api/store'
 import { repeatLabel, parseRepeatRule } from '../../utils/occurrence'
@@ -98,9 +100,11 @@ import { toast } from '../../utils/platform'
 import { usePullSync } from '../../utils/pull-sync.js'
 import { useMainTabTap, registerTabDrafts, pendingTabDraft } from '../../utils/main-tab.js'
 
+const sheetSuspended = ref(false)
 const manageSuspended = ref(false)
-registerTabDrafts('pages/tasks/index', '事项', () => manageSuspended.value)
+registerTabDrafts('pages/tasks/index', '事项', () => sheetSuspended.value || manageSuspended.value)
 useMainTabTap('pages/tasks/index', () => {
+  if (sheetVisible.value) sheetSuspended.value = true
   if (manageVisible.value) manageSuspended.value = true
 })
 function draftBlocked() {
@@ -110,7 +114,7 @@ function draftBlocked() {
   return true
 }
 function openCategories() {
-  if (draftBlocked() || navigating || manageVisible.value) return
+  if (draftBlocked() || sheetVisible.value || manageVisible.value) return
   manageVisible.value = true
 }
 function closeManage() { manageVisible.value = false; manageSuspended.value = false }
@@ -132,10 +136,9 @@ async function retryReminders() {
 const categories = ref([])
 const ready = ref(false)
 const loadError = ref('')
+const taskSheet = ref(null)
 const categorySheet = ref(null)
-let navigating = false
-let navigationHidden = false
-let showRevision = 0
+let taskTouchMoved = false
 const toggling = ref(false)
 const filter = ref('all')
 const allTasks = ref([])
@@ -148,6 +151,8 @@ const todayWeekday = computed(() => weekday(today.value))
 const todayTasks = computed(() => allTasks.value.filter(task => !task.parentTaskId && occursOnToday(task, today.value)))
 const todayDoneCount = computed(() => todayTasks.value.filter(task => task.status === 'done').length)
 const todayProgress = computed(() => todayTasks.value.length ? Math.round(todayDoneCount.value / todayTasks.value.length * 100) : 0)
+const sheetVisible = ref(false)
+const editingTask = ref(null)
 const manageVisible = ref(false)
 const collapsedGroups = ref([])
 const hideCompleted = ref(true)
@@ -203,20 +208,20 @@ const groups = computed(() => {
   return Object.keys(bucket).map((label) => ({ label, items: bucket[label].sort(compareTasks) })).filter((group) => group.items.length)
 })
 
-onShow(() => {
-  today.value = todayString()
-  if (navigationHidden) { navigating = false; navigationHidden = false }
-  const revision = ++showRevision
-  void nextTick(() => { if (revision === showRevision) { load(); reminder.value = reminderState() } })
-})
-onHide(() => { showRevision++; if (navigating) navigationHidden = true })
-onUnload(() => { showRevision++ })
+onShow(() => { today.value = todayString(); load(); reminder.value = reminderState() })
+function refreshStore() { load() }
+uni.$on('store-refresh', refreshStore)
+const releaseStoreRefresh = () => uni.$off('store-refresh', refreshStore)
+onUnload(releaseStoreRefresh)
+onBeforeUnmount(releaseStoreRefresh)
 onBackPress(() => {
+  if (sheetVisible.value && !sheetSuspended.value) { taskSheet.value?.requestClose(); return true }
   if (manageVisible.value && !manageSuspended.value) { categorySheet.value?.requestClose(); return true }
   return false
 })
 
 function load() {
+  today.value = todayString()
   try {
     const tasks = listTasks().map(task => ({ ...task }))
     const cats = getCategories().map(cat => ({ ...cat }))
@@ -293,7 +298,7 @@ function metaOf(task) {
 }
 
 async function toggle(task) {
-  if (toggling.value || navigating || manageVisible.value || loadError.value) return
+  if (toggling.value || sheetVisible.value || loadError.value) return
   if (parseKind(task.repeatRule) !== 'none') { toast('请在规划月历中更新当次事项状态'); return }
   toggling.value = true
   try {
@@ -314,20 +319,21 @@ async function toggle(task) {
 }
 
 function openEdit(task) {
-  if (draftBlocked() || toggling.value || navigating || manageVisible.value || !ready.value || !load()) return
-  if (task && !allTasks.value.some(item => item.id === task.id)) { toast('事项不存在'); return }
-  navigateToTask(`/pages/task-edit/index${task ? `?id=${encodeURIComponent(task.id)}` : ''}`)
+  if (draftBlocked()) return
+  if (toggling.value || sheetVisible.value || manageVisible.value || !ready.value || !load()) return
+  editingTask.value = task ? allTasks.value.find(item => item.id === task.id) : null
+  if (task && !editingTask.value) { toast('事项不存在'); return }
+  sheetVisible.value = true
 }
 
-function openQuickAdjust(task) {
-  if (draftBlocked() || toggling.value || navigating || manageVisible.value || !ready.value || !load()) return
-  if (!allTasks.value.some(item => item.id === task.id)) { toast('事项不存在'); return }
-  navigateToTask(`/pages/task-adjust/index?id=${encodeURIComponent(task.id)}`)
+function closeSheet() {
+  sheetVisible.value = false
+  sheetSuspended.value = false
+  editingTask.value = null
 }
 
-function navigateToTask(url) {
-  navigating = true
-  uni.navigateTo({ url, fail: error => { navigating = false; toast(`无法打开事项页面：${error.errMsg || '请重试'}`) } })
+function reload() {
+  load()
 }
 
 </script>
@@ -353,10 +359,10 @@ function navigateToTask(url) {
 .clear-filters { margin: 24rpx auto; width: fit-content; }
 .filter-bar, .task-scroll { width: 100%; box-sizing: border-box; }
 .task-priority { display: inline-block; min-width: 44rpx; margin-right: 8rpx; color: #97a6b9; font-size: 23rpx; }
-.task-adjust { flex: 0 0 auto; margin: 0; min-width: 88rpx; padding: 0 12rpx; line-height: 72rpx; font-size: 24rpx; color: var(--blue); background: #eef6ff; }
-.task-adjust::after { border: 0; }
 .tasks-page {
-  height: 100vh;
+  height: calc(100vh - var(--window-bottom, 0px));
+  min-height: 0;
+  padding-bottom: 0;
   display: flex;
   flex-direction: column;
 }

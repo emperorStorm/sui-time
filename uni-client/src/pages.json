@@ -1,8 +1,6 @@
 {
   "pages": [
     { "path": "pages/tasks/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "事项" } },
-    { "path": "pages/task-edit/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "编辑事项" } },
-    { "path": "pages/task-adjust/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "调整事项" } },
     { "path": "pages/anniversaries/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "纪念日" } },
     { "path": "pages/anniversaries/detail", "style": { "navigationStyle": "custom", "navigationBarTitleText": "纪念日详情" } },
     { "path": "pages/planning/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "规划" } },

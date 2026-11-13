@@ -7,6 +7,7 @@ import { parse, compileScript } from '@vue/compiler-sfc'
 import * as realStore from '../src/api/store.js'
 import { load, save as saveStorage } from '../src/api/storage.js'
 import { reminderSaveMessage } from '../src/api/reminders.js'
+import { sameData } from '../src/api/sync-outbox.js'
 
 let disk = null
 let diskFailure = false
@@ -14,11 +15,12 @@ globalThis.uni = { getStorageSync: () => disk, setStorageSync: (_key, value) => 
 
 const source = (await readFile(new URL('../src/components/TaskEditSheet.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
 
-async function editor({ storeApi = null, task = { id: 'parent' }, manualConfirmation = false, repeatRule = '{"kind":"none"}', selectorQuery = null, timers = { setTimeout, clearTimeout } } = {}) {
-  const props = vue.reactive({ visible: false, task, presetDate: '' })
+async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, repeatRule = '{"kind":"none"}', selectorQuery = null, timers = { setTimeout, clearTimeout } } = {}) {
+  const props = vue.reactive({ visible: false, suspended: false, task, presetDate: '' })
   const events = []
   const writes = []
   const callbacks = []
+  const listeners = new Map()
   const toasts = []
   let fail = false
   let release
@@ -32,7 +34,7 @@ async function editor({ storeApi = null, task = { id: 'parent' }, manualConfirma
     defineProps: () => props,
     defineEmits: () => (...event) => events.push(event),
     defineExpose: () => {},
-    uni: { $on() {}, $off() {}, createSelectorQuery: selectorQuery }
+    uni: { $on: (name, fn) => listeners.set(name, fn), $off: name => listeners.delete(name), createSelectorQuery: selectorQuery, showModal: options => modal ? modal(options) : options.success({ confirm: confirmed }) }
   })
   const modules = {
     vue: { ...vue, onBeforeUnmount: callback => callbacks.push(callback) },
@@ -46,6 +48,7 @@ async function editor({ storeApi = null, task = { id: 'parent' }, manualConfirma
       },
       removeTask() {}
     },
+    '../api/sync-outbox.js': { sameData },
     '../utils/occurrence': { parseOccurrenceId: id => id.includes('@') ? { sourceId: id.split('@')[0], date: id.split('@')[1] } : null, parseRepeatRule: value => JSON.parse(value), repeatLabel: value => value },
     '../utils/task': { applyTaskTime: Object.assign, hasReminderTime: () => false, priorities: [], reminderOptions: [] },
     '../utils/date': { todayString: () => '2026-10-27' },
@@ -53,7 +56,7 @@ async function editor({ storeApi = null, task = { id: 'parent' }, manualConfirma
     '../api/android': { androidSettings() {}, requestNotificationPermission() {} },
     '../utils/platform': { toast: message => toasts.push(message) }
   }
-  const module = new vm.SourceTextModule(`${source}\nexport { draft, advancedRule, advancedRuleDescription, selectRepeatKind, flushDraft, requestClose, discardAndClose, remove, save, changeStatus, dirty, error, reminderWarning, confirmation, resolveConfirmation, navigationFailed, closeEmitted, moveSubtaskTo, recordSubtaskTouch, startSubtaskDrag, moveSubtaskDrag, landSubtaskDrag, cancelSubtaskDrag, dragIndex, drag, dragScrollTop, saveOnHide };`, { context })
+  const module = new vm.SourceTextModule(`${source}\nexport { categories, loaded, loadDraft, retryDraft, refreshStoredDraft, draft, advancedRule, advancedRuleDescription, selectRepeatKind, flushDraft, requestClose, discardAndClose, remove, save, changeStatus, dirty, error, reminderWarning, moveSubtaskTo, recordSubtaskTouch, startSubtaskDrag, moveSubtaskDrag, landSubtaskDrag, cancelSubtaskDrag, dragIndex, drag, dragScrollTop, sheetOffset, swipe, beginSheetTouch, guardSheetClick, startSheetSwipe, moveSheetSwipe, endSheetSwipe, cancelSheetSwipe, saveOnHide };`, { context })
   await module.link(specifier => {
     const exports = modules[specifier]
     return new vm.SyntheticModule(Object.keys(exports), function () {
@@ -61,18 +64,16 @@ async function editor({ storeApi = null, task = { id: 'parent' }, manualConfirma
     }, { context })
   })
   await module.evaluate()
-  const stopConfirmation = vue.watch(module.namespace.confirmation, value => {
-    if (value && !manualConfirmation) module.namespace.resolveConfirmation(confirmed)
-  }, { flush: 'post' })
   props.visible = true
   await vue.nextTick()
   return {
-    ...module.namespace, props, writes, events, toasts,
+    ...module.namespace, props, writes, events, toasts, listeners,
+    refresh: () => listeners.get('store-refresh')?.(),
     setFailure: value => { fail = value },
     setHold: value => { hold = value },
     setConfirmed: value => { confirmed = value },
     release: result => release(result),
-    close: () => { stopConfirmation(); props.visible = false; callbacks.forEach(callback => callback()) }
+    close: () => { props.visible = false; callbacks.forEach(callback => callback()) }
   }
 }
 
@@ -116,69 +117,81 @@ async function quickEditor() {
   const quickSource = (await readFile(new URL('../src/components/QuickAdjustSheet.vue', import.meta.url), 'utf8')).split('<script setup>')[1].split('</script>')[0]
   const props = vue.reactive({ visible: false, task: { id: 'a', title: '事项', plannedDate: '2026-10-01', categoryId: null, repeatRule: '{"kind":"none"}' }, categories: [] })
   const events = []
+  const modals = []
   const callbacks = []
   const writes = []
   let fail = false
-  const context = vm.createContext({ defineProps: () => props, defineEmits: () => (...event) => events.push(event), defineExpose() {} })
+  let now = 1000
+  class FakeDate extends Date { static now() { return now } }
+  const context = vm.createContext({ Date: FakeDate, defineProps: () => props, defineEmits: () => (...event) => events.push(event), defineExpose() {}, uni: { showModal: options => modals.push(options) } })
   const modules = {
     vue: { ...vue, onBeforeUnmount: callback => callbacks.push(callback) },
     '../api/store': { findTask: () => props.task, getTaskSnapshot: () => ({ id: props.task.id }), saveTask: input => { if (fail) throw Error('写入失败'); writes.push(input); return input } },
     '../utils/occurrence': { parseOccurrenceId: () => null, parseRepeatRule: value => JSON.parse(value) },
     '../utils/platform': { toast() {} }, '../api/reminders': { reminderSaveMessage: () => '' }
   }
-  const module = new vm.SourceTextModule(`${quickSource}\nexport { requestClose, continueEditing, discardAndClose, resumeAfterCloseFailure, save, draft, error, confirming };`, { context })
+  const module = new vm.SourceTextModule(`${quickSource}\nexport { requestClose, beginSheetTouch, guardSheetClick, save, draft, error, confirming };`, { context })
   await module.link(specifier => new vm.SyntheticModule(Object.keys(modules[specifier]), function () {
     for (const [key, value] of Object.entries(modules[specifier])) this.setExport(key, value)
   }, { context }))
   await module.evaluate()
   props.visible = true
   await vue.nextTick()
-  return { ...module.namespace, props, events, writes, setFailure: value => { fail = value }, close: () => { props.visible = false; callbacks.forEach(callback => callback()) } }
+  return { ...module.namespace, props, events, modals, writes, advance: value => { now += value }, setFailure: value => { fail = value }, close: () => { props.visible = false; callbacks.forEach(callback => callback()) } }
 }
 
-test('快捷调整无草稿时取消只关闭一次且不写入', async () => {
+test('快捷调整取消、遮罩与长按抬起误触', async () => {
   const cancel = await quickEditor()
   try {
-    assert.equal(cancel.requestClose(), true)
+    assert.equal(await cancel.requestClose(), true)
     assert.equal(cancel.events.filter(event => event[0] === 'close').length, 1)
-    assert.equal(cancel.requestClose(), false)
-    assert.equal(cancel.writes.length, 0)
+    assert.equal(await cancel.requestClose(), false)
   } finally { cancel.close() }
+  const backdrop = await quickEditor()
+  try {
+    assert.equal(backdrop.guardSheetClick(), false)
+    assert.equal(backdrop.events.length, 0)
+    backdrop.beginSheetTouch()
+    assert.equal(backdrop.guardSheetClick(), true)
+    await backdrop.requestClose()
+    assert.equal(backdrop.events.filter(event => event[0] === 'close').length, 1)
+    assert.equal(backdrop.writes.length, 0)
+  } finally { backdrop.close() }
 })
 
 test('快捷调整有草稿时取消确认保留修改，确认放弃才关闭', async () => {
   const ui = await quickEditor()
   try {
     ui.draft.categoryId = 'cat'
-    assert.equal(ui.requestClose(), false)
+    const first = ui.requestClose()
     assert.equal(ui.confirming.value, true)
-    assert.equal(ui.requestClose(), false)
-    ui.continueEditing()
-    assert.equal(ui.confirming.value, false)
+    assert.equal(await ui.requestClose(), false)
+    ui.modals[0].success({ confirm: false })
+    assert.equal(await first, false)
     assert.equal(ui.draft.categoryId, 'cat')
-    assert.equal(ui.requestClose(), false)
-    assert.equal(ui.confirming.value, true)
-    ui.discardAndClose()
+    ui.advance(400)
+    ui.requestClose()
+    assert.equal(ui.modals.length, 2)
+    ui.modals[1].success({ confirm: true })
+    await vue.nextTick()
     assert.equal(ui.events.filter(event => event[0] === 'close').length, 1)
     assert.equal(ui.writes.length, 0)
   } finally { ui.close() }
 })
 
-test('快捷调整返回失败可重试且保留草稿', async () => {
+test('快捷调整确认窗口失败可重试且保留草稿', async () => {
   const ui = await quickEditor()
   try {
     ui.draft.categoryId = 'cat'
-    assert.equal(ui.requestClose(), false)
-    ui.discardAndClose()
-    assert.equal(ui.events.filter(event => event[0] === 'close').length, 1)
-    ui.resumeAfterCloseFailure('返回失败')
-    assert.match(ui.error.value, /返回失败/)
+    const closing = ui.requestClose()
+    ui.modals[0].fail(new Error('unavailable'))
+    assert.equal(await closing, false)
+    assert.match(ui.error.value, /确认窗口无法打开/)
     assert.equal(ui.confirming.value, false)
     assert.equal(ui.draft.categoryId, 'cat')
-    assert.equal(ui.requestClose(), false)
-    assert.equal(ui.confirming.value, true)
-    ui.discardAndClose()
-    assert.equal(ui.events.filter(event => event[0] === 'close').length, 2)
+    const retry = ui.requestClose()
+    ui.modals[1].success({ confirm: true })
+    assert.equal(await retry, true)
   } finally { ui.close() }
 })
 
@@ -191,19 +204,18 @@ test('快捷调整保存失败保留草稿；旧确认和确认期间的新修�
     assert.match(ui.error.value, /写入失败/)
     assert.equal(ui.draft.plannedDate, '2026-11-01')
     assert.equal(ui.events.length, 0)
-    assert.equal(ui.requestClose(), false)
+    const first = ui.requestClose()
     ui.draft.categoryId = 'new'
-    ui.discardAndClose()
-    assert.match(ui.error.value, /草稿已发生变化/)
-    assert.equal(ui.confirming.value, false)
-    assert.equal(ui.requestClose(), false)
+    ui.modals[0].success({ confirm: true })
+    assert.equal(await first, false)
+    const old = ui.requestClose()
     ui.props.visible = false
     await vue.nextTick()
     ui.props.visible = true
     await vue.nextTick()
     ui.draft.categoryId = 'current'
-    ui.discardAndClose()
-    assert.equal(ui.confirming.value, false)
+    ui.modals[1].success({ confirm: true })
+    assert.equal(await old, false)
     assert.equal(ui.draft.categoryId, 'current')
     assert.equal(ui.events.length, 0)
     ui.setFailure(false)
@@ -213,12 +225,11 @@ test('快捷调整保存失败保留草稿；旧确认和确认期间的新修�
   } finally { ui.close() }
 })
 
-test('任务页调整进入独立页面，读取失败时保留分类草稿并可返回关闭', async () => {
+test('任务页读取失败时保留打开的任务和分类组件及草稿，返回可关闭', async () => {
   const file = await readFile(new URL('../src/pages/tasks/index.vue', import.meta.url), 'utf8')
   const compiled = compileScript(parse(file).descriptor, { id: 'task-page-test', inlineTemplate: true, templateOptions: { compilerOptions: { isCustomElement: tag => ['scroll-view', 'picker'].includes(tag) } } }).content
   const callbacks = {}
   const instances = {}
-  const navigations = []
   let failing = false
   const item = { id: 'a', title: '事项', status: 'todo', repeatRule: '{"kind":"none"}' }
   function sheet(name) {
@@ -232,7 +243,7 @@ test('任务页调整进入独立页面，读取失败时保留分类草稿并�
   }
   const modules = {
     vue: { ...vue, vModelText: {} },
-    '@dcloudio/uni-app': { onShow: fn => { callbacks.show = fn }, onHide: fn => { callbacks.hide = fn }, onBackPress: fn => { callbacks.back = fn }, onUnload() {} },
+    '@dcloudio/uni-app': { onShow: fn => { callbacks.show = fn }, onBackPress: fn => { callbacks.back = fn }, onUnload() {} },
     '../../components/TaskEditSheet.vue': { default: sheet('task') },
     '../../components/QuickAdjustSheet.vue': { default: sheet('quick') },
     '../../components/CategoryManageSheet.vue': { default: sheet('category') },
@@ -246,7 +257,7 @@ test('任务页调整进入独立页面，读取失败时保留分类草稿并�
     '../../utils/pull-sync.js': { usePullSync: () => ({ refreshing: vue.ref(false), refresh() {} }) },
     '../../utils/main-tab.js': { useMainTabTap() {}, registerTabDrafts() {}, pendingTabDraft: () => null }
   }
-  const context = vm.createContext({ setTimeout, clearTimeout, console, uni: { navigateTo: options => navigations.push(options.url) } })
+  const context = vm.createContext({ setTimeout, clearTimeout, console, uni: { $on() {}, $off() {} } })
   const module = new vm.SourceTextModule(compiled, { context })
   await module.link(specifier => new vm.SyntheticModule(Object.keys(modules[specifier]), function () {
     for (const [key, value] of Object.entries(modules[specifier])) this.setExport(key, value)
@@ -268,17 +279,26 @@ test('任务页调整进入独立页面，读取失败时保留分类草稿并�
   try {
     callbacks.show()
     await vue.nextTick()
+    const row = find(root, node => node.props?.class === 'task-item')
+    row.props.onClick()
     await vue.nextTick()
-    find(root, node => node.props?.class === 'task-adjust').props.onClick({ stopPropagation() {} })
-    assert.deepEqual(navigations, ['/pages/task-adjust/index?id=a'])
+    const task = instances.task
+    assert.equal(task.props.visible, true)
+    assert.equal(instances.quick, undefined)
+    task.draft = '任务草稿'
+    failing = true
     callbacks.show()
     await vue.nextTick()
+    assert.equal(instances.task, task)
+    assert.equal(task.unmounted, false)
+    assert.equal(task.props.visible, true)
+    assert.equal(task.draft, '任务草稿')
+    assert.equal(callbacks.back(), true)
     await vue.nextTick()
-    find(root, node => node.props?.class === 'task-adjust').props.onClick({ stopPropagation() {} })
-    assert.deepEqual(navigations, ['/pages/task-adjust/index?id=a'])
-    callbacks.hide()
+    assert.equal(task.calls, 1)
+    assert.equal(callbacks.back(), false)
+    failing = false
     callbacks.show()
-    await vue.nextTick()
     await vue.nextTick()
     find(root, node => node.props?.['aria-label'] === '管理分类').props.onClick()
     await vue.nextTick()
@@ -286,7 +306,6 @@ test('任务页调整进入独立页面，读取失败时保留分类草稿并�
     category.draft = '分类草稿'
     failing = true
     callbacks.show()
-    await vue.nextTick()
     await vue.nextTick()
     assert.equal(instances.category, category)
     assert.equal(category.unmounted, false)
@@ -297,59 +316,6 @@ test('任务页调整进入独立页面，读取失败时保留分类草稿并�
     assert.equal(category.calls, 1)
     assert.equal(callbacks.back(), false)
   } finally { app.unmount() }
-})
-
-test('页面内删除确认可取消，确认期间编辑使删除失效，再确认才删除', async () => {
-  const item = realStore.saveTask({ title: '待删除事项' }, [{ title: '子项' }])
-  const ui = await editor({ storeApi: realStore, task: { id: item.id }, manualConfirmation: true })
-  try {
-    const cancelled = ui.remove()
-    assert.equal(ui.confirmation.value.title, '删除事项')
-    assert.match(ui.confirmation.value.content, /子事项/)
-    assert.equal(ui.confirmation.value.confirmText, '删除')
-    ui.resolveConfirmation(false)
-    await cancelled
-    assert.equal(realStore.findTask(item.id).title, '待删除事项')
-    assert.equal(ui.events.some(event => event[0] === 'close'), false)
-    const stale = ui.remove()
-    assert.equal(ui.confirmation.value.title, '删除事项')
-    ui.draft.notes = '确认期间的草稿'
-    ui.resolveConfirmation(true)
-    await stale
-    assert.equal(realStore.findTask(item.id).title, '待删除事项')
-    assert.equal(ui.draft.notes, '确认期间的草稿')
-    assert.equal(ui.events.some(event => event[0] === 'close'), false)
-    const confirmed = ui.remove()
-    assert.match(ui.confirmation.value.content, /草稿/)
-    ui.resolveConfirmation(true)
-    await confirmed
-    assert.equal(realStore.findTask(item.id), null)
-    assert.equal(ui.events.filter(event => event[0] === 'close').length, 1)
-  } finally { ui.close() }
-})
-
-test('放弃草稿后页面返回失败恢复脏状态，可再次确认', async () => {
-  const ui = await editor({ task: null, manualConfirmation: true })
-  try {
-    ui.draft.notes = '未保存备注'
-    const closing = ui.requestClose()
-    assert.equal(ui.confirmation.value.title, '放弃未保存的修改？')
-    ui.resolveConfirmation(true)
-    assert.equal(await closing, true)
-    assert.equal(ui.closeEmitted.value, true)
-    assert.equal(ui.dirty.value, false)
-    ui.navigationFailed('返回失败')
-    assert.equal(ui.closeEmitted.value, false)
-    assert.equal(ui.dirty.value, true)
-    assert.equal(ui.draft.notes, '未保存备注')
-    assert.match(ui.error.value, /返回失败/)
-    const retry = ui.requestClose()
-    assert.ok(ui.confirmation.value)
-    ui.resolveConfirmation(false)
-    assert.equal(await retry, false)
-    assert.equal(ui.draft.notes, '未保存备注')
-    assert.equal(ui.events.filter(event => event[0] === 'close').length, 1)
-  } finally { ui.close() }
 })
 
 test('高级规则保持原始 JSON，替换需确认且可以取消', async () => {
@@ -372,26 +338,6 @@ test('高级规则保持原始 JSON，替换需确认且可以取消', async () 
   } finally { ui.close() }
 })
 
-test('高级规则确认在页面隐藏后过期，旧确认不能替换规则', async () => {
-  const original = '{"kind":"every_days","interval":3}'
-  const ui = await editor({ repeatRule: original, manualConfirmation: true })
-  try {
-    const changing = ui.selectRepeatKind('weekly')
-    assert.equal(ui.confirmation.value.title, '替换高级重复规则？')
-    ui.saveOnHide()
-    ui.resolveConfirmation(true)
-    await changing
-    assert.equal(ui.draft.repeatRule, original)
-    assert.equal(ui.draft.repeatKind, 'every_days')
-    assert.equal(ui.events.some(event => event[0] === 'close'), false)
-    const retry = ui.selectRepeatKind('weekly')
-    assert.ok(ui.confirmation.value)
-    ui.resolveConfirmation(true)
-    await retry
-    assert.equal(ui.draft.repeatRule, '{"kind":"weekly"}')
-  } finally { ui.close() }
-})
-
 test('单次实例不能替换高级规则', async () => {
   const original = '{"kind":"every_days","interval":2}'
   const ui = await editor({ task: { id: 'parent@2026-10-10' }, repeatRule: original })
@@ -404,7 +350,7 @@ test('单次实例不能替换高级规则', async () => {
   } finally { ui.close() }
 })
 
-test('未修改的已有事项可通过返回和保存关闭', async () => {
+test('未修改的已有事项可通过遮罩和保存关闭', async () => {
   for (const entry of ['requestClose', 'save']) {
     const ui = await editor()
     try {
@@ -492,7 +438,7 @@ test('旧排程未结束时快速重开，旧会话不覆盖新会话默认值�
     const next = ui.flushDraft(true)
     ui.setHold(false)
     ui.release()
-    assert.equal(await previous, true)
+    assert.equal(await previous, false)
     assert.equal(await next, true)
     assert.deepEqual(ui.writes.map(write => write.options.rememberDefaults), [false, true])
     assert.equal(ui.writes.at(-1).input.title, '新会话')
@@ -554,6 +500,86 @@ test('落盘失败阻止关闭并保留输入，重试成功后才关闭', async
 function touch(y, x = 0) {
   return { touches: [{ clientX: x, clientY: y }], preventDefault() {}, stopPropagation() {} }
 }
+
+test('下滑后的补发点击被拦截，新触摸不等待计时器即可操作', async () => {
+  const ui = await editor()
+  try {
+    ui.beginSheetTouch()
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(25))
+    ui.swipe.velocity = 0
+    await ui.endSheetSwipe({ touches: [], preventDefault() {} })
+    assert.equal(ui.guardSheetClick(), false)
+    ui.beginSheetTouch()
+    assert.equal(ui.guardSheetClick(), true)
+    assert.equal(ui.swipe.blockClick, false)
+    assert.equal(await ui.requestClose(), true)
+  } finally { ui.close() }
+})
+
+test('下拉距离、速度阈值及释放点击抑制', async () => {
+  for (const fast of [false, true]) {
+    const ui = await editor()
+    try {
+      ui.startSheetSwipe(touch(0), true)
+      ui.moveSheetSwipe(touch(fast ? 45 : 120))
+      if (fast) { ui.swipe.velocity = 1; ui.swipe.lastTime = Date.now() }
+      assert.equal(ui.sheetOffset.value, fast ? 45 : 120)
+      await ui.endSheetSwipe({ touches: [], preventDefault() {} })
+      assert.equal(ui.events.filter(event => event[0] === 'close').length, 1)
+      assert.equal(ui.swipe.blockClick, true)
+    } finally { ui.close() }
+  }
+})
+
+test('短距离、水平滑动、滚动未到顶部、多指及取消均回弹', async () => {
+  const ui = await editor()
+  try {
+    ui.startSheetSwipe(touch(0), true)
+    ui.moveSheetSwipe(touch(25))
+    ui.swipe.velocity = 0
+    await ui.endSheetSwipe({ touches: [] })
+    assert.equal(ui.sheetOffset.value, 0)
+    ui.dragScrollTop.value = 30
+    ui.startSheetSwipe(touch(0), true)
+    ui.moveSheetSwipe(touch(150))
+    assert.equal(ui.sheetOffset.value, 0)
+    ui.dragScrollTop.value = 0
+    ui.startSheetSwipe(touch(0), true)
+    ui.moveSheetSwipe(touch(10, 40))
+    assert.equal(ui.swipe.tracking, false)
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(80))
+    ui.startSheetSwipe({ touches: [{}, {}] })
+    assert.equal(ui.sheetOffset.value, 0)
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(80))
+    ui.cancelSheetSwipe()
+    assert.equal(ui.sheetOffset.value, 0)
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(80))
+    ui.saveOnHide()
+    assert.equal(ui.sheetOffset.value, 0)
+    assert.equal(ui.events.some(event => event[0] === 'close'), false)
+  } finally { ui.close() }
+})
+
+test('下拉保存失败回弹并保留草稿，重试后关闭', async () => {
+  const ui = await editor()
+  try {
+    ui.draft.notes = '保留输入'
+    ui.setFailure(true)
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(150))
+    await ui.endSheetSwipe({ touches: [], preventDefault() {} })
+    assert.equal(ui.sheetOffset.value, 0)
+    assert.equal(ui.draft.notes, '保留输入')
+    assert.match(ui.error.value, /写入失败/)
+    assert.equal(ui.events.some(event => event[0] === 'close'), false)
+    ui.setFailure(false)
+    assert.equal(await ui.requestClose(), true)
+  } finally { ui.close() }
+})
 
 test('并发关闭只发一次事件且保存等待期间的修改', async () => {
   const ui = await editor()
@@ -625,30 +651,6 @@ test('两子事项完成确认取消不写状态，确认后通过原子保存�
     ui.setConfirmed(true)
     await ui.changeStatus('done')
     assert.equal(ui.writes.at(-1).options.status, 'done')
-    assert.equal(ui.writes.at(-1).children.length, 2)
-  } finally { ui.close() }
-})
-
-test('完成确认期间草稿变更使确认过期，重新确认才提交状态', async () => {
-  const ui = await editor({ manualConfirmation: true })
-  try {
-    ui.draft.subtasks = [{ id: 'a', title: '甲', status: 'todo' }, { id: 'b', title: '乙', status: 'todo' }]
-    const stale = ui.changeStatus('done')
-    await new Promise(resolve => setImmediate(resolve))
-    assert.equal(ui.confirmation.value.title, '完成全部子事项？')
-    ui.draft.notes = '确认期间的修改'
-    ui.resolveConfirmation(true)
-    await stale
-    assert.equal(ui.writes.some(write => write.options?.status), false)
-    assert.equal(ui.draft.notes, '确认期间的修改')
-    assert.equal(ui.events.some(event => event[0] === 'close'), false)
-    const retry = ui.changeStatus('done')
-    await new Promise(resolve => setImmediate(resolve))
-    assert.equal(ui.confirmation.value.title, '完成全部子事项？')
-    ui.resolveConfirmation(true)
-    await retry
-    assert.equal(ui.writes.at(-1).options.status, 'done')
-    assert.equal(ui.writes.at(-1).input.notes, '确认期间的修改')
     assert.equal(ui.writes.at(-1).children.length, 2)
   } finally { ui.close() }
 })
@@ -733,33 +735,34 @@ test('有效子事项拖动可换位，抬手保存，取消恢复顺序', async
   } finally { ui.close() }
 })
 
-test('页面隐藏保留草稿和冲突，旧删除及关闭确认失效', async () => {
+test('挂起保留草稿和冲突，旧删除及关闭确认失效', async () => {
+  let confirmation
   const item = realStore.saveTask({ title: '挂起事项' }, [{ title: '子项' }])
-  const ui = await editor({ storeApi: realStore, task: { id: item.id }, manualConfirmation: true })
+  const ui = await editor({ storeApi: realStore, task: { id: item.id }, modal: options => { confirmation = options } })
   try {
     ui.draft.notes = '保留草稿'
     remoteTask(item.id, { title: '外部修改' })
     assert.equal(await ui.flushDraft(true), false)
     const closing = ui.discardAndClose()
-    assert.ok(ui.confirmation.value)
-    ui.saveOnHide()
-    ui.resolveConfirmation(true)
+    ui.props.suspended = true
+    ui.props.suspended = false
+    confirmation.success({ confirm: true })
     assert.equal(await closing, false)
     assert.equal(ui.draft.notes, '保留草稿')
     assert.equal(ui.draft.subtasks[0].title, '子项')
     assert.equal(ui.dirty.value, true)
     assert.match(ui.error.value, /更改或删除/)
     const deleting = ui.remove()
-    assert.ok(ui.confirmation.value)
-    ui.saveOnHide()
-    ui.resolveConfirmation(true)
+    ui.props.suspended = true
+    ui.props.suspended = false
+    confirmation.success({ confirm: true })
     await deleting
     assert.equal(realStore.findTask(item.id).title, '外部修改')
     assert.equal(ui.events.some(event => event[0] === 'close'), false)
   } finally { ui.close() }
 })
 
-test('页面隐藏期间异步新建完成后保留 ID 和快照并串行保存后续草稿', async () => {
+test('挂起期间异步新建完成后保留 ID 和快照并串行保存后续草稿', async () => {
   let release
   const writes = []
   const storeApi = {
@@ -775,10 +778,12 @@ test('页面隐藏期间异步新建完成后保留 ID 和快照并串行保存�
   try {
     ui.draft.title = '第一版'
     const saving = ui.flushDraft(true)
+    ui.props.suspended = true
     ui.saveOnHide()
     ui.draft.notes = '第二版'
     release({ id: 'created', taskSnapshot: { version: 1 }, reminderPromise: Promise.resolve({ supported: false }) })
     assert.equal(await saving, true)
+    ui.props.suspended = false
     assert.equal(ui.draft.id, 'created')
     assert.equal(ui.draft.notes, '第二版')
     assert.equal(writes.length, 2)
@@ -788,21 +793,23 @@ test('页面隐藏期间异步新建完成后保留 ID 和快照并串行保存�
   } finally { ui.close() }
 })
 
-test('页面隐藏使完成确认失效，空标题和单次草稿保留', async () => {
-  const ui = await editor({ manualConfirmation: true })
+test('挂起使完成确认失效，空标题和单次草稿恢复', async () => {
+  let confirmation
+  const ui = await editor({ modal: options => { confirmation = options } })
   try {
     ui.draft.subtasks = [{ id: 'a', title: '甲' }, { id: 'b', title: '乙' }]
     const completing = ui.changeStatus('done')
     await new Promise(resolve => setImmediate(resolve))
-    assert.ok(ui.confirmation.value)
-    ui.saveOnHide()
-    ui.resolveConfirmation(true)
+    ui.props.suspended = true
+    ui.props.suspended = false
+    confirmation.success({ confirm: true })
     await completing
     assert.equal(ui.writes.some(write => write.options.status), false)
     ui.draft.id = 'parent@2026-10-27'
     ui.draft.title = ''
     ui.draft.notes = '单次备注'
-    ui.saveOnHide()
+    ui.props.suspended = true
+    ui.props.suspended = false
     assert.equal(ui.draft.id, 'parent@2026-10-27')
     assert.equal(ui.draft.notes, '单次备注')
     assert.equal(ui.dirty.value, true)
@@ -810,13 +817,46 @@ test('页面隐藏使完成确认失效，空标题和单次草稿保留', async
   } finally { ui.close() }
 })
 
-test('子事项拖动触摸超时后恢复', async () => {
+test('弹层挂起保留 DOM，手势新操作可恢复丢失的结束事件', async () => {
+  const file = await readFile(new URL('../src/components/TaskEditSheet.vue', import.meta.url), 'utf8')
+  assert.match(file, /v-if="visible" v-show="!suspended"/)
+  const ui = await editor()
+  try {
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(80))
+    ui.startSheetSwipe(touch(10))
+    assert.equal(ui.sheetOffset.value, 0)
+    ui.moveSheetSwipe(touch(40))
+    assert.equal(ui.sheetOffset.value, 30)
+    ui.props.suspended = true
+    assert.equal(ui.sheetOffset.value, 0)
+    assert.equal(ui.swipe.tracking, false)
+    ui.props.suspended = false
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(20))
+    assert.equal(ui.swipe.blockClick, true)
+  } finally { ui.close() }
+})
+
+test('手势超时回弹，失效的旧计时器不干扰新手势', async () => {
   const scheduled = []
   const timers = { setTimeout: (fn, delay) => { const timer = { fn, delay }; scheduled.push(timer); return timer }, clearTimeout() {} }
   const ui = await editor({ timers })
   try {
+    ui.startSheetSwipe(touch(0))
+    ui.moveSheetSwipe(touch(70))
+    const old = scheduled.filter(timer => timer.delay === 4000).at(-1)
+    ui.startSheetSwipe(touch(10))
+    ui.moveSheetSwipe(touch(50))
+    old.fn()
+    assert.equal(ui.sheetOffset.value, 40)
+    scheduled.filter(timer => timer.delay === 4000).at(-1).fn()
+    assert.equal(ui.sheetOffset.value, 0)
+    assert.equal(ui.swipe.tracking, false)
+    assert.equal(ui.swipe.blockClick, true)
+    scheduled.filter(timer => timer.delay === 600).at(-1).fn()
+    assert.equal(ui.swipe.blockClick, false)
     ui.recordSubtaskTouch(touch(10))
-    assert.equal(ui.drag.touching, true)
     scheduled.filter(timer => timer.delay === 4000).at(-1).fn()
     assert.equal(ui.drag.touching, false)
   } finally { ui.close() }
@@ -826,6 +866,177 @@ function remoteTask(id, patch) {
   const data = load()
   saveStorage({ ...data, tasks: data.tasks.map(item => item.id === id ? { ...item, ...patch } : item) }, { strict: true, remote: true })
 }
+
+test('任务及分类子项读取失败可以重试或关闭，不会写入残留草稿', async () => {
+  const item = realStore.saveTask({ title: '已保存标题', notes: '已保存备注' }, [{ title: '已保存子项' }])
+  for (const method of ['getCategories', 'findTask', 'listChildren', 'getTaskSnapshot']) {
+    let failing = true
+    const api = { ...realStore, [method]: (...args) => { if (failing) throw Error('读取失败'); return realStore[method](...args) } }
+    const ui = await editor({ storeApi: api, task: { id: item.id } })
+    try {
+      assert.equal(ui.loaded.value, false, method)
+      assert.match(ui.error.value, /读取事项失败/)
+      assert.equal(await ui.flushDraft(true), false)
+      await ui.remove(); await ui.changeStatus('done')
+      assert.equal(realStore.findTask(item.id).status, 'todo')
+      failing = false
+      assert.equal(ui.retryDraft(), true)
+      assert.equal(ui.loaded.value, true)
+      assert.equal(ui.draft.notes, '已保存备注')
+      assert.equal(ui.draft.subtasks[0].title, '已保存子项')
+      assert.equal(await ui.requestClose(), true)
+    } finally { ui.close() }
+  }
+  const ui = await editor({ storeApi: { ...realStore, findTask: () => { throw Error('无法读取') } }, task: { id: item.id } })
+  try { assert.equal(await ui.requestClose(), true) } finally { ui.close() }
+})
+
+test('同步刷新干净草稿的备注分类和子事项，关闭后释放订阅', async () => {
+  const item = realStore.saveTask({ title: '本机', notes: '旧备注' }, [{ title: '原子项' }])
+  const ui = await editor({ storeApi: realStore, task: { id: item.id } })
+  try {
+    const child = realStore.listChildren(item.id)[0]
+    remoteTask(item.id, { title: '同步标题', notes: '同步备注' })
+    remoteTask(child.id, { title: '同步子项' })
+    ui.refresh()
+    assert.equal(ui.draft.title, '同步标题')
+    assert.equal(ui.draft.notes, '同步备注')
+    assert.equal(ui.draft.subtasks[0].title, '同步子项')
+    assert.equal(ui.dirty.value, false)
+    assert.equal(ui.error.value, '')
+    ui.draft.notes = '刷新后正常保存'
+    assert.equal(await ui.flushDraft(true), true)
+    assert.equal(realStore.findTask(item.id).notes, '刷新后正常保存')
+  } finally { ui.close() }
+  assert.equal(ui.listeners.size, 0)
+})
+
+test('同步只改变对象字段顺序时不阻止脏草稿保存', async () => {
+  const item = realStore.saveTask({ title: '字段顺序事项', notes: '旧备注' })
+  const ui = await editor({ storeApi: realStore, task: { id: item.id } })
+  try {
+    ui.draft.notes = '本机新备注'
+    const data = load()
+    saveStorage({ ...data, tasks: data.tasks.map(task => task.id === item.id ? Object.fromEntries(Object.entries(task).reverse()) : task) }, { strict: true, remote: true })
+    ui.refresh()
+    assert.equal(ui.error.value, '')
+    assert.equal(ui.draft.notes, '本机新备注')
+    assert.equal(await ui.flushDraft(true), true)
+    assert.equal(realStore.findTask(item.id).notes, '本机新备注')
+  } finally { ui.close() }
+})
+
+test('新建草稿同步刷新分类并保留输入，改选最新分类后可以保存', async () => {
+  let categories = [{ id: 'old', name: '旧分类' }]
+  const ui = await editor({ task: null, storeApi: { ...realStore, getCategories: () => categories } })
+  try {
+    ui.draft.title = '尚未保存的新事项'
+    ui.draft.notes = '保留新建备注'
+    ui.draft.categoryId = 'old'
+    categories = [{ id: 'new', name: '同步新分类' }]
+    ui.refresh()
+    assert.equal(ui.draft.title, '尚未保存的新事项')
+    assert.equal(ui.draft.notes, '保留新建备注')
+    assert.deepEqual(ui.categories.value.map(category => category.id), ['new'])
+    assert.equal(ui.draft.categoryId, 'old')
+    const data = load()
+    saveStorage({ ...data, categories: [...data.categories, ...categories] }, { strict: true, remote: true })
+    ui.draft.categoryId = 'new'
+    assert.equal(await ui.flushDraft(true), true)
+    assert.equal(realStore.findTask(ui.draft.id).categoryId, 'new')
+  } finally { ui.close() }
+})
+
+test('同步遇到未保存草稿、远端删除时保留本机输入且禁止覆盖', async () => {
+  for (const deleted of [false, true]) {
+    const item = realStore.saveTask({ title: '本机', notes: '旧备注' })
+    const ui = await editor({ storeApi: realStore, task: { id: item.id } })
+    try {
+      ui.draft.notes = '尚未保存'
+      remoteTask(item.id, deleted ? { deletedAt: Date.now() } : { notes: '同步备注' })
+      ui.refresh()
+      assert.match(ui.error.value, /更改或删除/)
+      assert.equal(ui.draft.notes, '尚未保存')
+      assert.equal(await ui.flushDraft(true), false)
+      assert.equal(await ui.requestClose(), false)
+      ui.setConfirmed(true)
+      assert.equal(await ui.discardAndClose(), true)
+      assert.equal(realStore.findTask(item.id)?.notes, deleted ? undefined : '同步备注')
+    } finally { ui.close() }
+  }
+})
+
+test('保存中到达的同步在保存结束后重读，不覆盖提交中的草稿', async () => {
+  const item = realStore.saveTask({ title: '保存中的事项', notes: '旧备注' })
+  let resolveSave
+  const api = { ...realStore, saveTask: (...args) => new Promise(resolve => {
+    resolveSave = () => {
+      const saved = realStore.saveTask(...args)
+      remoteTask(item.id, { notes: '保存后同步备注' })
+      resolve(saved)
+    }
+  }) }
+  const ui = await editor({ storeApi: api, task: { id: item.id } })
+  try {
+    ui.draft.notes = '正在提交'
+    const pending = ui.flushDraft(true)
+    ui.refresh()
+    assert.equal(ui.draft.notes, '正在提交')
+    resolveSave()
+    assert.equal(await pending, true)
+    await vue.nextTick()
+    assert.equal(ui.draft.notes, '保存后同步备注')
+    assert.equal(ui.dirty.value, false)
+  } finally { ui.close() }
+})
+
+test('删除确认期间收到远端更新，确认后阻止旧快照删除并保留草稿', async () => {
+  const item = realStore.saveTask({ title: '确认中的事项' })
+  let confirmation
+  const ui = await editor({ storeApi: realStore, task: { id: item.id }, modal: options => { confirmation = options } })
+  try {
+    const pending = ui.remove()
+    remoteTask(item.id, { notes: '确认期间同步' })
+    ui.refresh()
+    confirmation.success({ confirm: true })
+    await pending
+    await vue.nextTick()
+    assert.match(ui.error.value, /更改或删除/)
+    assert.equal(realStore.findTask(item.id).notes, '确认期间同步')
+    assert.equal(ui.events.some(event => event[0] === 'close'), false)
+  } finally { ui.close() }
+})
+
+test('挂起时延后同步刷新，恢复后显示最新数据', async () => {
+  const item = realStore.saveTask({ title: '原标题' })
+  const ui = await editor({ storeApi: realStore, task: { id: item.id } })
+  try {
+    ui.props.suspended = true
+    remoteTask(item.id, { title: '挂起期间同步标题' })
+    ui.refresh()
+    assert.equal(ui.draft.title, '原标题')
+    ui.props.suspended = false
+    assert.equal(ui.draft.title, '挂起期间同步标题')
+    assert.equal(ui.dirty.value, false)
+  } finally { ui.close() }
+})
+
+test('重复实例查看源子项但只保存当次备注，其他实例同步不误报冲突', async () => {
+  const item = realStore.saveTask({ title: '重复源', notes: '', plannedDate: '2026-10-01', repeatRule: '{"kind":"daily"}' }, [{ title: '源子项' }])
+  const id = `${item.id}@2026-10-11`
+  const ui = await editor({ storeApi: realStore, task: { id } })
+  try {
+    assert.equal(ui.draft.subtasks[0].title, '源子项')
+    ui.draft.notes = '当次未保存备注'
+    realStore.saveTask({ id: `${item.id}@2026-10-12`, notes: '另一当次同步' })
+    ui.refresh()
+    assert.equal(ui.error.value, '')
+    assert.equal(await ui.flushDraft(true), true)
+    assert.equal(realStore.findTask(id).notes, '当次未保存备注')
+    assert.equal(realStore.findTask(item.id).notes, '')
+    assert.equal(realStore.listChildren(item.id)[0].title, '源子项')
+  } finally { ui.close() }
+})
 
 test('真实存储中新建及多轮自动保存使用实际落盘基线，失败可重试', async () => {
   const ui = await editor({ storeApi: realStore, task: null })
@@ -868,18 +1079,19 @@ test('真实存储冲突保留草稿，取消及确认放弃均可达', async ()
 })
 
 test('冲突后保存不会误触发放弃确认，确认期间的新草稿不会丢失', async () => {
+  let confirmation
+  let modalCount = 0
   const item = realStore.saveTask({ title: '原事项' })
-  const ui = await editor({ storeApi: realStore, task: { id: item.id }, manualConfirmation: true })
+  const ui = await editor({ storeApi: realStore, task: { id: item.id }, modal: options => { modalCount++; confirmation = options } })
   try {
     ui.draft.notes = '本机输入'
     remoteTask(item.id, { title: '远端更新' })
     assert.equal(await ui.flushDraft(true), false)
     await ui.save()
-    assert.equal(ui.confirmation.value, null)
+    assert.equal(modalCount, 0)
     const closing = ui.discardAndClose()
-    assert.ok(ui.confirmation.value)
     ui.draft.notes = '确认期间继续编辑'
-    ui.resolveConfirmation(true)
+    confirmation.success({ confirm: true })
     assert.equal(await closing, false)
     assert.equal(ui.draft.notes, '确认期间继续编辑')
     assert.equal(ui.events.some(event => event[0] === 'close'), false)
@@ -906,21 +1118,21 @@ test('重复当次编辑允许其他实例变化，但拒绝同实例变化', as
 })
 
 test('旧会话的放弃确认不能关闭新会话或清除新草稿', async () => {
+  let confirmation
   const item = realStore.saveTask({ title: '原事项' })
-  const ui = await editor({ storeApi: realStore, task: { id: item.id }, manualConfirmation: true })
+  const ui = await editor({ storeApi: realStore, task: { id: item.id }, modal: options => { confirmation = options } })
   try {
     ui.draft.notes = '旧草稿'
     remoteTask(item.id, { title: '远端事项' })
     assert.equal(await ui.flushDraft(true), false)
     const closing = ui.discardAndClose()
-    assert.ok(ui.confirmation.value)
     ui.props.visible = false
     await vue.nextTick()
     ui.props.task = null
     ui.props.visible = true
     await vue.nextTick()
     ui.draft.title = '新草稿'
-    ui.resolveConfirmation(true)
+    confirmation.success({ confirm: true })
     assert.equal(await closing, false)
     assert.equal(ui.draft.title, '新草稿')
     assert.equal(ui.dirty.value, true)
