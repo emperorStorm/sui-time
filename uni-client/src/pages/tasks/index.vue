@@ -81,6 +81,7 @@
     </template>
     <CategoryManageSheet v-if="ready || manageVisible" ref="categorySheet" :visible="manageVisible" :suspended="manageSuspended" @close="closeManage" @changed="onCategoriesChanged" />
     <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :suspended="sheetSuspended" :task="editingTask" @close="closeSheet" @saved="reload" />
+    <DiagPanel />
   </view>
 </template>
 
@@ -89,6 +90,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onShow, onBackPress, onUnload } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
+import DiagPanel from '../../components/DiagPanel.vue'
 import { getCategories, listTasks, setTaskStatus, getSettings, getHideCompleted, toggleGroupCollapsed } from '../../api/store'
 import { repeatLabel, parseRepeatRule } from '../../utils/occurrence'
 import { reminderState, reminderSummary, subscribeReminderState, syncTaskReminders } from '../../api/reminders'

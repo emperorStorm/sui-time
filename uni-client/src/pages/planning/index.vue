@@ -83,6 +83,7 @@
     </template>
     <AnniversaryRecordSheet v-if="ready || activeRecord" ref="recordSheet" :occurrence="activeRecord" :suspended="recordSuspended" :today="today" @close="closeRecord" @saved="reload" />
     <TaskEditSheet v-if="ready || sheetVisible" ref="taskSheet" :visible="sheetVisible" :suspended="sheetSuspended" :task="editingTask" :preset-date="presetDate" @close="closeSheet" @saved="reload" />
+    <DiagPanel />
   </view>
 </template>
 
@@ -92,6 +93,7 @@ import { entriesToObject } from '../../utils/collections.js'
 import { onShow, onHide, onUnload, onBackPress } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import DayAgenda from '../../components/DayAgenda.vue'
+import DiagPanel from '../../components/DiagPanel.vue'
 import AnniversaryRecordSheet from '../../components/AnniversaryRecordSheet.vue'
 import { anniversaryOccurrences, anniversaryTypes } from '../../../../shared/anniversary.mjs'
 import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../../api/holiday'

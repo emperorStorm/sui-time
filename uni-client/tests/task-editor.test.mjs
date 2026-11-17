@@ -54,6 +54,7 @@ async function editor({ storeApi = null, task = { id: 'parent' }, modal = null, 
     '../utils/date': { todayString: () => '2026-10-27' },
     '../api/reminders': { reminderState: () => ({ supported: false }), reminderSaveMessage, sendReminderTest() {} },
     '../api/android': { androidSettings() {}, requestNotificationPermission() {} },
+    '../utils/diagnostics.js': { diagLog() {}, diagError() {} },
     '../utils/platform': { toast: message => toasts.push(message) }
   }
   const module = new vm.SourceTextModule(`${source}\nexport { categories, loaded, loadDraft, retryDraft, refreshStoredDraft, draft, advancedRule, advancedRuleDescription, selectRepeatKind, flushDraft, requestClose, discardAndClose, remove, save, changeStatus, dirty, error, reminderWarning, moveSubtaskTo, recordSubtaskTouch, startSubtaskDrag, moveSubtaskDrag, landSubtaskDrag, cancelSubtaskDrag, dragIndex, drag, dragScrollTop, sheetOffset, swipe, beginSheetTouch, guardSheetClick, startSheetSwipe, moveSheetSwipe, endSheetSwipe, cancelSheetSwipe, saveOnHide };`, { context })
@@ -247,6 +248,7 @@ test('任务页读取失败时保留打开的任务和分类组件及草稿，�
     '../../components/TaskEditSheet.vue': { default: sheet('task') },
     '../../components/QuickAdjustSheet.vue': { default: sheet('quick') },
     '../../components/CategoryManageSheet.vue': { default: sheet('category') },
+    '../../components/DiagPanel.vue': { default: { name: 'DiagPanel', render: () => null } },
     '../../api/store': { listTasks: () => { if (failing) throw Error('读取失败'); return [item] }, getCategories: () => [], getSettings: () => ({}), getHideCompleted: () => false, setTaskStatus() {}, toggleGroupCollapsed() {} },
     '../../utils/occurrence': { repeatLabel: () => '', parseRepeatRule: () => ({ kind: 'none' }), occursOn: () => false },
     '../../api/reminders': { reminderState: () => ({ warnings: [] }), reminderSummary: () => '', subscribeReminderState: () => () => {}, syncTaskReminders() {} },
@@ -255,7 +257,8 @@ test('任务页读取失败时保留打开的任务和分类组件及草稿，�
     '../../utils/date': { shortDate: () => '', weekday: () => '', todayString: () => '2026-10-01' },
     '../../utils/platform': { toast() {} },
     '../../utils/pull-sync.js': { usePullSync: () => ({ refreshing: vue.ref(false), refresh() {} }) },
-    '../../utils/main-tab.js': { useMainTabTap() {}, registerTabDrafts() {}, pendingTabDraft: () => null }
+    '../../utils/main-tab.js': { useMainTabTap() {}, registerTabDrafts() {}, pendingTabDraft: () => null },
+    '../../utils/diagnostics.js': { diagLog() {}, diagError() {} }
   }
   const context = vm.createContext({ setTimeout, clearTimeout, console, uni: { $on() {}, $off() {} } })
   const module = new vm.SourceTextModule(compiled, { context })
@@ -833,7 +836,7 @@ test('挂起使完成确认失效，空标题和单次草稿恢复', async () =>
 
 test('弹层挂起保留 DOM，手势新操作可恢复丢失的结束事件', async () => {
   const file = await readFile(new URL('../src/components/TaskEditSheet.vue', import.meta.url), 'utf8')
-  assert.match(file, /v-if="visible" v-show="!suspended"/)
+  assert.match(file, /v-show="visible && !suspended"/)
   const ui = await editor()
   try {
     ui.startSheetSwipe(touch(0))

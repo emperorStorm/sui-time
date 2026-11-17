@@ -1,6 +1,6 @@
 <template>
-  <transition name="sheet">
-    <view v-if="visible" v-show="!suspended" class="sheet-layer" :style="{ backgroundColor: `rgba(30, 44, 61, ${0.45 * (1 - Math.min(sheetOffset / 400, 1))})` }" @touchstart="beginSheetTouch" @pointerdown="beginSheetTouch" @keydown="beginSheetTouch" @click="guardSheetClick() && (requestClose())">
+  <!-- 旧 WebView 的离场过渡可能不触发 transitionend，导致节点残留；改用 display 切换，关闭只依赖样式更新。 -->
+  <view v-show="visible && !suspended" :class="['sheet-layer', { 'is-closing': closing }]" :style="{ backgroundColor: `rgba(30, 44, 61, ${0.45 * (1 - Math.min(sheetOffset / 400, 1))})` }" @touchstart="beginSheetTouch" @pointerdown="beginSheetTouch" @keydown="beginSheetTouch" @click="guardSheetClick() && (requestClose())">
       <view :class="['sheet', { 'is-swiping': swipe.active }]" :style="{ '--sheet-offset': `${sheetOffset}px` }" @click.stop @touchmove="moveSheetSwipe" @touchend="endSheetSwipe" @touchcancel="cancelSheetSwipe">
       <view class="sheet-header" @touchstart="startSheetSwipe">
         <view class="sheet-grab" aria-hidden="true" />
@@ -70,13 +70,13 @@
       </view>
       </view>
     </view>
-  </transition>
 </template>
 
 <script setup>
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { onShow, onHide } from '@dcloudio/uni-app'
 import { getCategories, getNewTaskDefaults, saveTask, removeTask, findTask, listChildren, getTaskSnapshot } from '../api/store'
+import { diagError, diagLog } from '../utils/diagnostics.js'
 import { sameData } from '../api/sync-outbox.js'
 import { parseOccurrenceId, parseRepeatRule, repeatLabel } from '../utils/occurrence'
 import { applyTaskTime, hasReminderTime, priorities, reminderOptions } from '../utils/task'
@@ -121,6 +121,10 @@ let reminderToken = 0
 let swipeBlockTimer
 let closeEmitted = false
 let refreshPending = false
+let closingFromSwipe = false
+let closingStartedAt = 0
+const CLOSE_ANIM_MS = 180
+const closing = ref(false)
 const sheetOffset = ref(0)
 const swipe = reactive({ tracking: false, active: false, startX: 0, startY: 0, lastY: 0, lastTime: 0, velocity: 0, blockClick: false })
 const focusedChild = ref('')
@@ -198,12 +202,20 @@ watch(
     closeEmitted = false
     saving.value = false
     actionBusy.value = false
-    cancelSheetSwipe()
+    if (closingFromSwipe && !visible) {
+      // 保持拖动偏移到淡出结束，避免隐藏前回弹。
+      clearTimeout(swipeTimer)
+      swipeToken++
+      swipe.tracking = false
+      swipe.active = false
+    } else cancelSheetSwipe()
     cancelSubtaskDrag()
     dragScrollTop.value = 0
     loaded.value = false
     refreshPending = false
     if (!visible) return
+    closing.value = false
+    closingFromSwipe = false
     sheetOffset.value = 0
     clearTimeout(swipeBlockTimer)
     swipe.blockClick = false
@@ -338,7 +350,9 @@ function beginSheetTouch() {
 }
 
 function guardSheetClick() {
-  return props.visible && !props.suspended && !swipe.blockClick
+  const allowed = props.visible && !props.suspended && !swipe.blockClick
+  diagLog('guard', `v=${props.visible} s=${props.suspended} block=${swipe.blockClick} => ${allowed}`)
+  return allowed
 }
 
 function armSwipeRecovery() {
@@ -398,9 +412,22 @@ async function endSheetSwipe(event) {
   }
   if (shouldClose) {
     const session = generation
+    closing.value = true
+    closingFromSwipe = true
+    closingStartedAt = Date.now()
     const closed = await requestClose()
-    if (!closed && session === generation && token === swipeToken) sheetOffset.value = 0
+    if (!closed) {
+      closing.value = false
+      closingFromSwipe = false
+      if (session === generation && token === swipeToken) sheetOffset.value = 0
+    }
   } else sheetOffset.value = 0
+}
+
+async function waitCloseAnimation() {
+  if (!closingFromSwipe) return
+  const remain = CLOSE_ANIM_MS - (Date.now() - closingStartedAt)
+  if (remain > 0) await new Promise(resolve => setTimeout(resolve, remain))
 }
 
 function cancelSheetSwipe() {
@@ -618,6 +645,7 @@ async function drainDraft(session) {
     }
     return session === generation
   } catch (cause) {
+    diagError('drainDraft', cause)
     if (session === generation) {
       conflict = cause.code === 'TASK_CONFLICT'
       error.value = cause.message || String(cause)
@@ -662,6 +690,7 @@ async function flushDraft(required = false) {
 }
 
 function requestClose() {
+  diagLog('requestClose', `s=${props.suspended} busy=${actionBusy.value} emitted=${closeEmitted} dirty=${dirty.value} id=${draft.id}`)
   if (props.suspended || actionBusy.value || closeEmitted) return Promise.resolve(false)
   return finishClose()
 }
@@ -701,6 +730,7 @@ function finishClose() {
   const operation = (async () => {
     cancelSubtaskDrag()
     if (!loaded.value) {
+      await waitCloseAnimation()
       closeEmitted = true
       emit('close')
       return true
@@ -717,6 +747,7 @@ function finishClose() {
       if (session !== generation || token !== interaction || props.suspended || revision !== version || !props.visible) return false
       if (!result.confirm) { error.value = '请先填写事项名称'; return false }
       dirty.value = false
+      await waitCloseAnimation()
       closeEmitted = true
       emit('close')
       return true
@@ -728,7 +759,9 @@ function finishClose() {
     }
     if (session !== generation || token !== interaction || props.suspended || !props.visible) return false
     if (reminderWarning.value) toast(reminderWarning.value)
+    await waitCloseAnimation()
     closeEmitted = true
+    diagLog('finishClose', 'emit close')
     emit('close')
     return true
   })()
@@ -887,26 +920,6 @@ defineExpose({ requestClose, flushDraft })
 .header-actions { display: flex; align-items: center; min-width: 144rpx; gap: 12rpx; }
 .sheet-close { width: 60rpx; height: 60rpx; margin: 0; padding: 0; border-radius: 50%; background: #eef5fc; color: #55728e; font-size: 40rpx; line-height: 56rpx; }
 .sheet-close::after { border: 0; }
-.sheet-enter-active,
-.sheet-leave-active {
-  transition: opacity 0.28s ease;
-}
-
-.sheet-enter-from,
-.sheet-leave-to {
-  opacity: 0;
-}
-
-.sheet-enter-active .sheet,
-.sheet-leave-active .sheet {
-  transition: transform 0.28s ease;
-}
-
-.sheet-enter-from .sheet,
-.sheet-leave-to .sheet {
-  transform: translateY(100%);
-}
-
 .sheet-layer {
   position: fixed;
   z-index: 1000;
@@ -914,6 +927,23 @@ defineExpose({ requestClose, flushDraft })
   display: flex;
   align-items: flex-end;
   background: rgba(30, 44, 61, 0.45);
+  animation: sheet-layer-in 0.2s ease-out;
+}
+
+@keyframes sheet-layer-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sheet-layer.is-closing { animation: sheet-layer-out 0.18s ease-in forwards; }
+.sheet-layer.is-closing .sheet { animation: sheet-sheet-out 0.18s ease-in forwards; }
+
+@keyframes sheet-layer-out {
+  to { opacity: 0; }
+}
+
+@keyframes sheet-sheet-out {
+  to { transform: translateY(100%); }
 }
 
 .sheet {
