@@ -21,6 +21,7 @@ import { anniversaryRecordOccurrence } from '../../../../shared/anniversary.mjs'
 import { getAnniversary, removeAnniversary, pinAnniversary, listAnniversaryRecords } from '../../api/store'
 import { anniversaryState, anniversaryCalendar, anniversaryTypes, localToday } from '../../utils/anniversary'
 import { confirm, toast } from '../../utils/platform'
+import { entriesToObject } from '../../utils/collections.js'
 
 const item = ref(null)
 const history = ref([])
@@ -31,7 +32,7 @@ const editor = ref(null)
 const preview = ref('')
 const error = ref('')
 const today = ref(localToday())
-const typeMeta = Object.fromEntries(anniversaryTypes.map(item => [item.value, item]))
+const typeMeta = entriesToObject(anniversaryTypes.map(item => [item.value, item]))
 const state = computed(() => item.value ? anniversaryState(item.value, today.value) : null)
 const calendar = computed(() => state.value ? anniversaryCalendar(state.value.nextDate) : null)
 const originalCalendar = computed(() => item.value ? anniversaryCalendar(item.value.date) : null)

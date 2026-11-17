@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">时光勾选</title>
+  <defs>
+    <linearGradient id="bg" x1="128" y1="0" x2="896" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#4E8FFF"/><stop offset=".52" stop-color="#2864E9"/><stop offset="1" stop-color="#1744BC"/></linearGradient>
+    <linearGradient id="arc" x1="240" y1="750" x2="720" y2="230" gradientUnits="userSpaceOnUse"><stop stop-color="#A8CEFF"/><stop offset="1" stop-color="#F7FBFF"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <path d="M747 634A256 256 0 1 1 622 279" fill="none" stroke="url(#arc)" stroke-width="78" stroke-linecap="round"/>
+  <path d="m389 492 117 117 264-290" fill="none" stroke="#FBFDFF" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+<title id="title">晴蓝折页</title>
+<defs>
+<linearGradient id="bg" x1="200" y1="0" x2="780" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#E9F5FF"/></linearGradient>
+<linearGradient id="blue" x1="260" y1="240" x2="750" y2="780" gradientUnits="userSpaceOnUse"><stop stop-color="#35A4F5"/><stop offset="1" stop-color="#197ED3"/></linearGradient>
+<filter id="shadow" x="-40%" y="-40%" width="180%" height="200%"><feDropShadow dx="0" dy="22" stdDeviation="17" flood-color="#287FB9" flood-opacity=".19"/></filter>
+</defs>
+<rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+<g filter="url(#shadow)"><path d="M322 254h380a66 66 0 0 1 66 66v293L599 782H322a66 66 0 0 1-66-66V320a66 66 0 0 1 66-66Z" fill="url(#blue)"/>
+<path d="M256 388h512" stroke="#B8E2FF" stroke-width="12"/>
+<path d="M367 237v68m290-68v68" stroke="#FFFFFF" stroke-width="42" stroke-linecap="round"/>
+<path d="m384 528 91 91 162-167" fill="none" stroke="#FFFFFF" stroke-width="65" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M599 782V670a57 57 0 0 1 57-57h112Z" fill="#BBE4FF"/>
+</g>
+</svg>

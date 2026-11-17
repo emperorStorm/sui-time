@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">岁岁新芽</title>
+  <defs>
+    <linearGradient id="bg" x1="100" y1="0" x2="900" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#267767"/><stop offset="1" stop-color="#0E403D"/></linearGradient>
+    <linearGradient id="leaf" x1="415" y1="545" x2="730" y2="264" gradientUnits="userSpaceOnUse"><stop stop-color="#B8E6C6"/><stop offset="1" stop-color="#ECF8D8"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <path d="M740 594A244 244 0 0 1 303 646" fill="none" stroke="#6AB498" stroke-width="58" stroke-linecap="round"/>
+  <path d="M510 673V516" fill="none" stroke="#D6F2D4" stroke-width="49" stroke-linecap="round"/>
+  <path d="M510 555C359 567 281 463 298 347c143-6 233 77 212 208Z" fill="#87CFAD"/>
+  <path d="M510 541C476 392 561 275 727 268c18 154-66 274-217 273Z" fill="url(#leaf)"/>
+</svg>

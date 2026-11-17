@@ -42,7 +42,7 @@ export function sameData(a, b) {
   if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false
   if (Array.isArray(a) !== Array.isArray(b)) return false
   const keys = Object.keys(a)
-  return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && sameData(a[key], b[key]))
+  return keys.length === Object.keys(b).length && keys.every(key => Object.prototype.hasOwnProperty.call(b, key) && sameData(a[key], b[key]))
 }
 
 export function captureChanges(previous, next, now) {
@@ -58,7 +58,7 @@ export function captureChanges(previous, next, now) {
   }
   let changed = false
   const enqueue = (entity, id) => {
-    const entries = Object.hasOwn(pending, entity) ? pending[entity] : {}
+    const entries = Object.prototype.hasOwnProperty.call(pending, entity) ? pending[entity] : {}
     // defineProperty 避免历史自定义 id（如 __proto__）触发原型 setter。
     Object.defineProperty(entries, id, { value: version, enumerable: true, writable: true, configurable: true })
     pending[entity] = entries

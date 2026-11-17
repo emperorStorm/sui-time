@@ -6,7 +6,7 @@ import { weekDates, weekTitle } from '../src/utils/date.js'
 import * as store from '../src/api/store.js'
 import { syncTaskReminders, reminderState, reminderSummary, reminderSaveMessage, subscribeReminderState } from '../src/api/reminders.js'
 import { load, save as saveStorage } from '../src/api/storage.js'
-import { refreshHolidayCalendar } from '../src/api/holiday.js'
+import { getCachedHolidayCalendar, refreshHolidayCalendar } from '../src/api/holiday.js'
 import { confirm } from '../src/utils/platform.js'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
@@ -30,6 +30,41 @@ test('确认窗口失败时返回明确错误，不让调用方永久等待', as
   } finally {
     if (previous) globalThis.uni.showModal = previous
     else delete globalThis.uni.showModal
+  }
+})
+
+test('缺少四个内建 API 时重复改期顺序和多年度节假日缓存保持一致', async () => {
+  const originals = [Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap]
+  const previous = globalThis.uni
+  try {
+    Object.hasOwn = Object.fromEntries = Array.prototype.flat = Array.prototype.flatMap = undefined
+    const items = resolveTasksForDate([
+      task({ id: 'ordinary' }),
+      task({ id: 'child', parentTaskId: 'ordinary' }),
+      task({ id: 'repeat', repeatRule: '{"kind":"daily"}', plannedDate: '2026-10-01', occurrenceOverrides: '{"2026-10-02":{"plannedDate":"2026-10-10"}}' })
+    ], '2026-10-10')
+    assert.deepEqual(items.map(item => item.id), ['ordinary', 'repeat@2026-10-10', 'repeat@2026-10-02'])
+    assert.deepEqual(resolveTasksForDate([], '2026-10-10'), [])
+    const cached = { date: '2026-10-01', name: '国庆节', isOffDay: true }
+    const incoming = { date: '2027-01-01', name: '元旦', isOffDay: true }
+    let cache = { '2026': [cached] }
+    globalThis.uni = {
+      getStorageSync: () => cache,
+      setStorageSync: (_, value) => { cache = value },
+      request(options) {
+        if (options.url.endsWith('/2027.json')) options.success({ statusCode: 200, data: { year: 2027, days: [incoming] } })
+        else options.fail(new Error('离线'))
+      }
+    }
+    assert.deepEqual(getCachedHolidayCalendar([]), {})
+    assert.deepEqual(getCachedHolidayCalendar([2027, 2026]), { '2026-10-01': cached })
+    const result = await refreshHolidayCalendar([2027, 2026, 2027, 2028])
+    assert.deepEqual(result.availableYears, [2027, 2026])
+    assert.deepEqual(Object.keys(result.days), ['2027-01-01', '2026-10-01'])
+    assert.deepEqual(getCachedHolidayCalendar([2027, 2026]), result.days)
+  } finally {
+    globalThis.uni = previous
+    ;[Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap] = originals
   }
 })
 
@@ -411,6 +446,7 @@ test('规划状态一次调用只读取一次存储', async () => {
     '../utils/occurrence.js': await import('../src/utils/occurrence.js'),
     '../utils/date.js': await import('../src/utils/date.js'),
     '../utils/task.js': await import('../src/utils/task.js'),
+    '../utils/collections.js': await import('../src/utils/collections.js'),
     './reminders.js': await import('../src/api/reminders.js'),
     './sync-outbox.js': await import('../src/api/sync-outbox.js')
   }

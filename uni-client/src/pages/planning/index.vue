@@ -88,6 +88,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { entriesToObject } from '../../utils/collections.js'
 import { onShow, onHide, onUnload, onBackPress } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import DayAgenda from '../../components/DayAgenda.vue'
@@ -133,7 +134,7 @@ const categories = ref([])
 const allDayData = ref({})
 const statusFilter = ref('all')
 const statusOptions = [['all', '全部'], ['todo', '待办'], ['done', '已完成'], ['failed', '已失败'], ['deleted', '已删除']]
-const dayData = computed(() => Object.fromEntries(Object.entries(allDayData.value).map(([date, day]) => {
+const dayData = computed(() => entriesToObject(Object.entries(allDayData.value).map(([date, day]) => {
   const tasks = statusFilter.value === 'all' ? day.tasks : day.tasks.filter(task => (task.planningDeleted ? 'deleted' : task.status) === statusFilter.value)
   return [date, { ...day, tasks, count: tasks.length + day.anniversaries.length }]
 })))
@@ -141,13 +142,13 @@ const selectedDate = ref('')
 const activeRecord = ref(null)
 const recordSheet = ref(null)
 const editingTask = ref(null)
-const marks = Object.fromEntries(anniversaryTypes.map(type => [type.value, type.mark]))
+const marks = entriesToObject(anniversaryTypes.map(type => [type.value, type.mark]))
 let dayTimer
 const holidayByDate = ref({})
 let holidayRefreshRequestId = 0
 
 const days = computed(() => viewMode.value === 'week' ? weekDates(anchor.value) : monthDates(anchor.value))
-const calendarMeta = computed(() => Object.fromEntries(days.value.map(date => [date, resolveCalendarMeta(date)])))
+const calendarMeta = computed(() => entriesToObject(days.value.map(date => [date, resolveCalendarMeta(date)])))
 const selectedMeta = computed(() => calendarMeta.value[selectedDate.value] || { lunarText: '', markers: [] })
 const visibleHolidayYears = computed(() => [...new Set(days.value.map((date) => Number(date.slice(0, 4))))])
 
@@ -233,7 +234,7 @@ async function refreshVisibleHolidayCalendar(force) {
   const refreshed = await refreshHolidayCalendar(years, force)
   if (requestId !== holidayRefreshRequestId) return
   const replacedYears = new Set(refreshed.availableYears)
-  const retained = Object.fromEntries(Object.entries(holidayByDate.value).filter(([date]) => !replacedYears.has(Number(date.slice(0, 4)))))
+  const retained = entriesToObject(Object.entries(holidayByDate.value).filter(([date]) => !replacedYears.has(Number(date.slice(0, 4)))))
   holidayByDate.value = { ...retained, ...refreshed.days }
 }
 

@@ -6,14 +6,22 @@ const holidayRequests = new Map()
 
 export function getCachedHolidayCalendar(years) {
   const cache = readHolidayCache()
-  return holidayDateMap(years.flatMap((year) => cache[String(year)] || []))
+  const days = []
+  for (const year of years) {
+    for (const day of cache[String(year)] || []) days.push(day)
+  }
+  return holidayDateMap(days)
 }
 
 export async function refreshHolidayCalendar(years, force = true) {
   const uniqueYears = [...new Set(years.filter((year) => Number.isInteger(year) && year >= 2000 && year <= 2100))]
   const results = await Promise.all(uniqueYears.map((year) => loadHolidayYear(year, force)))
+  const days = []
+  for (const result of results) {
+    for (const day of result || []) days.push(day)
+  }
   return {
-    days: holidayDateMap(results.flatMap(days => days || [])),
+    days: holidayDateMap(days),
     availableYears: uniqueYears.filter((year, index) => results[index] !== null)
   }
 }

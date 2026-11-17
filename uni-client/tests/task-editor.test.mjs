@@ -1052,6 +1052,35 @@ test('重复实例查看源子项但只保存当次备注，其他实例同步�
   } finally { ui.close() }
 })
 
+test('缺少四个内建 API 时真实存储保存及重复实例编辑关闭正常，冲突仍阻断', async () => {
+  const originals = [Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap]
+  let ui
+  try {
+    Object.hasOwn = Object.fromEntries = Array.prototype.flat = Array.prototype.flatMap = undefined
+    const item = realStore.saveTask({ title: '兼容性事项', plannedDate: '2026-10-01', repeatRule: '{"kind":"daily"}' }, [{ title: '源子项' }])
+    for (const id of [item.id, `${item.id}@2026-10-11`]) {
+      ui = await editor({ storeApi: realStore, task: { id } })
+      assert.equal(ui.loaded.value, true)
+      ui.draft.notes = `兼容性备注 ${id}`
+      assert.equal(await ui.requestClose(), true)
+      assert.equal(ui.error.value, '')
+      assert.equal(realStore.findTask(id).notes, `兼容性备注 ${id}`)
+      assert.equal(ui.events.filter(event => event[0] === 'close').length, 1)
+      ui.close(); ui = null
+    }
+    ui = await editor({ storeApi: realStore, task: { id: item.id } })
+    ui.draft.notes = '冲突草稿'
+    remoteTask(item.id, { title: '远端修改' })
+    assert.equal(await ui.requestClose(), false)
+    assert.match(ui.error.value, /更改或删除/)
+    assert.equal(ui.draft.notes, '冲突草稿')
+    assert.equal(realStore.findTask(item.id).title, '远端修改')
+  } finally {
+    ui?.close()
+    ;[Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap] = originals
+  }
+})
+
 test('真实存储中新建及多轮自动保存使用实际落盘基线，失败可重试', async () => {
   const ui = await editor({ storeApi: realStore, task: null })
   try {

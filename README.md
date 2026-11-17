@@ -1,6 +1,12 @@
+<p align="center"><img src="docs/brand/sui-time-icon.png" width="128" height="128" alt="岁岁时光 · 云光日历图标" /></p>
+
 # 岁岁时光
 
-岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.6.7`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
+应用图标采用「云光日历」：蓝天、白云与折页日历结合完成勾选，统一桌面端、安卓端和网页展示的品牌形象。查看[品牌图标预览源码](docs/brand/index.html)或[高清图标](docs/brand/sui-time-icon.png)；预览 HTML 下载后可直接用浏览器打开。
+
+品牌源文件为 `desktop-client/src/assets/brand/sui-time-icon.svg`。配置本地 Playwright 的 `PLAYWRIGHT_MODULE` 和 `CHROMIUM_PATH` 后，在仓库根目录运行 `node tauri-desktop/scripts/generate-brand-icons.mjs`，统一生成桌面安装图标、安卓启动器图标、H5 图标和文档图片；修改启动画面后另运行 `node uni-client/scripts/render-splash.mjs`。图标变化需重新打包安装客户端，网页与 GitHub README 则在构建部署或推送后生效。
+
+岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.7.8`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
 
 ![岁岁时光本地优先数据架构](docs/assets/sui-time-local-first-sync.png)
 

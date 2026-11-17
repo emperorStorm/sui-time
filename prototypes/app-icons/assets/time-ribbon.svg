@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">时光丝带</title>
+  <defs>
+    <linearGradient id="bg" x1="100" y1="0" x2="900" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#727AF0"/><stop offset="1" stop-color="#4347AE"/></linearGradient>
+    <linearGradient id="ribbon" x1="380" y1="280" x2="665" y2="750" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#C6DDFF"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <path d="M694 296H455c-103 0-156 115-80 182l275 158c42 36 15 92-42 92H328" fill="none" stroke="#303889" stroke-opacity=".28" stroke-width="112" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 20)"/>
+  <path d="M694 278H455c-103 0-156 115-80 182l275 158c42 36 15 110-42 110H328" fill="none" stroke="url(#ribbon)" stroke-width="112" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m433 493 151 87" stroke="#9ABCEB" stroke-width="112"/>
+</svg>

@@ -25,6 +25,12 @@ const base=process.env.MOBILE_TEST_URL || 'http://127.0.0.1:5187';
     return route.fulfill({json:{year,days}});
   });
   await context.route('https://tongji-collector.dcloud.net.cn/**', route=>route.fulfill({status:200,contentType:'image/gif',body:Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7','base64')}));
+  await context.addInitScript(() => {
+    Object.hasOwn = undefined;
+    Object.fromEntries = undefined;
+    Array.prototype.flat = undefined;
+    Array.prototype.flatMap = undefined;
+  });
   const page = await context.newPage();
   if (process.env.MOBILE_TEST_WITHOUT_CAPTURE) {
     await page.addInitScript(() => {
@@ -124,6 +130,7 @@ const base=process.env.MOBILE_TEST_URL || 'http://127.0.0.1:5187';
     assert.ok(result.titleTop >= result.barTop + 24, JSON.stringify(result));
   }
   await page.goto(base);
+  assert.deepEqual(await page.evaluate(() => [Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap].map(value => typeof value)), ['undefined', 'undefined', 'undefined', 'undefined']);
   await page.locator('.search-input input').waitFor();
   await tab('日记');
   await page.getByText('日记功能尚未开放', {exact:true}).waitFor();
@@ -524,8 +531,15 @@ const base=process.env.MOBILE_TEST_URL || 'http://127.0.0.1:5187';
   results.push('事项短/长列表与规划周/月触摸下拉：未绑定明确失败，筛选草稿及视图保留');
   await context.close(); context=null;
   context = await chromium.launchPersistentContext(profile, { executablePath:process.env.CHROMIUM_PATH || chromium.executablePath(), headless:true, viewport:{width:320,height:844}, isMobile:true, hasTouch:true });
+  await context.addInitScript(() => {
+    Object.hasOwn = undefined;
+    Object.fromEntries = undefined;
+    Array.prototype.flat = undefined;
+    Array.prototype.flatMap = undefined;
+  });
   const restarted=await context.newPage();
   await restarted.goto(base+'/#/pages/profile/index');
+  assert.deepEqual(await restarted.evaluate(() => [Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap].map(value => typeof value)), ['undefined', 'undefined', 'undefined', 'undefined']);
   await restarted.locator('.profile-page uni-switch').first().waitFor();
   assert.deepEqual(await restarted.evaluate(()=>JSON.parse(localStorage.getItem('sui-time-mobile:v2')).data.settings.hideCompletedByView),{tasks:false,month:true});
   assert.equal((await restarted.evaluate(()=>JSON.parse(localStorage.getItem('sui-time-mobile:v2')).data.settings.newTaskDefaults)).categoryId,'life');

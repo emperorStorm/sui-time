@@ -1,0 +1,7 @@
+{
+  "name": "sui-time-calendar-icons",
+  "entry": "index.html",
+  "output": "dist/sui-time-app-icons.html",
+  "styles": [],
+  "scripts": []
+}

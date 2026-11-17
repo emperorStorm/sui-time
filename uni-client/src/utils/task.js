@@ -1,7 +1,9 @@
+import { entriesToObject } from './collections.js'
+
 export const reminderOptions = [[0, '准时'], [5, '提前 5 分钟'], [15, '提前 15 分钟'], [30, '提前 30 分钟'], [60, '提前 1 小时'], [120, '提前 2 小时']]
 export const priorities = [['urgent_important', '重要且紧急'], ['important_not_urgent', '重要不紧急'], ['urgent_not_important', '不重要紧急'], ['not_urgent_not_important', '不重要不紧急']]
 const marks = ['I', 'II', 'III', 'IV']
-const priorityRank = Object.fromEntries(priorities.map(([key], index) => [key, index]))
+const priorityRank = entriesToObject(priorities.map(([key], index) => [key, index]))
 
 export function taskMark(task) {
   return task.status === 'done' ? '✓' : task.status === 'failed' ? '×' : marks[priorityRank[task.priority] ?? 3]

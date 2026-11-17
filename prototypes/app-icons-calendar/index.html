@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>岁岁时光 · 蓝白日历图标提案</title>
+<!-- prototype:styles -->
+<style>
+:root{color-scheme:light;--ink:#233044;--muted:#758094;--line:#e4e7ed;--paper:#f6f7f9;--blue:#2864e9}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}main{max-width:1480px;margin:auto;padding:38px 48px 28px}header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:32px}.eyebrow{font-size:11px;letter-spacing:3px;font-weight:650;color:var(--muted);margin:0 0 13px}h1{font-size:34px;font-weight:650;letter-spacing:-1px;margin:0 0 12px}header p{font-size:14px;color:var(--muted);margin:0;line-height:1.8}.edition{text-align:right;font-size:12px;color:var(--muted);line-height:1.9;flex-shrink:0}.edition strong{color:var(--ink);font-weight:500}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}.card{min-width:0;background:white;border:1px solid var(--line);border-radius:22px;overflow:hidden}.stage{height:256px;display:flex;align-items:center;justify-content:center;position:relative;background:radial-gradient(ellipse at 50% 90%,#e1e8f4 0,transparent 65%),#f2f5fa}.card:nth-child(2) .stage{background:radial-gradient(ellipse at 50% 90%,#e6dfd2 0,transparent 65%),#f8f5ef}.card:nth-child(3) .stage{background:radial-gradient(ellipse at 50% 90%,#cee1d9 0,transparent 65%),#eff5f2}.card:nth-child(4) .stage{background:radial-gradient(ellipse at 50% 90%,#d9d9f2 0,transparent 65%),#f2f1fa}.letter{position:absolute;top:20px;left:22px;font-size:12px;font-weight:600;color:#8791a2}.tag{position:absolute;top:17px;right:16px;background:#fff9;border:1px solid #ffffffb3;border-radius:20px;padding:5px 9px;color:#3769b5;font-size:10px}.hero-icon{width:164px;height:164px;filter:drop-shadow(0 18px 15px #23304421);transition:transform .2s}.hero-icon:hover{transform:translateY(-5px)}.body{padding:24px 22px 20px}h2{font-size:20px;margin:0 0 8px;font-weight:600;letter-spacing:.5px}.subtitle{font-size:11px;color:var(--muted);letter-spacing:1.5px}.description{font-size:13px;line-height:1.9;color:#667184;min-height:74px;margin:18px 0}.palette{display:flex;gap:5px;margin-bottom:22px}.swatch{height:6px;width:26px;border-radius:8px;border:1px solid #00000006}.size-row{display:flex;align-items:center;gap:19px;border-top:1px solid #edf0f4;padding:18px 0 16px;min-height:92px}.size-sample{display:flex;flex-direction:column;align-items:center;gap:8px}.size-sample span{color:#9099a7;font-size:10px}.size-sample img{display:block}.asset-links{display:flex;gap:15px;border-top:1px solid #edf0f4;padding-top:14px}a{font-size:11px;color:#546a89;text-decoration:none}a:hover{text-decoration:underline}a:focus-visible,button:focus-visible{outline:3px solid #82afff;outline-offset:4px}.applications{margin-top:24px}.section-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:14px}.section-head h2{font-size:15px;letter-spacing:0}.section-head p{margin:0;color:var(--muted);font-size:11px}.platforms{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}.platform{padding:20px 22px;border-radius:18px;border:1px solid var(--line);background:#fff;min-width:0}.platform.dark{background:#242d3d;border-color:#242d3d;color:#e6eaf2}.platform-label{font-size:10px;letter-spacing:1px;color:#8c96a6;margin-bottom:20px}.dock{display:flex;gap:21px;align-items:center;justify-content:center;height:62px}.dock img{width:52px;height:52px;filter:drop-shadow(0 5px 3px #17223321)}.dark .dock img{filter:drop-shadow(0 5px 3px #0004)}.android .dock img{filter:none;transition:clip-path .2s}.android[data-mask="circle"] .dock img{clip-path:circle(50%)}.android[data-mask="square"] .dock img{clip-path:inset(0 round 14%)}.mask-controls{display:flex;gap:5px}.mask-controls button{font:inherit;font-size:10px;border:1px solid var(--line);color:#758094;background:white;padding:5px 9px;border-radius:8px;cursor:pointer}.mask-controls button[aria-pressed="true"]{background:#edf3ff;color:#2864e9;border-color:#cddfff}.android-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:20px}.android-head .platform-label{margin:0}footer{display:flex;justify-content:space-between;gap:20px;border-top:1px solid var(--line);margin-top:30px;padding-top:18px;font-size:11px;line-height:1.8;color:#8b94a2}footer strong{font-weight:500;color:#64738a}@media(min-width:1100px){.stage{height:248px}}@media(max-width:1099px){main{padding:32px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.platforms{grid-template-columns:1fr}.description{min-height:50px}.stage{height:238px}}@media(max-width:560px){main{padding:26px 18px}header{align-items:flex-start;flex-direction:column;gap:12px}h1{font-size:28px}.edition{text-align:left}.grid{grid-template-columns:1fr;gap:20px}.stage{height:244px}.hero-icon{width:160px;height:160px}.body{padding:22px}.description{min-height:0}.section-head{align-items:flex-start;flex-direction:column;gap:6px}.dock{gap:22px}footer{flex-direction:column;gap:5px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div><p class="eyebrow">岁岁时光 / 蓝白日历系列</p><h1>从启动画面，走到桌面。</h1><p>沿用日历折页的圆润质感，融入启动画面的晴空蓝、白色卡片与日程元素。</p></div>
+<div class="edition"><strong>桌面端 × 移动端</strong><br>原创矢量 · D「云光日历」已选定为正式图标</div>
+</header>
+<section class="grid" aria-label="四款候选图标"></section>
+<section class="applications" aria-label="跨平台图标效果">
+<div class="section-head"><h2>放进日常使用的场景</h2><p>同一图形 · 深浅背景 · 安卓遮罩预览</p></div>
+<div class="platforms">
+<div class="platform"><div class="platform-label">桌面 / 浅色背景</div><div class="dock" data-icons></div></div>
+<div class="platform dark"><div class="platform-label">桌面 / 深色背景</div><div class="dock" data-icons></div></div>
+<div class="platform android" data-mask="circle"><div class="android-head"><div class="platform-label">安卓 / 形状预览</div><div class="mask-controls" role="group" aria-label="安卓图标遮罩"><button type="button" data-action="mask" data-mask="circle" aria-pressed="true">圆形</button><button type="button" data-action="mask" data-mask="square" aria-pressed="false">圆角</button></div></div><div class="dock" data-icons></div></div>
+</div>
+</section>
+<footer><div><strong>正式采用 D · 云光日历</strong>，与移动端启动画面的蓝白日历风格统一。</div><div>本页保留选型对比；正式资源见项目品牌预览页。</div></footer>
+</main>
+<!-- prototype:scripts -->
+<script>
+const concepts = [
+ {id:'sky-fold',letter:'A',name:'晴蓝折页',subtitle:'延续第二款 · 更清爽的蓝白',description:'保留蓝色日历、白色完成勾与折角。去掉暖橙装订环，统一为启动画面的晴空蓝，简洁耐看。',colors:['#35a4f5','#197ed3','#bbe4ff','#ffffff'],recommended:true},
+ {id:'calendar-clock',letter:'B',name:'今日时光',subtitle:'日历与时钟 · 安排一天的节奏',description:'借用启动画面的微倾日历和悬浮时钟，保留折页与完成勾。更明确地表达日程与时间规划。',colors:['#83caff','#197ed3','#e3f1fc','#ffffff']},
+ {id:'planned-day',letter:'C',name:'日程叠卡',subtitle:'日历与事项 · 把计划变成完成',description:'将启动页中的日历和已完成事项卡叠放，保留轻盈投影。与应用的待办和规划功能最为贴近。',colors:['#35a4f5','#2386d6','#d9eeff','#ffffff']},
+ {id:'cloud-calendar',letter:'D',name:'云光日历',subtitle:'蓝天与白纸 · 启动画面的缩影',description:'把蓝白渐变、淡云与白色折页日历收进图标。减少日期格，放大完成勾，兼顾小尺寸识别。',colors:['#74c3ff','#218be0','#c9e9fe','#ffffff']}
+];
+const icon = (c,size,extra='') => `<img src="assets/${c.id}.svg" alt="${c.name}" width="${size}" height="${size}" ${extra}>`;
+document.querySelector('.grid').innerHTML = concepts.map(c => `<article class="card"><div class="stage"><span class="letter">${c.letter} / 04</span>${c.recommended?'<span class="tag">优先推荐</span>':''}${icon(c,164,'class="hero-icon"')}</div><div class="body"><h2>${c.name}</h2><div class="subtitle">${c.subtitle}</div><p class="description">${c.description}</p><div class="palette" aria-hidden="true">${c.colors.map(color=>`<span class="swatch" style="background:${color}"></span>`).join('')}</div><div class="size-row">${[16,32,48].map(size=>`<div class="size-sample">${icon(c,size)}<span>${size} px</span></div>`).join('')}</div><div class="asset-links"><a href="assets/${c.id}.svg" download>下载 SVG ↗</a><a href="assets/${c.id}.png" download>下载高清 PNG ↗</a></div></div></article>`).join('');
+document.querySelectorAll('[data-icons]').forEach(el=>{el.innerHTML=concepts.map(c=>icon(c,52)).join('')});
+document.addEventListener('click',event=>{const button=event.target.closest('[data-action="mask"]');if(!button)return;const panel=button.closest('.android');panel.dataset.mask=button.dataset.mask;panel.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)))});
+</script>
+</body>
+</html>

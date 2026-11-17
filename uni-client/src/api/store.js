@@ -1,4 +1,5 @@
 import { load, reset, save as saveStorage } from './storage.js'
+import { entriesToObject } from '../utils/collections.js'
 import { normalizeAnniversary, prepareAnniversaryRecord } from '../../../shared/anniversary.mjs'
 import { occursOn, parseOccurrenceId, parseOverrides, parseRepeatRule, resolveTasksForDate } from '../utils/occurrence.js'
 import { addDays, todayString } from '../utils/date.js'
@@ -31,7 +32,7 @@ export function saveAnniversaryRecord(input, options) {
   const data = load()
   const records = [...data.anniversaryRecords]
   const index = records.findIndex(record => record.anniversaryId === input.anniversaryId && record.date === input.date)
-  if (options && Object.hasOwn(options, 'expectedSnapshot') && !sameData(index >= 0 ? records[index] : null, options.expectedSnapshot)) {
+  if (options && Object.prototype.hasOwnProperty.call(options, 'expectedSnapshot') && !sameData(index >= 0 ? records[index] : null, options.expectedSnapshot)) {
     throw new Error('纪念记录已在其他位置更改，请保留草稿并关闭后重新打开')
   }
   const item = data.anniversaries.find(item => isActive(item) && item.id === input.anniversaryId)
@@ -54,7 +55,7 @@ export function saveAnniversary(input, options) {
   const data = load()
   const items = [...data.anniversaries]
   const index = normalized.id ? items.findIndex(item => isActive(item) && item.id === normalized.id) : -1
-  if (normalized.id && options && Object.hasOwn(options, 'expectedSnapshot') && !sameData(index >= 0 ? items[index] : null, options.expectedSnapshot)) {
+  if (normalized.id && options && Object.prototype.hasOwnProperty.call(options, 'expectedSnapshot') && !sameData(index >= 0 ? items[index] : null, options.expectedSnapshot)) {
     throw new Error('纪念日已在其他位置更改，请保留草稿并关闭后重新打开')
   }
   if (normalized.id && index < 0) throw new Error('纪念日不存在')
@@ -149,7 +150,7 @@ function taskSnapshot(data, id) {
     if (!resolveTasksForDate([source], date).some(task => task.id === id)) return null
     // 其他实例只改变 overrides 和记录元数据，不影响当次草稿。
     const { occurrenceOverrides, updatedAt, deviceId, ...base } = source
-    return cloneData({ id, source: base, hasOverride: Object.hasOwn(overrides, occurrence.date), override: overrides[occurrence.date] ?? null })
+    return cloneData({ id, source: base, hasOverride: Object.prototype.hasOwnProperty.call(overrides, occurrence.date), override: overrides[occurrence.date] ?? null })
   }
   const ids = new Set([id])
   let size
@@ -165,7 +166,7 @@ export function getTaskSnapshot(id) {
 }
 
 function checkTaskSnapshot(data, id, options) {
-  if (!Object.hasOwn(options, 'expectedSnapshot')) return
+  if (!Object.prototype.hasOwnProperty.call(options, 'expectedSnapshot')) return
   const current = taskSnapshot(data, id)
   if (!current || !sameData(current, options.expectedSnapshot)) {
     const error = new Error('事项已在其他位置更改或删除，请保留草稿，放弃后关闭并重新打开')
@@ -345,7 +346,7 @@ export function planningTasksForDates(dates) {
       byDate.get(date).push(item)
     }
   }
-  return Object.fromEntries([...byDate].map(([date, items]) => {
+  return entriesToObject([...byDate].map(([date, items]) => {
     const seen = new Set()
     return [date, cloneData(items.filter(item => !seen.has(item.id) && seen.add(item.id)).sort(compareTasks))]
   }))

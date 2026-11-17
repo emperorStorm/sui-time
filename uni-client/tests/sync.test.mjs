@@ -380,6 +380,24 @@ async function initialHarness({ tasks = [task()], failAt = '', beforeResponse = 
     async restart() { storage = await import(`../src/api/storage.js?init-test=${++initialRevision}`); engine = create() } }
 }
 
+test('缺少四个内建 API 时首次上传、合并及后续同步正常', async () => {
+  const originals = [Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap]
+  try {
+    Object.hasOwn = Object.fromEntries = Array.prototype.flat = Array.prototype.flatMap = undefined
+    for (const strategy of ['upload', 'merge']) {
+      const h = await initialHarness()
+      await h.engine.bind({ strategy })
+      assert.equal(h.disk.syncMeta.remoteUserId, 'u1')
+      assert.equal(h.disk.syncMeta.outbox.task.t1, undefined)
+      await h.engine.manualSync()
+      assert.equal(h.disk.tasks[0].title, '远端')
+      assert.equal(h.disk.syncMeta.cursor, 5)
+    }
+  } finally {
+    ;[Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap] = originals
+  }
+})
+
 test('手动同步先恢复首次上传或合并，再执行普通同步', async () => {
   for (const strategy of ['upload', 'merge']) {
     const h = await initialHarness({ failAt: strategy === 'upload' ? 'complete' : 'pull' })
@@ -803,6 +821,7 @@ async function autoSyncHarness() {
         if (offline) throw new Error('离线')
         return path.includes('/push') ? { applied: [], superseded: [] } : { changes: [], nextCursor: data.syncMeta.cursor + 1, hasMore: false }
       } },
+    '../utils/collections.js': await import('../src/utils/collections.js'),
     '../utils/sync-config.js': { LOCAL_WRITE_EVENT: 'local-write', SYNC_APPLIED_EVENT: 'sync-applied', MAX_PUSH_BYTES: 8 * 1024 * 1024, MAX_PUSH_CHANGES: 200 }
   }
   const module = new vm.SourceTextModule(await readFile(new URL('../src/api/sync.js', import.meta.url), 'utf8'), { context })

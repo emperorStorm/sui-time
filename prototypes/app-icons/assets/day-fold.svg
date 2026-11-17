@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">日历折页</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFCF6"/><stop offset="1" stop-color="#F0EDE6"/></linearGradient>
+    <linearGradient id="paper" x1="280" y1="268" x2="750" y2="774" gradientUnits="userSpaceOnUse"><stop stop-color="#488AFF"/><stop offset="1" stop-color="#2454D1"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <path d="M324 246h376a68 68 0 0 1 68 68v304L602 784H324a68 68 0 0 1-68-68V314a68 68 0 0 1 68-68Z" fill="#D9DDE6" transform="translate(0 15)"/>
+  <path d="M324 246h376a68 68 0 0 1 68 68v304L602 784H324a68 68 0 0 1-68-68V314a68 68 0 0 1 68-68Z" fill="url(#paper)"/>
+  <path d="M366 236v67m292-67v67" fill="none" stroke="#F5B267" stroke-width="49" stroke-linecap="round"/>
+  <path d="M326 372h372" stroke="#BAD4FF" stroke-width="15" stroke-linecap="round"/>
+  <path d="m389 526 88 88 164-158" fill="none" stroke="#FFFDFA" stroke-width="66" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M602 784V674a56 56 0 0 1 56-56h110Z" fill="#BFDAFF"/>
+</svg>

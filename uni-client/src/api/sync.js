@@ -1,4 +1,5 @@
 import { load, save } from './storage.js'
+import { entriesToObject } from '../utils/collections.js'
 import { syncSettings, applySyncSetting } from './sync-outbox.js'
 import { authenticate, readAuth, writeAuth, request, revokeAuth } from './auth.js'
 import { LOCAL_WRITE_EVENT, SYNC_APPLIED_EVENT, MAX_PUSH_BYTES, MAX_PUSH_CHANGES } from '../utils/sync-config.js'
@@ -17,7 +18,7 @@ export function entityValue(data, entity, id) {
 }
 
 function businessData(data) {
-  return Object.fromEntries([...Object.values(COLLECTIONS), 'settings', 'profile'].map(key => [key, data[key]]))
+  return entriesToObject([...Object.values(COLLECTIONS), 'settings', 'profile'].map(key => [key, data[key]]))
 }
 
 function ensureMeta(data) {
@@ -181,7 +182,7 @@ export function createSyncEngine(deps) {
       meta.outbox[entity] ||= {}
       for (const item of data[key] || []) {
         const id = entity === 'anniversary_record' ? recordId(item) : item.id
-        if (!Object.hasOwn(meta.outbox[entity], id)) Object.defineProperty(meta.outbox[entity], id, { value: item.updatedAt || item.createdAt || now, enumerable: true, writable: true, configurable: true })
+        if (!Object.prototype.hasOwnProperty.call(meta.outbox[entity], id)) Object.defineProperty(meta.outbox[entity], id, { value: item.updatedAt || item.createdAt || now, enumerable: true, writable: true, configurable: true })
       }
     }
     meta.outbox.setting ||= {}
@@ -250,7 +251,10 @@ export function createSyncEngine(deps) {
     const meta = ensureMeta(latest)
     if (!same(meta.initialUpload, session) || readAuth()?.token !== auth.token || readAuth()?.user?.id !== session.userId) throw new Error('首次上传账号或会话已改变，请重试')
     const keyOf = change => JSON.stringify([change.entity, change.id])
-    const snapshot = new Map(session.batches.flat().map(change => [keyOf(change), change]))
+    const snapshot = new Map()
+    for (const batch of session.batches) {
+      for (const change of batch) snapshot.set(keyOf(change), change)
+    }
     const current = outgoing(latest)
     const protectedKeys = new Set()
     for (const change of current) {
@@ -388,7 +392,7 @@ export function createSyncEngine(deps) {
         latestMeta.outbox[entity] ||= {}
         for (const item of latest[key] || []) {
           const itemId = entity === 'anniversary_record' ? recordId(item) : item.id
-          if (!Object.hasOwn(latestMeta.outbox[entity], itemId)) Object.defineProperty(latestMeta.outbox[entity], itemId, { value: item.updatedAt || item.createdAt || now, enumerable: true, writable: true, configurable: true })
+          if (!Object.prototype.hasOwnProperty.call(latestMeta.outbox[entity], itemId)) Object.defineProperty(latestMeta.outbox[entity], itemId, { value: item.updatedAt || item.createdAt || now, enumerable: true, writable: true, configurable: true })
         }
       }
       latestMeta.outbox.setting ||= {}

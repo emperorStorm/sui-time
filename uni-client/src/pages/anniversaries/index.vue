@@ -16,6 +16,7 @@ import AnniversaryEditSheet from '../../components/AnniversaryEditSheet.vue'
 import { listAnniversaries } from '../../api/store'
 import { anniversaryTypes, localToday, orderedAnniversaries } from '../../utils/anniversary'
 import { nav } from '../../utils/platform'
+import { entriesToObject } from '../../utils/collections.js'
 
 const items = ref([])
 const search = ref('')
@@ -24,7 +25,7 @@ const editing = ref(false)
 const editor = ref(null)
 const error = ref('')
 const today = ref(localToday())
-const typeMeta = Object.fromEntries(anniversaryTypes.map(item => [item.value, item]))
+const typeMeta = entriesToObject(anniversaryTypes.map(item => [item.value, item]))
 let timer
 function back() { if (editing.value) { editor.value?.close(); return } if (getCurrentPages().length > 1) uni.navigateBack(); else uni.switchTab({ url: '/pages/profile/index' }) }
 const orderedItems = computed(() => orderedAnniversaries(items.value, today.value))

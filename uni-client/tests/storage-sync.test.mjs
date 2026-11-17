@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as store from '../src/api/store.js'
 import * as businessStorage from '../src/api/storage.js'
+import { sameData } from '../src/api/sync-outbox.js'
 
 let revision = 0
 const fresh = () => import(`../src/api/storage.js?sync-test=${++revision}`)
@@ -17,6 +18,26 @@ function diskStorage(initial) {
   }
   return { read: () => structuredClone(disk), fail: value => { fail = value }, events }
 }
+
+test('缺少四个内建 API 时数据比较保留自有属性语义且修改正常入队', async () => {
+  const originals = [Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap]
+  try {
+    Object.hasOwn = Object.fromEntries = Array.prototype.flat = Array.prototype.flatMap = undefined
+    const own = Object.assign(Object.create(null), { hasOwnProperty: null, title: '事项' })
+    assert.equal(sameData(own, { hasOwnProperty: null, title: '事项' }), true)
+    assert.equal(sameData({ title: '事项' }, Object.assign(Object.create({ title: '事项' }), { other: true })), false)
+    const disk = diskStorage(null)
+    const storage = await fresh()
+    const data = storage.load()
+    const id = data.tasks[0].id
+    storage.save({ ...data, tasks: data.tasks.map(item => item.id === id ? { ...item, title: '兼容性修改' } : item) }, { strict: true })
+    assert.equal(storage.load().tasks[0].title, '兼容性修改')
+    assert.ok(storage.load().syncMeta.outbox.task[id])
+    assert.equal(disk.events.includes('local-write'), true)
+  } finally {
+    ;[Object.hasOwn, Object.fromEntries, Array.prototype.flat, Array.prototype.flatMap] = originals
+  }
+})
 
 test('v1 升级一次落盘，重启保留设备和未知字段，迁移失败可重试', async () => {
   const disk = diskStorage({ categories: [{ id: 'c' }], tasks: [{ id: 't', title: '旧事项', extra: 7 }], extra: 23 })

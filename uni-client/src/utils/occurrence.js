@@ -96,13 +96,13 @@ export function parseOverrides(task) {
 }
 
 export function resolveTasksForDate(tasks, date) {
-  return tasks.flatMap(task => {
-    if (task.parentTaskId) return []
+  const items = []
+  for (const task of tasks) {
+    if (task.parentTaskId) continue
     const repeating = parseRepeatRule(task.repeatRule).kind !== 'none'
     const overrides = parseOverrides(task)
     const direct = overrides[date]
     const terminal = value => value?.status === 'done' || value?.status === 'failed'
-    const items = []
     if ((occursOn(task, date) || terminal(direct)) && !direct?.deleted && (direct?.plannedDate === undefined || direct.plannedDate === date)) {
       items.push({ ...task, ...direct, id: repeating ? `${task.id}@${date}` : task.id, status: repeating ? direct?.status || 'todo' : direct?.status || task.status, plannedDate: date })
     }
@@ -110,8 +110,8 @@ export function resolveTasksForDate(tasks, date) {
       if (!override || typeof override !== 'object' || sourceDate === date || override.deleted || override.plannedDate !== date || (!terminal(override) && !occursOn(task, sourceDate))) continue
       items.push({ ...task, ...override, id: `${task.id}@${sourceDate}`, status: override.status || 'todo', plannedDate: date })
     }
-    return items
-  })
+  }
+  return items
 }
 
 export function repeatLabel(kind, interval = 1) {
