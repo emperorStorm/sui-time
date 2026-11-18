@@ -1,0 +1,7 @@
+{
+  "name": "sui-time-symbol-icons",
+  "entry": "index.html",
+  "output": "dist/sui-time-symbol-icons.html",
+  "styles": [],
+  "scripts": []
+}

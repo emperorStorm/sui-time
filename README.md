@@ -1,8 +1,8 @@
-<p align="center"><img src="docs/brand/sui-time-icon.png" width="128" height="128" alt="岁岁时光 · 云光日历图标" /></p>
+<p align="center"><img src="docs/brand/sui-time-icon.png" width="128" height="128" alt="岁岁时光 · 岁岁刻度图标" /></p>
 
 # 岁岁时光
 
-应用图标采用「云光日历」：蓝天、白云与折页日历结合完成勾选，统一桌面端、安卓端和网页展示的品牌形象。查看[品牌图标预览源码](docs/brand/index.html)或[高清图标](docs/brand/sui-time-icon.png)；预览 HTML 下载后可直接用浏览器打开。
+应用图标采用「岁岁刻度」：蓝天白云之间三层年轮弧线各自留出开口，光点落在最外层，统一桌面端、安卓端和网页展示的品牌形象。查看[品牌图标预览源码](docs/brand/index.html)或[高清图标](docs/brand/sui-time-icon.png)；预览 HTML 下载后可直接用浏览器打开。
 
 品牌源文件为 `desktop-client/src/assets/brand/sui-time-icon.svg`。配置本地 Playwright 的 `PLAYWRIGHT_MODULE` 和 `CHROMIUM_PATH` 后，在仓库根目录运行 `node tauri-desktop/scripts/generate-brand-icons.mjs`，统一生成桌面安装图标、安卓启动器图标、H5 图标和文档图片；修改启动画面后另运行 `node uni-client/scripts/render-splash.mjs`。图标变化需重新打包安装客户端，网页与 GitHub README 则在构建部署或推送后生效。
 

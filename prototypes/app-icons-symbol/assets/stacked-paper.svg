@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+<title id="title">岁岁时光 · 层叠时光</title>
+<defs>
+<linearGradient id="bg" x1="160" y1="0" x2="820" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#74C3FF"/><stop offset=".58" stop-color="#C1E6FF"/><stop offset="1" stop-color="#F3FBFF"/></linearGradient>
+<linearGradient id="blue" x1="295" y1="270" x2="725" y2="500" gradientUnits="userSpaceOnUse"><stop stop-color="#35A4F5"/><stop offset="1" stop-color="#197ED3"/></linearGradient>
+<clipPath id="clip"><rect width="1024" height="1024" rx="232"/></clipPath>
+<filter id="shadow" x="-45%" y="-45%" width="190%" height="210%"><feDropShadow dx="0" dy="22" stdDeviation="20" flood-color="#2675AB" flood-opacity=".17"/></filter>
+</defs>
+<g clip-path="url(#clip)"><rect width="1024" height="1024" fill="url(#bg)"/><circle cx="820" cy="95" r="365" fill="none" stroke="#FFFFFF" stroke-opacity=".34" stroke-width="3"/>
+<path d="M-20 389c32-56 69-65 111-46 31-83 136-95 188-12 48-8 82 18 100 58Z" fill="#FFFFFF" fill-opacity=".55"/>
+<path d="M-30 810C184 692 310 911 539 799s360-68 515-17v272H-30Z" fill="#FFFFFF" fill-opacity=".46"/>
+<g filter="url(#shadow)"><path d="M306 246H558A84 84 0 0 1 642 330V534A84 84 0 0 1 558 618H306A84 84 0 0 1 222 534V330A84 84 0 0 1 306 246Z" fill="#A8D9FB"/>
+<path d="M386 326H638A84 84 0 0 1 722 410V614A84 84 0 0 1 638 698H386A84 84 0 0 1 302 614V410A84 84 0 0 1 386 326Z" fill="#D5EDFF"/>
+<path d="M466 406H718A84 84 0 0 1 802 490V694A84 84 0 0 1 718 778H466A84 84 0 0 1 382 694V490A84 84 0 0 1 466 406Z" fill="#FFFFFF"/>
+<path d="M750 690A34 34 0 1 1 682 690A34 34 0 1 1 750 690Z" fill="#218BE0"/></g></g>
+</svg>

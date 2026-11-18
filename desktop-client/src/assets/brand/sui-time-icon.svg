@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-<title id="title">岁岁时光 · 云光日历</title>
+<title id="title">岁岁时光 · 岁岁刻度</title>
 <defs>
 <linearGradient id="bg" x1="160" y1="0" x2="820" y2="1024" gradientUnits="userSpaceOnUse"><stop stop-color="#74C3FF"/><stop offset=".58" stop-color="#C1E6FF"/><stop offset="1" stop-color="#F3FBFF"/></linearGradient>
 <linearGradient id="blue" x1="295" y1="270" x2="725" y2="500" gradientUnits="userSpaceOnUse"><stop stop-color="#35A4F5"/><stop offset="1" stop-color="#197ED3"/></linearGradient>
@@ -9,10 +9,8 @@
 <g clip-path="url(#clip)"><rect width="1024" height="1024" fill="url(#bg)"/><circle cx="820" cy="95" r="365" fill="none" stroke="#FFFFFF" stroke-opacity=".34" stroke-width="3"/>
 <path d="M-20 389c32-56 69-65 111-46 31-83 136-95 188-12 48-8 82 18 100 58Z" fill="#FFFFFF" fill-opacity=".55"/>
 <path d="M-30 810C184 692 310 911 539 799s360-68 515-17v272H-30Z" fill="#FFFFFF" fill-opacity=".46"/>
-<g filter="url(#shadow)"><path d="M324 260h376a68 68 0 0 1 68 68v298L611 783H324a68 68 0 0 1-68-68V328a68 68 0 0 1 68-68Z" fill="#FFFFFF"/>
-<path d="M324 260h376a68 68 0 0 1 68 68v103H256V328a68 68 0 0 1 68-68Z" fill="url(#blue)"/>
-<path d="M371 238v77m282-77v77" fill="none" stroke="#FFFFFF" stroke-width="38" stroke-linecap="round"/>
-<path d="m385 566 91 90 167-174" fill="none" stroke="#218BE0" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M611 783V682a56 56 0 0 1 56-56h101Z" fill="#C9E9FE"/>
-</g></g>
+<g filter="url(#shadow)"><path d="M793.9 409.4A300 300 0 1 1 614.6 230.1" fill="none" stroke="#FFFFFF" stroke-width="38" stroke-linecap="round"/>
+<path d="M682.6 381.1A215 215 0 1 1 540.1 298.8" fill="none" stroke="#FFFFFF" stroke-width="34" stroke-linecap="round"/>
+<path d="M640 534.6A130 130 0 1 1 624.6 447" fill="none" stroke="#C9E9FE" stroke-width="30" stroke-linecap="round"/>
+<path d="M766.1 299.9A42 42 0 1 1 682.1 299.9A42 42 0 1 1 766.1 299.9Z" fill="#218BE0"/></g></g>
 </svg>

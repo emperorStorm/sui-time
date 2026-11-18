@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>岁岁时光 · 抽象图标候选</title>
+<!-- prototype:styles -->
+<style>
+:root{color-scheme:light;--ink:#233044;--muted:#758094;--line:#e4e7ed;--paper:#f6f7f9}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}main{max-width:1480px;margin:auto;padding:44px 48px 28px}header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:26px}.eyebrow{font-size:11px;letter-spacing:3px;font-weight:650;color:var(--muted);margin:0 0 13px}h1{font-size:34px;font-weight:650;letter-spacing:-1px;margin:0 0 12px}header p{font-size:14px;color:var(--muted);margin:0;line-height:1.8}.edition{text-align:right;font-size:12px;color:var(--muted);line-height:1.9;flex-shrink:0}.edition strong{color:var(--ink);font-weight:500}
+.baseline{display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:white;border:1px solid var(--line);border-radius:20px;padding:18px 24px;margin-bottom:26px}.baseline-title{font-size:12px;color:var(--muted);line-height:1.9;flex-shrink:0}.baseline-items{display:flex;gap:26px;align-items:center;flex-wrap:wrap}.baseline-item{display:flex;align-items:center;gap:10px}.baseline-item img{width:54px;height:54px;filter:drop-shadow(0 6px 5px #2330441f)}.baseline-item span{font-size:12px;color:#667184;line-height:1.5}.baseline-item em{display:block;font-style:normal;font-size:10px;color:#97a1af}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.card{min-width:0;background:white;border:1px solid var(--line);border-radius:22px;overflow:hidden}.stage{height:256px;display:flex;align-items:center;justify-content:center;position:relative;background:radial-gradient(ellipse at 50% 90%,#e1e8f4 0,transparent 65%),#f2f5fa}.card:nth-child(2) .stage{background:radial-gradient(ellipse at 50% 90%,#d6e9f7 0,transparent 65%),#eff5fa}.card:nth-child(3) .stage{background:radial-gradient(ellipse at 50% 90%,#e2eaf4 0,transparent 65%),#f3f5f9}.letter{position:absolute;top:20px;left:22px;font-size:12px;font-weight:600;color:#8791a2}.tag{position:absolute;top:17px;right:16px;background:#fff9;border:1px solid #ffffffb3;border-radius:20px;padding:5px 9px;color:#3769b5;font-size:10px}.hero-icon{width:164px;height:164px;filter:drop-shadow(0 18px 15px #23304421);transition:transform .2s}.hero-icon:hover{transform:translateY(-5px)}.body{padding:24px 22px 20px}h2{font-size:20px;margin:0 0 8px;font-weight:600;letter-spacing:.5px}.subtitle{font-size:11px;color:var(--muted);letter-spacing:1.5px}.description{font-size:13px;line-height:1.9;color:#667184;min-height:74px;margin:18px 0}.palette{display:flex;gap:5px;margin-bottom:22px}.swatch{height:6px;width:26px;border-radius:8px;border:1px solid #00000006}.size-row{display:flex;align-items:center;gap:19px;border-top:1px solid #edf0f4;padding:18px 0 16px;min-height:92px}.size-sample{display:flex;flex-direction:column;align-items:center;gap:8px}.size-sample span{color:#9099a7;font-size:10px}.size-sample img{display:block}.asset-links{display:flex;gap:15px;border-top:1px solid #edf0f4;padding-top:14px}a{font-size:11px;color:#546a89;text-decoration:none}a:hover{text-decoration:underline}a:focus-visible,button:focus-visible{outline:3px solid #82afff;outline-offset:4px}
+.applications{margin-top:30px}.section-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:14px}.section-head h2{font-size:15px;letter-spacing:0}.section-head p{margin:0;color:var(--muted);font-size:11px}.platforms{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}.platform{padding:20px 22px;border-radius:18px;border:1px solid var(--line);background:#fff;min-width:0}.platform.dark{background:#242d3d;border-color:#242d3d;color:#e6eaf2}.platform-label{font-size:10px;letter-spacing:1px;color:#8c96a6;margin-bottom:20px}.dock{display:flex;gap:21px;align-items:center;justify-content:center;height:62px}.dock img{width:52px;height:52px;filter:drop-shadow(0 5px 3px #17223321)}.dark .dock img{filter:drop-shadow(0 5px 3px #0004)}.android .dock img{filter:none;transition:clip-path .2s}.android[data-mask="circle"] .dock img{clip-path:circle(50%)}.android[data-mask="square"] .dock img{clip-path:inset(0 round 14%)}.mask-controls{display:flex;gap:5px}.mask-controls button{font:inherit;font-size:10px;border:1px solid var(--line);color:#758094;background:white;padding:5px 9px;border-radius:8px;cursor:pointer}.mask-controls button[aria-pressed="true"]{background:#edf3ff;color:#2864e9;border-color:#cddfff}.android-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:20px}.android-head .platform-label{margin:0}
+.splash-strip{margin-top:18px;border:1px solid var(--line);border-radius:18px;background:#C1E6FF;padding:22px 24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}.splash-strip .platform-label{color:#3d7296;margin:0;flex-shrink:0}.splash-icons{display:flex;gap:20px;align-items:center}.splash-icons img{width:72px;height:72px;filter:drop-shadow(0 6px 5px #1d5f8c33)}footer{display:flex;justify-content:space-between;gap:20px;border-top:1px solid var(--line);margin-top:28px;padding-top:18px;font-size:11px;line-height:1.8;color:#8b94a2}footer strong{font-weight:500;color:#64738a}@media(max-width:1099px){main{padding:32px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.platforms{grid-template-columns:1fr}.description{min-height:50px}.stage{height:238px}}@media(max-width:560px){main{padding:26px 18px}header{align-items:flex-start;flex-direction:column;gap:12px}h1{font-size:28px}.edition{text-align:left}.baseline{padding:16px;gap:14px}.baseline-items{gap:16px}.grid{grid-template-columns:1fr;gap:20px}.stage{height:244px}.hero-icon{width:160px;height:160px}.body{padding:22px}.description{min-height:0}.section-head{align-items:flex-start;flex-direction:column;gap:6px}.dock{gap:22px}.splash-strip{gap:14px}.splash-icons{gap:14px}.splash-icons img{width:58px;height:58px}footer{flex-direction:column;gap:5px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div><p class="eyebrow">岁岁时光 / 抽象符号探索</p><h1>把时间，做成一个符号。</h1><p>保留蓝天白云与白色主体，去掉日历的具象轮廓，尝试三种更抽象的时间表达。</p></div>
+<div class="edition"><strong>桌面端 × 移动端</strong><br>候选稿 · 已采用 B · 岁岁刻度</div>
+</header>
+<section class="baseline" aria-label="当前图标与候选对照">
+<div class="baseline-title">当前正式图标<br>与新候选同尺寸对照</div>
+<div class="baseline-items" data-baseline></div>
+</section>
+<section class="grid" aria-label="三款抽象候选"></section>
+<section class="applications" aria-label="跨平台图标效果">
+<div class="section-head"><h2>放进日常使用的场景</h2><p>当前图标 + 三款候选 · 深浅背景 · 安卓遮罩</p></div>
+<div class="platforms">
+<div class="platform"><div class="platform-label">桌面 / 浅色背景</div><div class="dock" data-icons></div></div>
+<div class="platform dark"><div class="platform-label">桌面 / 深色背景</div><div class="dock" data-icons></div></div>
+<div class="platform android" data-mask="circle"><div class="android-head"><div class="platform-label">安卓 / 形状预览</div><div class="mask-controls" role="group" aria-label="安卓图标遮罩"><button type="button" data-action="mask" data-mask="circle" aria-pressed="true">圆形</button><button type="button" data-action="mask" data-mask="square" aria-pressed="false">圆角</button></div></div><div class="dock" data-icons></div></div>
+</div>
+<div class="splash-strip"><div class="platform-label">启动画面底色 #C1E6FF<br>新符号与启动页的衔接</div><div class="splash-icons" data-icons-72></div></div>
+</section>
+<footer><div><strong>正式采用 B · 岁岁刻度</strong>：三层年轮弧线与光点，已接入桌面、安卓与文档。</div><div>A、C 保留为设计记录。</div></footer>
+</main>
+<!-- prototype:scripts -->
+<script>
+const concepts = [
+ {id:'stroke-arc',letter:'A',name:'时光弧线',subtitle:'一天的推进，收束成一点',description:'一段连续弧线从左侧升起、越过顶点、在右侧落下，末端亮起一枚光点。没有钟表，也没有对勾，只留下时间流动的轨迹。',colors:['#74c3ff','#c9e9fe','#218be0','#ffffff']},
+ {id:'arc-ticks',letter:'B',name:'岁岁刻度',subtitle:'层层年轮，各自留一处开口',description:'三层弧线像年轮一样围合，却各自留出缺口，光点落在最外层的开口处。表达日复一日的积累，而不是一圈完整的表盘。',colors:['#74c3ff','#c9e9fe','#218be0','#ffffff']},
+ {id:'stacked-paper',letter:'C',name:'层叠时光',subtitle:'一天一天，叠成厚度',description:'三片错位的柔和纸面，从浅蓝过渡到纯白，像一天天叠加的计划。只保留一个小光点，不出现日期格、装订环或折角。',colors:['#b9e2fc','#ddf1ff','#218be0','#ffffff']}
+];
+const baseline = [{id:'current-official',name:'上一版',note:'云光日历'}].concat(concepts.map(c=>({id:c.id,name:c.name,note:'候选 '+c.letter})));
+const icon = (id,name,size,extra='') => `<img src="assets/${id}.svg" alt="${name}" width="${size}" height="${size}" ${extra}>`;
+document.querySelector('[data-baseline]').innerHTML = baseline.map(c=>`<div class="baseline-item">${icon(c.id,c.name,54)}<span>${c.name}<em>${c.note}</em></span></div>`).join('');
+document.querySelector('.grid').innerHTML = concepts.map(c => `<article class="card"><div class="stage"><span class="letter">${c.letter} / 03</span>${c.id==='arc-ticks'?'<span class="tag">已采用</span>':''}${icon(c.id,c.name,164,'class="hero-icon"')}</div><div class="body"><h2>${c.name}</h2><div class="subtitle">${c.subtitle}</div><p class="description">${c.description}</p><div class="palette" aria-hidden="true">${c.colors.map(color=>`<span class="swatch" style="background:${color}"></span>`).join('')}</div><div class="size-row">${[16,32,48].map(size=>`<div class="size-sample">${icon(c.id,c.name,size)}<span>${size} px</span></div>`).join('')}</div><div class="asset-links"><a href="assets/${c.id}.svg" download>下载 SVG ↗</a><a href="assets/${c.id}.png" download>下载高清 PNG ↗</a></div></div></article>`).join('');
+document.querySelectorAll('[data-icons]').forEach(el=>{el.innerHTML=baseline.map(c=>icon(c.id,c.name,52)).join('')});
+document.querySelectorAll('[data-icons-72]').forEach(el=>{el.innerHTML=baseline.map(c=>icon(c.id,c.name,72)).join('')});
+document.addEventListener('click',event=>{const button=event.target.closest('[data-action="mask"]');if(!button)return;const panel=button.closest('.android');panel.dataset.mask=button.dataset.mask;panel.querySelectorAll('button').forEach(item=>item.setAttribute('aria-pressed',String(item===button)))});
+</script>
+</body>
+</html>

@@ -63,7 +63,7 @@ try {
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
   console.log('PASS 品牌预览：深浅背景、圆形/圆角切换、PNG下载、390px布局')
   await page.goto(`${origin}/readme-preview.html`)
-  const readmeIcon = page.getByAltText('岁岁时光 · 云光日历图标')
+  const readmeIcon = page.getByAltText('岁岁时光 · 岁岁刻度图标')
   await readmeIcon.evaluate(image => image.decode())
   assert.equal(await readmeIcon.evaluate(image => image.naturalWidth), 1024)
   console.log('PASS README 渲染：正式图标可加载')
@@ -73,14 +73,14 @@ try {
   await desktopIcon.waitFor()
   await desktopIcon.evaluate(image => image.decode())
   const desktopSvg = await desktopIcon.evaluate(async image => (await fetch(image.src)).text())
-  assert(desktopSvg.includes('云光日历'))
+  assert(desktopSvg.includes('岁岁刻度'))
   assert((await page.locator('link[rel="icon"]').getAttribute('href')).includes('sui-time-icon'))
   console.log('PASS 桌面构建页面：应用品牌图标和 favicon')
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto(`${origin}/mobile/`)
   await page.locator('uni-page').waitFor()
   const mobileSvg = await page.locator('link[rel="icon"]').evaluate(async link => (await fetch(link.href)).text())
-  assert(mobileSvg.includes('云光日历'))
+  assert(mobileSvg.includes('岁岁刻度'))
   console.log('PASS 移动 H5：首屏加载及正式 favicon')
   const res = 'uni-client/android-templates/app/src/main/res'
   const assets = []
@@ -98,10 +98,12 @@ try {
     const image = new Image(); image.src = url; await image.decode()
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = image.naturalWidth
     const ctx = canvas.getContext('2d'); ctx.drawImage(image, 0, 0)
-    return { corner: ctx.getImageData(0, 0, 1, 1).data[3], center: ctx.getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data[3] }
+    let ink = 0
+    for (let x = 0; x < canvas.width; x += 12) for (let y = 0; y < canvas.height; y += 12) if (ctx.getImageData(x, y, 1, 1).data[3] > 0) ink++
+    return { corner: ctx.getImageData(0, 0, 1, 1).data[3], ink }
   }, `${origin}/${res}/mipmap-xxxhdpi/ic_launcher_foreground.png`)
   assert.equal(foreground.corner, 0)
-  assert(foreground.center > 0)
+  assert(foreground.ink > 0)
   const source = await fs.readFile(path.join(root, 'desktop-client/src/assets/brand/sui-time-icon.svg'), 'utf8')
   assert.equal(await fs.readFile(path.join(root, 'docs/brand/sui-time-icon.svg'), 'utf8'), source)
   assert.equal(await fs.readFile(path.join(root, 'uni-client/src/static/sui-time-icon.svg'), 'utf8'), source)
