@@ -1,4 +1,6 @@
 import { entriesToObject } from './collections.js'
+import { addDays, iso, parseDate, weekDates } from './date.js'
+import { occursOn, parseRepeatRule } from './occurrence.js'
 
 export const reminderOptions = [[0, '准时'], [5, '提前 5 分钟'], [15, '提前 15 分钟'], [30, '提前 30 分钟'], [60, '提前 1 小时'], [120, '提前 2 小时']]
 export const priorities = [['urgent_important', '重要且紧急'], ['important_not_urgent', '重要不紧急'], ['urgent_not_important', '不重要紧急'], ['not_urgent_not_important', '不重要不紧急']]
@@ -25,6 +27,80 @@ export function compareTasks(a, b) {
 
 export function validateTaskDateRange(startDate, endDate) {
   if (startDate && endDate && endDate < startDate) throw new Error('结束日期不能早于开始日期')
+}
+
+export const TASK_FILTER_TIMES = ['all', 'today', 'tomorrow', 'three_days', 'week', 'month']
+export const TASK_FILTER_TYPES = ['schedule', 'list', 'repeat']
+
+export function defaultTaskFilters() {
+  return { time: 'week', types: [...TASK_FILTER_TYPES] }
+}
+
+export function normalizeTaskFilters(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return defaultTaskFilters()
+  const time = TASK_FILTER_TIMES.includes(value.time) ? value.time : 'week'
+  const rawTypes = Array.isArray(value.types) ? value.types : []
+  const types = TASK_FILTER_TYPES.filter(type => rawTypes.includes(type))
+  return { time, types: types.length ? types : [...TASK_FILTER_TYPES] }
+}
+
+export function isTaskFilters(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  if (!TASK_FILTER_TIMES.includes(value.time)) return false
+  if (!Array.isArray(value.types) || value.types.length < 1 || value.types.length > TASK_FILTER_TYPES.length) return false
+  if (!value.types.every(type => TASK_FILTER_TYPES.includes(type))) return false
+  return new Set(value.types).size === value.types.length
+}
+
+export function taskTypes(task) {
+  const types = [task?.plannedDate ? 'schedule' : 'list']
+  if (task && parseRepeatRule(task.repeatRule).kind !== 'none') types.push('repeat')
+  return types
+}
+
+export function matchesTaskTypeFilter(task, types) {
+  const selected = Array.isArray(types) && types.length ? types : TASK_FILTER_TYPES
+  if (selected.length >= TASK_FILTER_TYPES.length) return true
+  return taskTypes(task).some(type => selected.includes(type))
+}
+
+export function timeRangeFor(time, today) {
+  if (time === 'all' || !today) return null
+  if (time === 'today') return { startDate: today, endDate: today }
+  if (time === 'tomorrow') {
+    const target = addDays(today, 1)
+    return { startDate: target, endDate: target }
+  }
+  if (time === 'three_days') return { startDate: today, endDate: addDays(today, 2) }
+  if (time === 'week') {
+    const dates = weekDates(today)
+    return { startDate: dates[0], endDate: dates[6] }
+  }
+  if (time === 'month') {
+    const date = parseDate(today)
+    return {
+      startDate: iso(new Date(date.getFullYear(), date.getMonth(), 1)),
+      endDate: iso(new Date(date.getFullYear(), date.getMonth() + 1, 0))
+    }
+  }
+  return null
+}
+
+export function occurrenceDateInRange(task, startDate, endDate, today) {
+  if (!task || !task.plannedDate || task.parentTaskId || startDate > endDate) return null
+  if (parseRepeatRule(task.repeatRule).kind === 'none') {
+    return task.plannedDate >= startDate && task.plannedDate <= endDate ? task.plannedDate : null
+  }
+  if (task.plannedDate > endDate) return null
+  const first = task.plannedDate > startDate ? task.plannedDate : startDate
+  const from = today && today > startDate ? today : startDate
+  let fallback = null
+  for (let date = first; date <= endDate; date = addDays(date, 1)) {
+    if (!occursOn(task, date)) continue
+    if (date >= from) return date
+    fallback = date
+  }
+  return fallback
 }
 
 export function matchesTaskFilter(task, { query = '', startDate = '', endDate = '', categoryId = 'all', hideCompleted = false } = {}) {

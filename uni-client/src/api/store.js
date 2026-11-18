@@ -3,7 +3,7 @@ import { entriesToObject } from '../utils/collections.js'
 import { normalizeAnniversary, prepareAnniversaryRecord } from '../../../shared/anniversary.mjs'
 import { occursOn, parseOccurrenceId, parseOverrides, parseRepeatRule, resolveTasksForDate } from '../utils/occurrence.js'
 import { addDays, todayString } from '../utils/date.js'
-import { compareTasks, normalizeTask } from '../utils/task.js'
+import { compareTasks, normalizeTask, normalizeTaskFilters } from '../utils/task.js'
 import { syncTaskReminders } from './reminders.js'
 import { cloneData, sameData } from './sync-outbox.js'
 
@@ -395,6 +395,16 @@ export function getNewTaskDefaults() {
   const priority = ['urgent_important', 'important_not_urgent', 'urgent_not_important', 'not_urgent_not_important'].includes(defaults?.priority)
     ? defaults.priority : 'not_urgent_not_important'
   return { categoryId, priority }
+}
+
+export function getTaskFilters() {
+  return normalizeTaskFilters(getSettings().taskFilters)
+}
+
+export function setTaskFilters(value) {
+  const next = normalizeTaskFilters(value)
+  setSetting('taskFilters', next)
+  return next
 }
 
 export function setSetting(key, value) {

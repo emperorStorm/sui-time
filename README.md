@@ -6,7 +6,7 @@
 
 品牌源文件为 `desktop-client/src/assets/brand/sui-time-icon.svg`。配置本地 Playwright 的 `PLAYWRIGHT_MODULE` 和 `CHROMIUM_PATH` 后，在仓库根目录运行 `node tauri-desktop/scripts/generate-brand-icons.mjs`，统一生成桌面安装图标、安卓启动器图标、H5 图标和文档图片；修改启动画面后另运行 `node uni-client/scripts/render-splash.mjs`。图标变化需重新打包安装客户端，网页与 GitHub README 则在构建部署或推送后生效。
 
-岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.7.8`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
+岁岁时光是一款本地优先的个人待办与时间规划应用，包含桌面端与安卓移动端。当前版本为 `0.7.10`。桌面端使用 Vue 3、TypeScript、Tauri 2、Rust 和 SQLite 构建；移动端使用 UniApp，数据保存在本机，不依赖业务服务器或云端账号。
 
 ![岁岁时光本地优先数据架构](docs/assets/sui-time-local-first-sync.png)
 

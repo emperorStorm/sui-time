@@ -1,3 +1,5 @@
+import { defaultTaskFilters, isTaskFilters, normalizeTaskFilters } from '../utils/task.js'
+
 // 与同步引擎保持一致；记录以纪念日和日期组成稳定复合 id。
 export const entityCollections = {
   categories: 'category', tasks: 'task', anniversaries: 'anniversary', anniversaryRecords: 'anniversary_record'
@@ -14,6 +16,7 @@ export function syncSettings(data) {
     'show_completed.month': !data.settings?.hideCompletedByView?.month,
     'mobile.new_task_defaults': data.settings?.newTaskDefaults ?? null,
     'mobile.collapsed_groups': data.settings?.collapsedGroups ?? [],
+    'mobile.task_filters': normalizeTaskFilters(data.settings?.taskFilters),
     'mobile.profile': data.profile ?? {}
   }
 }
@@ -30,6 +33,9 @@ export function applySyncSetting(data, key, value, deleted) {
   } else if (key === 'mobile.collapsed_groups') {
     if (!deleted && !Array.isArray(value)) throw new Error('远端分组偏好无效')
     data.settings.collapsedGroups = deleted ? [] : cloneData(value)
+  } else if (key === 'mobile.task_filters') {
+    if (!deleted && !isTaskFilters(value)) throw new Error('远端筛选偏好无效')
+    data.settings.taskFilters = deleted ? defaultTaskFilters() : cloneData(value)
   } else if (key === 'mobile.profile') {
     if (!deleted && (!value || typeof value !== 'object' || Array.isArray(value))) throw new Error('远端资料格式无效')
     data.profile = deleted ? {} : cloneData(value)

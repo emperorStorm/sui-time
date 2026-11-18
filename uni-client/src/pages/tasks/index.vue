@@ -1,15 +1,25 @@
 <template>
   <view class="page tasks-page">
     <view class="topbar">
-      <view class="topbar-title">事项</view>
-      <view v-if="ready" class="task-summary" role="status" :aria-label="`待办 ${todoCount} 项`"><text>待办</text><text>{{ todoCount > 99 ? '99+' : todoCount }}</text></view>
+      <view class="title-toggle" role="button" tabindex="0" aria-haspopup="true" :aria-expanded="filtersOpen" aria-controls="task-filter-panel" @click="toggleFilterPanel" @keydown.enter.prevent="toggleFilterPanel" @keydown.space.prevent="toggleFilterPanel">
+        <text class="title-text">{{ filterTitle }}</text>
+        <text :class="['title-caret', filtersOpen ? 'open' : '']" aria-hidden="true">▾</text>
+      </view>
     </view>
 
-    <view v-if="ready" class="today-overview" role="status" :aria-label="`${todayLabel} ${todayWeekday}，已完成 ${todayDoneCount} 项，共 ${todayTasks.length} 项`">
-      <view class="today-overview-date"><text>{{ todayLabel }}</text><text class="today-overview-weekday">{{ todayWeekday }}</text></view>
-      <view class="today-progress">
-        <view class="today-progress-label"><text>{{ todayTasks.length ? `已完成 ${todayDoneCount}/${todayTasks.length}` : '今天暂无安排' }}</text><text v-if="todayTasks.length">{{ todayProgress }}%</text></view>
-        <view v-if="todayTasks.length" class="today-progress-track"><view class="today-progress-value" :style="{ width: `${todayProgress}%` }"></view></view>
+    <view v-if="filtersOpen" class="filter-mask" aria-hidden="true" @click="filtersOpen = false"></view>
+    <view v-if="filtersOpen" id="task-filter-panel" class="filter-panel panel" role="dialog" aria-modal="true" aria-labelledby="filter-time-title" @click.stop @keydown.esc.stop.prevent="filtersOpen = false">
+      <text id="filter-time-title" class="filter-section-title">按时间</text>
+      <view class="filter-options" role="radiogroup" aria-labelledby="filter-time-title">
+        <view v-for="opt in timeOptions" :key="opt.value" class="filter-option" role="radio" tabindex="0" :aria-checked="taskFilters.time === opt.value" :class="{ active: taskFilters.time === opt.value }" @click="selectTime(opt.value)" @keydown.enter.prevent="selectTime(opt.value)" @keydown.space.prevent="selectTime(opt.value)"><text>{{ opt.label }}</text></view>
+      </view>
+      <text class="filter-section-title">按类型</text>
+      <view class="filter-options" role="group" aria-label="按类型">
+        <view v-for="opt in typeOptions" :key="opt.value" class="filter-option" role="checkbox" tabindex="0" :aria-checked="taskFilters.types.includes(opt.value)" :class="{ active: taskFilters.types.includes(opt.value) }" @click="toggleType(opt.value)" @keydown.enter.prevent="toggleType(opt.value)" @keydown.space.prevent="toggleType(opt.value)"><text>{{ opt.label }}</text></view>
+      </view>
+      <view class="filter-panel-footer">
+        <button class="filter-reset" @click="resetTaskFilters">恢复默认</button>
+        <button class="filter-done" @click="filtersOpen = false">完成</button>
       </view>
     </view>
     <view v-if="sheetSuspended || manageSuspended" class="draft-actions" role="status">
@@ -29,35 +39,27 @@
       </scroll-view>
     </view>
     <scroll-view class="filter-bar" scroll-x>
-      <view :class="['filter-chip', 'chip-all', filter === 'all' ? 'active' : '']" role="button" tabindex="0" :aria-pressed="filter === 'all'" @click="filter = 'all'" @keydown.enter.prevent="filter = 'all'" @keydown.space.prevent="filter = 'all'"><text>全部</text></view>
-      <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', 'chip-cat', filter === cat.id ? 'active' : '']" :style="{ background: cat.color, '--chip-color': cat.color }" role="button" tabindex="0" :aria-pressed="filter === cat.id" @click="filter = cat.id" @keydown.enter.prevent="filter = cat.id" @keydown.space.prevent="filter = cat.id">
-        <text>{{ cat.name }}</text>
+      <view class="filter-track">
+        <view :class="['filter-chip', 'chip-all', activeCategory === 'all' ? 'active' : '']" :style="allChipStyle" role="button" tabindex="0" :aria-pressed="activeCategory === 'all'" @click="selectCategory('all')" @keydown.enter.prevent="selectCategory('all')" @keydown.space.prevent="selectCategory('all')"><text>全部</text></view>
+        <view v-for="cat in categories" :key="cat.id" :class="['filter-chip', 'chip-cat', activeCategory === cat.id ? 'active' : '']" :style="chipStyle(cat)" role="button" tabindex="0" :aria-pressed="activeCategory === cat.id" @click="selectCategory(cat.id)" @keydown.enter.prevent="selectCategory(cat.id)" @keydown.space.prevent="selectCategory(cat.id)">
+          <text>{{ cat.name }}</text>
+        </view>
+        <view class="filter-chip chip-add" role="button" tabindex="0" aria-label="管理分类" @click="openCategories" @keydown.enter.prevent="openCategories" @keydown.space.prevent="openCategories"><text>＋</text></view>
       </view>
-      <view class="filter-chip chip-add" role="button" tabindex="0" aria-label="管理分类" @click="openCategories" @keydown.enter.prevent="openCategories" @keydown.space.prevent="openCategories"><text>＋</text></view>
     </scroll-view>
 
-    <view class="search-tools">
-      <view class="search-row"><input v-model="searchInput" class="search-input" placeholder="搜索标题或备注" /><button class="date-toggle" @click="dateExpanded = !dateExpanded">日期筛选 {{ dateExpanded ? '▴' : '▾' }}</button></view>
-      <text v-if="appliedRange.startDate || appliedRange.endDate" class="range-summary">生效：{{ appliedRange.startDate || '不限' }} 至 {{ appliedRange.endDate || '不限' }}</text>
-      <view v-if="dateExpanded" class="date-panel">
-        <view class="date-inputs"><picker mode="date" :value="pendingStart" @change="pendingStart = $event.detail.value"><view>开始：{{ pendingStart || '不限' }}</view></picker><picker mode="date" :value="pendingEnd" @change="pendingEnd = $event.detail.value"><view>结束：{{ pendingEnd || '不限' }}</view></picker></view>
-        <view class="date-actions"><button @click="applyDates">应用</button><button @click="clearDates">清除日期</button></view>
-        <text v-if="dateError" class="date-error">{{ dateError }}</text>
-        <text class="date-hint">重复事项按起始日期筛选，当次安排请到规划页查看</text>
-      </view>
-    </view>
-
     <scroll-view class="task-scroll" scroll-y refresher-enabled :refresher-triggered="refreshing" @refresherrefresh="refresh" @scroll="taskTouchMoved = true">
+      <view :class="['task-stage', slideState]">
       <view v-if="groups.length" class="shell">
         <view v-for="group in groups" :key="group.label" class="task-group panel">
-          <view class="group-header" role="button" tabindex="0" :aria-expanded="!isCollapsed(group.label)" @click="toggleGroup(group.label)" @keydown.enter.prevent="toggleGroup(group.label)" @keydown.space.prevent="toggleGroup(group.label)">
+          <view class="group-header" :class="{ static: group.date }" :role="group.date ? undefined : 'button'" :tabindex="group.date ? undefined : 0" :aria-expanded="group.date ? undefined : !isCollapsed(group.label)" @click="onGroupHeader(group)" @keydown.enter.prevent="onGroupHeader(group)" @keydown.space.prevent="onGroupHeader(group)">
             <text class="group-label">{{ group.label }}</text>
             <view class="group-right">
               <text class="group-count">{{ group.items.length }}</text>
-              <text :class="['group-arrow', isCollapsed(group.label) ? 'collapsed' : '']">∧</text>
+              <text v-if="!group.date" :class="['group-arrow', isCollapsed(group.label) ? 'collapsed' : '']">∧</text>
             </view>
           </view>
-          <template v-if="!isCollapsed(group.label)">
+          <template v-if="group.date || !isCollapsed(group.label)">
             <view v-for="task in group.items" :key="task.id" class="task-item" role="button" tabindex="0" :aria-label="`编辑事项 ${task.title}`" @click="!taskTouchMoved && openEdit(task)" @touchstart="taskTouchMoved = false" @pointerdown="taskTouchMoved = false" @touchmove="taskTouchMoved = true" @touchcancel="taskTouchMoved = true" @keydown.enter.prevent="openEdit(task)" @keydown.space.prevent="openEdit(task)">
               <button class="task-check-target" role="button" tabindex="0" :aria-label="`${task.status === 'done' ? '恢复待办' : '完成事项'} ${task.title}`" @click.stop="!taskTouchMoved && toggle(task)" @keydown.enter.stop.prevent="toggle(task)" @keydown.space.stop.prevent="toggle(task)">
                 <view :class="['task-check', task.status === 'done' ? 'done' : '']" :style="checkStyle(task)"><text v-if="task.status === 'done'">✓</text></view>
@@ -72,7 +74,8 @@
       </view>
       <view v-else class="list-empty">
         <text>{{ hasConditions ? '没有符合条件的事项' : '暂时没有事项' }}</text>
-        <button v-if="hasConditions" class="clear-filters" @click="clearFilters">清除搜索与日期条件</button>
+        <button v-if="hasConditions" class="clear-filters" @click="clearFilters">清除筛选条件</button>
+      </view>
       </view>
     </scroll-view>
 
@@ -86,18 +89,18 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { onShow, onBackPress, onUnload } from '@dcloudio/uni-app'
 import TaskEditSheet from '../../components/TaskEditSheet.vue'
 import CategoryManageSheet from '../../components/CategoryManageSheet.vue'
 import DiagPanel from '../../components/DiagPanel.vue'
-import { getCategories, listTasks, setTaskStatus, getSettings, getHideCompleted, toggleGroupCollapsed } from '../../api/store'
+import { getCategories, listTasks, setTaskStatus, getSettings, getHideCompleted, toggleGroupCollapsed, getTaskFilters, setTaskFilters } from '../../api/store'
 import { repeatLabel, parseRepeatRule } from '../../utils/occurrence'
 import { reminderState, reminderSummary, subscribeReminderState, syncTaskReminders } from '../../api/reminders'
 import { androidSettings } from '../../api/android'
 import { occursOn } from '../../utils/occurrence'
-import { compareTasks, matchesTaskFilter, taskMark, validateTaskDateRange } from '../../utils/task'
-import { shortDate, weekday, todayString } from '../../utils/date'
+import { compareTasks, matchesTaskFilter, matchesTaskTypeFilter, occurrenceDateInRange, taskMark, timeRangeFor, TASK_FILTER_TYPES, defaultTaskFilters } from '../../utils/task'
+import { addDays, shortDate, weekday, todayString } from '../../utils/date'
 import { toast } from '../../utils/platform'
 import { usePullSync } from '../../utils/pull-sync.js'
 import { useMainTabTap, registerTabDrafts, pendingTabDraft } from '../../utils/main-tab.js'
@@ -143,80 +146,177 @@ const categorySheet = ref(null)
 let taskTouchMoved = false
 const toggling = ref(false)
 const filter = ref('all')
+const activeCategory = ref('all')
+const slideState = ref('')
+let slideTimer
+
+const ALL_CATEGORY_COLOR = '#465b88'
+
+function mixHex(color, target, ratio) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(typeof color === 'string' ? color : '')
+  if (!match) return null
+  const value = parseInt(match[1], 16)
+  const base = parseInt(target.slice(1), 16)
+  const channel = shift => Math.round((((value >> shift) & 255) * (1 - ratio)) + (((base >> shift) & 255) * ratio))
+  return `rgb(${channel(16)}, ${channel(8)}, ${channel(0)})`
+}
+function tintOf(color) { return mixHex(color, '#ffffff', 0.85) || '#eef2f7' }
+function shadeOf(color) { return mixHex(color, '#000000', 0.35) || '#25384c' }
+
+const allChipStyle = computed(() => activeCategory.value === 'all'
+  ? { background: tintOf(ALL_CATEGORY_COLOR), color: shadeOf(ALL_CATEGORY_COLOR) }
+  : { background: ALL_CATEGORY_COLOR, color: '#fff' })
+
+function chipStyle(cat) {
+  const active = activeCategory.value === cat.id
+  const background = active ? tintOf(cat.color) : cat.color
+  return { background, color: active ? shadeOf(cat.color) : '#fff', '--chip-color': background }
+}
 const allTasks = ref([])
 const today = ref(todayString())
-const todayLabel = computed(() => {
-  const [, month, day] = today.value.split('-')
-  return `${Number(month)}月${Number(day)}日`
-})
-const todayWeekday = computed(() => weekday(today.value))
-const todayTasks = computed(() => allTasks.value.filter(task => !task.parentTaskId && occursOnToday(task, today.value)))
-const todayDoneCount = computed(() => todayTasks.value.filter(task => task.status === 'done').length)
-const todayProgress = computed(() => todayTasks.value.length ? Math.round(todayDoneCount.value / todayTasks.value.length * 100) : 0)
 const sheetVisible = ref(false)
 const editingTask = ref(null)
 const manageVisible = ref(false)
 const collapsedGroups = ref([])
 const hideCompleted = ref(true)
-const searchInput = ref('')
-const searchQuery = ref('')
-const dateExpanded = ref(false)
-const pendingStart = ref('')
-const pendingEnd = ref('')
-const dateError = ref('')
-const appliedRange = ref({ startDate: '', endDate: '' })
-const hasConditions = computed(() => Boolean(searchInput.value.trim() || appliedRange.value.startDate || appliedRange.value.endDate || filter.value !== 'all'))
-let searchTimer
-watch(searchInput, value => {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => { searchQuery.value = value.trim() }, 180)
-})
-onBeforeUnmount(() => clearTimeout(searchTimer))
+const filtersOpen = ref(false)
+const taskFilters = ref(defaultTaskFilters())
+const timeOptions = [
+  { value: 'all', label: '全部' },
+  { value: 'today', label: '今日' },
+  { value: 'tomorrow', label: '明日' },
+  { value: 'three_days', label: '3日' },
+  { value: 'week', label: '本周' },
+  { value: 'month', label: '本月' }
+]
+const typeOptions = [
+  { value: 'schedule', label: '日程' },
+  { value: 'list', label: '清单' },
+  { value: 'repeat', label: '重复' }
+]
+const timeTitles = { all: '全部事项', today: '今日事项', tomorrow: '明日事项', three_days: '3日事项', week: '本周事项', month: '本月事项' }
+const filterTitle = computed(() => timeTitles[taskFilters.value.time] || timeTitles.week)
+const timeRange = computed(() => timeRangeFor(taskFilters.value.time, today.value))
+const hasConditions = computed(() => filter.value !== 'all' || taskFilters.value.time !== 'all' || taskFilters.value.types.length < TASK_FILTER_TYPES.length)
 
-function applyDates() {
-  try {
-    validateTaskDateRange(pendingStart.value, pendingEnd.value)
-    appliedRange.value = { startDate: pendingStart.value, endDate: pendingEnd.value }
-    dateError.value = ''
-  } catch (error) { dateError.value = error.message }
+function toggleFilterPanel() {
+  if (!ready.value || loadError.value) return
+  filtersOpen.value = !filtersOpen.value
 }
-function clearDates() {
-  pendingStart.value = ''; pendingEnd.value = ''; dateError.value = ''
-  appliedRange.value = { startDate: '', endDate: '' }
+function persistTaskFilters(next) {
+  const previous = taskFilters.value
+  taskFilters.value = next
+  try { taskFilters.value = setTaskFilters(next) }
+  catch (error) { taskFilters.value = previous; toast(error.message || String(error)) }
+}
+function selectTime(value) {
+  if (taskFilters.value.time === value) return
+  persistTaskFilters({ ...taskFilters.value, time: value })
+}
+function toggleType(value) {
+  const types = taskFilters.value.types
+  if (types.includes(value)) {
+    if (types.length === 1) { toast('至少保留一种类型'); return }
+    persistTaskFilters({ ...taskFilters.value, types: types.filter(type => type !== value) })
+    return
+  }
+  persistTaskFilters({ ...taskFilters.value, types: [...types, value] })
+}
+function resetTaskFilters() {
+  persistTaskFilters(defaultTaskFilters())
 }
 function clearFilters() {
-  searchInput.value = ''; searchQuery.value = ''
-  clearTimeout(searchTimer)
-  clearDates()
+  resetSlide()
+  activeCategory.value = 'all'
+  filter.value = 'all'
+  persistTaskFilters({ time: 'all', types: [...TASK_FILTER_TYPES] })
 }
 
-const todoCount = computed(() => allTasks.value.filter(task => !task.parentTaskId && (task.status || 'todo') === 'todo').length)
+function categoryOrder(id) {
+  if (id === 'all') return 0
+  return categories.value.findIndex(cat => cat.id === id) + 1
+}
+
+function resetSlide() {
+  clearTimeout(slideTimer)
+  slideState.value = ''
+}
+
+function selectCategory(id) {
+  if (id === activeCategory.value) return
+  const current = categoryOrder(activeCategory.value)
+  const next = categoryOrder(id)
+  if (next < 1 && id !== 'all') return
+  activeCategory.value = id
+  const forward = next > current
+  clearTimeout(slideTimer)
+  slideState.value = forward ? 'slide-out-left' : 'slide-out-right'
+  slideTimer = setTimeout(() => {
+    filter.value = id
+    slideState.value = forward ? 'slide-in-right' : 'slide-in-left'
+    slideTimer = setTimeout(() => { slideState.value = '' }, 24)
+  }, 150)
+}
 
 function onCategoriesChanged() {
   load()
 }
 
 const groups = computed(() => {
-  const conditions = { query: searchQuery.value, ...appliedRange.value, categoryId: filter.value, hideCompleted: hideCompleted.value }
-  const source = allTasks.value.filter(task => matchesTaskFilter(task, conditions))
-  const today = todayString()
+  const source = allTasks.value.filter(task =>
+    matchesTaskFilter(task, { categoryId: filter.value, hideCompleted: hideCompleted.value })
+    && matchesTaskTypeFilter(task, taskFilters.value.types))
+  const range = timeRange.value
+  return range ? dateGroups(source, range) : allViewGroups(source)
+})
+
+function allViewGroups(source) {
   const bucket = { '今天': [], '7天内': [], '稍后': [] }
   source.forEach((task) => {
     if (task.parentTaskId) return
-    if (occursOnToday(task, today)) bucket['今天'].push(task)
-    else if (isWithinWeek(task.plannedDate, today)) bucket['7天内'].push(task)
+    if (occursOnToday(task, today.value)) bucket['今天'].push(task)
+    else if (isWithinWeek(task.plannedDate, today.value)) bucket['7天内'].push(task)
     else bucket['稍后'].push(task)
   })
   return Object.keys(bucket).map((label) => ({ label, items: bucket[label].sort(compareTasks) })).filter((group) => group.items.length)
-})
+}
 
-onShow(() => { today.value = todayString(); load(); reminder.value = reminderState() })
+function dateGroups(source, range) {
+  const buckets = new Map()
+  source.forEach((task) => {
+    const date = occurrenceDateInRange(task, range.startDate, range.endDate, today.value)
+    if (!date) return
+    if (!buckets.has(date)) buckets.set(date, [])
+    buckets.get(date).push(task)
+  })
+  return [...buckets.keys()].sort().map((date) => ({
+    label: dateGroupLabel(date),
+    date,
+    items: buckets.get(date).sort((a, b) => compareTasks({ ...a, plannedDate: date }, { ...b, plannedDate: date }))
+  }))
+}
+
+function dateGroupLabel(date) {
+  if (date === today.value) return '今天'
+  if (date === addDays(today.value, 1)) return '明天'
+  if (date === addDays(today.value, 2)) return '后天'
+  return `${shortDate(date)} ${weekday(date)}`
+}
+
+function onGroupHeader(group) {
+  if (group.date) return
+  toggleGroup(group.label)
+}
+
+onShow(() => { today.value = todayString(); filtersOpen.value = false; load(); reminder.value = reminderState() })
 function refreshStore() { load() }
 uni.$on('store-refresh', refreshStore)
 const releaseStoreRefresh = () => uni.$off('store-refresh', refreshStore)
 onUnload(releaseStoreRefresh)
 onBeforeUnmount(releaseStoreRefresh)
+onBeforeUnmount(() => { clearTimeout(slideTimer) })
 onBackPress(() => {
+  if (filtersOpen.value) { filtersOpen.value = false; return true }
   if (sheetVisible.value && !sheetSuspended.value) { taskSheet.value?.requestClose(); return true }
   if (manageVisible.value && !manageSuspended.value) { categorySheet.value?.requestClose(); return true }
   return false
@@ -232,7 +332,9 @@ function load() {
     categories.value = cats
     hideCompleted.value = getHideCompleted('tasks')
     collapsedGroups.value = [...(nextSettings.collapsedGroups || [])]
-    if (filter.value !== 'all' && !cats.some(cat => cat.id === filter.value)) filter.value = 'all'
+    taskFilters.value = getTaskFilters()
+    if (filter.value !== 'all' && !cats.some(cat => cat.id === filter.value)) { filter.value = 'all'; resetSlide() }
+    if (activeCategory.value !== 'all' && !cats.some(cat => cat.id === activeCategory.value)) activeCategory.value = 'all'
     loadError.value = ''
     ready.value = true
     return true
@@ -266,12 +368,6 @@ function parseKind(repeatRule) {
   } catch {
     return 'none'
   }
-}
-
-function addDays(value, amount) {
-  const date = new Date(`${value}T12:00:00`)
-  date.setDate(date.getDate() + amount)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function colorOf(task) {
@@ -343,24 +439,10 @@ function reload() {
 <style scoped>
 .draft-actions { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 12rpx; padding: 12rpx 28rpx; background: #eef6ff; }
 .draft-actions button { margin: 0; color: #176ab7; background: #fff; font-size: 24rpx; line-height: 64rpx; }
-.search-tools { flex: 0 0 auto; padding: 16rpx 28rpx; background: var(--panel); font-size: 24rpx; }
-.search-row, .date-inputs, .date-actions { display: flex; align-items: center; gap: 16rpx; }
-.search-input { flex: 1; min-width: 0; height: 64rpx; padding: 0 16rpx; background: #f4f7fa; border-radius: 10rpx; font-size: 26rpx; }
-.search-tools button, .clear-filters { margin: 0; padding: 0 16rpx; line-height: 64rpx; font-size: 24rpx; color: var(--blue); background: #f1f7ff; }
-.search-tools button::after, .clear-filters::after { border: 0; }
-.date-toggle { flex-shrink: 0; }
-.date-panel { margin-top: 16rpx; }
-.date-inputs { align-items: stretch; }
-.date-inputs picker { flex: 1; min-width: 0; padding: 12rpx 0; }
-.date-inputs picker view { overflow-wrap: anywhere; }
-.date-actions { margin-top: 8rpx; }
-.range-summary, .date-hint, .date-error { display: block; margin-top: 12rpx; line-height: 1.5; overflow-wrap: anywhere; }
-.range-summary { color: var(--blue); }
-.date-hint { color: var(--muted); font-size: 22rpx; }
-.date-error { color: var(--danger); }
-.clear-filters { margin: 24rpx auto; width: fit-content; }
+.clear-filters { margin: 24rpx auto; width: fit-content; padding: 0 20rpx; line-height: 64rpx; font-size: 24rpx; color: var(--blue); background: #f1f7ff; }
+.clear-filters::after { border: 0; }
 .filter-bar, .task-scroll { width: 100%; box-sizing: border-box; }
-.task-priority { display: inline-block; min-width: 44rpx; margin-right: 8rpx; color: #97a6b9; font-size: 23rpx; }
+.task-priority { display: inline-block; min-width: 40rpx; margin-right: 6rpx; color: #97a6b9; font-size: 22rpx; }
 .tasks-page {
   height: calc(100vh - var(--window-bottom, 0px));
   min-height: 0;
@@ -373,89 +455,121 @@ function reload() {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-left: 28rpx;
-  padding-right: 28rpx;
+  justify-content: center;
+  box-sizing: content-box;
+  height: 92rpx;
+  padding: var(--top-safe-area) 28rpx 0;
 }
 
-.topbar-title {
-  flex: 1;
+.title-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  max-width: 100%;
+  padding: 0 24rpx;
+  border-radius: 999rpx;
   color: var(--ink);
-  font-size: 34rpx;
+  font-size: 30rpx;
   font-weight: 600;
 }
 
-.task-summary {
+.title-toggle:active {
+  background: var(--blue-soft);
+}
+
+.title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title-caret {
+  color: var(--muted);
+  font-size: 20rpx;
+  transition: transform 0.2s ease;
+}
+
+.title-caret.open {
+  transform: rotate(180deg);
+}
+
+.filter-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(22, 34, 52, 0.18);
+}
+
+.filter-panel {
+  position: fixed;
+  top: calc(var(--top-safe-area) + 98rpx);
+  left: 50%;
+  z-index: 101;
+  width: calc(100% - 56rpx);
+  max-width: 640rpx;
+  padding: 20rpx 24rpx 12rpx;
+  box-sizing: border-box;
+  transform: translateX(-50%);
+}
+
+.filter-section-title {
+  display: block;
+  margin: 12rpx 0 10rpx;
+  color: var(--muted);
+  font-size: 22rpx;
+}
+
+.filter-section-title:first-child {
+  margin-top: 0;
+}
+
+.filter-options {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.filter-option {
+  display: flex;
+  flex: 0 0 calc((100% - 24rpx) / 3);
   align-items: center;
-  gap: 10rpx;
-  padding: 12rpx 20rpx;
-  border-radius: 999rpx;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 64rpx;
+  border-radius: 12rpx;
+  background: #f4f7fa;
+  color: #4a5a6b;
+  font-size: 26rpx;
+}
+
+.filter-option.active {
   background: var(--blue-soft);
   color: var(--blue);
-  font-size: 23rpx;
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
-.today-overview {
-  flex: 0 0 auto;
+.title-toggle:focus-visible,
+.filter-option:focus-visible {
+  outline: 4rpx solid #79a9d7;
+  outline-offset: -4rpx;
+}
+
+.filter-panel-footer {
   display: flex;
-  align-items: center;
-  gap: 24rpx;
-  min-height: 104rpx;
-  padding: 12rpx 32rpx;
-  background: var(--panel);
-  border-bottom: 1rpx solid var(--line);
-  animation: today-fade-in 280ms ease-out both;
+  gap: 16rpx;
+  margin-top: 20rpx;
 }
 
-.today-overview-date {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4rpx;
-  color: var(--ink);
-  font-size: 32rpx;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.today-overview-weekday {
-  color: var(--muted);
-  font-size: 23rpx;
-  font-weight: 400;
-}
-
-.today-progress {
+.filter-panel-footer button {
   flex: 1;
-  min-width: 0;
-  animation: today-fade-in 360ms 60ms ease-out both;
+  margin: 0;
+  line-height: 68rpx;
+  font-size: 26rpx;
 }
 
-.today-progress-label {
-  display: flex;
-  justify-content: space-between;
-  gap: 12rpx;
-  color: var(--muted);
-  font-size: 23rpx;
-  font-variant-numeric: tabular-nums;
-}
-
-.today-progress-track {
-  height: 8rpx;
-  margin-top: 12rpx;
-  overflow: hidden;
-  border-radius: 999rpx;
-  background: #e8eef4;
-}
-
-.today-progress-value {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--blue);
-  transition: width 240ms ease-out;
-}
+.filter-panel-footer button::after { border: 0; }
+.filter-reset { color: var(--muted); background: #f4f7fa; }
+.filter-done { color: #fff; background: var(--blue); }
 
 @keyframes today-fade-in {
   from { opacity: 0; }
@@ -463,76 +577,134 @@ function reload() {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .today-overview, .today-progress, .task-scroll { animation: none; }
-  .today-progress-value { transition: none; }
+  .task-scroll { animation: none; }
+  .task-stage,
+  .filter-chip { transition: none; }
 }
 
 .filter-bar {
   flex: 0 0 auto;
   white-space: nowrap;
-  padding: 16rpx 28rpx;
+  padding: 8rpx 24rpx 6rpx;
   background: var(--panel);
   border-bottom: 2rpx solid var(--line);
+  -webkit-overflow-scrolling: touch;
+}
+
+.filter-track {
+  display: flex;
+  align-items: flex-start;
 }
 
 .filter-chip {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   height: 56rpx;
-  margin-right: 2rpx;
-  padding: 0 28rpx;
+  margin-right: 0;
+  padding: 0 24rpx;
   border-radius: 10rpx;
   color: #fff;
   font-size: 26rpx;
   font-weight: 400;
+  white-space: nowrap;
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
 
 .filter-chip.chip-cat,
 .filter-chip.chip-add {
   position: relative;
-  border-radius: 12rpx 12rpx 4rpx 12rpx;
+  border-radius: 6rpx 6rpx 0 11rpx;
 }
 
-.filter-chip.chip-cat::after,
-.filter-chip.chip-add::after {
+.filter-chip.chip-cat {
+  min-width: 166rpx;
+}
+
+.filter-chip.chip-all + .filter-chip {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.filter-chip:last-child {
+  border-top-right-radius: 12rpx;
+  border-bottom-right-radius: 12rpx;
+}
+
+.filter-chip.chip-cat::after {
   content: '';
   position: absolute;
-  right: 8rpx;
-  bottom: -8rpx;
-  border-left: 10rpx solid transparent;
-  border-right: 0 solid transparent;
-  border-top: 12rpx solid var(--chip-color, #a8cff0);
+  right: -11rpx;
+  bottom: 0;
+  width: 11rpx;
+  height: 11rpx;
+  background: var(--chip-color, #a8cff0);
+  pointer-events: none;
+}
+
+.filter-chip.chip-cat.active {
+  font-weight: 600;
 }
 
 .filter-chip.chip-all {
-  background: transparent;
-  color: #26282d;
+  color: #fff;
   padding: 0 20rpx;
-  margin-right: 12rpx;
+  margin-right: 0;
+  border-radius: 10rpx 0 0 10rpx;
 }
 
 .filter-chip.chip-all.active {
-  color: #26282d;
   font-weight: 600;
 }
 
 .filter-chip.chip-add {
+  min-width: 166rpx;
   background: #a8cff0;
-  padding: 0 24rpx;
-  font-size: 32rpx;
+  padding: 0;
+  font-size: 28rpx;
+}
+
+.task-stage {
+  width: 100%;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.task-stage.slide-out-left {
+  opacity: 0;
+  transform: translateX(-100%);
+  transition-duration: 0.15s;
+}
+
+.task-stage.slide-out-right {
+  opacity: 0;
+  transform: translateX(100%);
+  transition-duration: 0.15s;
+}
+
+.task-stage.slide-in-right {
+  opacity: 0;
+  transform: translateX(100%);
+  transition: none;
+}
+
+.task-stage.slide-in-left {
+  opacity: 0;
+  transform: translateX(-100%);
+  transition: none;
 }
 
 .task-scroll {
   flex: 1;
   height: 0;
   min-height: 0;
-  padding: 28rpx 28rpx 40rpx;
+  padding: 16rpx 24rpx 32rpx;
   animation: today-fade-in 320ms 70ms ease-out both;
 }
 
 .task-group {
-  margin-bottom: 28rpx;
+  margin-bottom: 16rpx;
   overflow: hidden;
 }
 
@@ -540,30 +712,34 @@ function reload() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 28rpx 32rpx 16rpx;
+  padding: 16rpx 24rpx 8rpx;
+}
+
+.group-header.static {
+  cursor: default;
 }
 
 .group-label {
   color: #26282d;
-  font-size: 32rpx;
+  font-size: 28rpx;
   font-weight: 600;
-  letter-spacing: 1rpx;
+  letter-spacing: 0;
 }
 
 .group-right {
   display: flex;
   align-items: center;
-  gap: 12rpx;
+  gap: 10rpx;
 }
 
 .group-count {
   color: #b8bdc4;
-  font-size: 26rpx;
+  font-size: 24rpx;
 }
 
 .group-arrow {
   color: #c4c9cf;
-  font-size: 26rpx;
+  font-size: 24rpx;
   transition: transform 0.2s ease;
 }
 
@@ -574,8 +750,8 @@ function reload() {
 .task-item {
   display: flex;
   align-items: center;
-  gap: 22rpx;
-  padding: 26rpx 32rpx;
+  gap: 18rpx;
+  padding: 16rpx 24rpx;
 }
 
 .task-item + .task-item {
@@ -590,10 +766,10 @@ function reload() {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 96rpx;
-  width: 96rpx;
-  min-height: 96rpx;
-  margin: -16rpx;
+  flex: 0 0 88rpx;
+  width: 88rpx;
+  min-height: 88rpx;
+  margin: -12rpx;
   padding: 0;
   background: transparent;
 }
@@ -604,13 +780,13 @@ function reload() {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 42rpx;
-  height: 42rpx;
-  flex: 0 0 42rpx;
+  width: 36rpx;
+  height: 36rpx;
+  flex: 0 0 36rpx;
   border: 2.5rpx solid var(--blue);
   border-radius: 50%;
   color: #fff;
-  font-size: 24rpx;
+  font-size: 20rpx;
 }
 
 .task-main {
@@ -622,7 +798,7 @@ function reload() {
   display: block;
   overflow: hidden;
   color: #2e3136;
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -636,16 +812,16 @@ function reload() {
 
 .task-meta {
   display: block;
-  margin-top: 8rpx;
+  margin-top: 4rpx;
   overflow: hidden;
   color: #b8bdc4;
-  font-size: 24rpx;
+  font-size: 22rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .list-empty {
-  padding: 120rpx 0;
+  padding: 80rpx 0;
   color: #b3b7bd;
   text-align: center;
 }
