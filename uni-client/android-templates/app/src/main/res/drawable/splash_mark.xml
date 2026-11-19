@@ -2,7 +2,7 @@
     <group android:translateX="5.4" android:translateY="5.4" android:scaleX="0.094921875" android:scaleY="0.094921875">
         <path android:pathData="M793.9 409.4A300 300 0 1 1 614.6 230.1" android:fillColor="@android:color/transparent" android:strokeColor="#FFFFFF" android:strokeWidth="38" android:strokeLineCap="round" />
         <path android:pathData="M682.6 381.1A215 215 0 1 1 540.1 298.8" android:fillColor="@android:color/transparent" android:strokeColor="#FFFFFF" android:strokeWidth="34" android:strokeLineCap="round" />
-        <path android:pathData="M640 534.6A130 130 0 1 1 624.6 447" android:fillColor="@android:color/transparent" android:strokeColor="#C9E9FE" android:strokeWidth="30" android:strokeLineCap="round" />
+        <path android:pathData="M640 534.6A130 130 0 1 1 624.6 447" android:fillColor="@android:color/transparent" android:strokeColor="#F3FAFF" android:strokeWidth="30" android:strokeLineCap="round" />
         <path android:pathData="M766.1 299.9A42 42 0 1 1 682.1 299.9A42 42 0 1 1 766.1 299.9Z" android:fillColor="#218BE0" />
     </group>
 </vector>

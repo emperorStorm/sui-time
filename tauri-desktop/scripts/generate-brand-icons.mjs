@@ -48,7 +48,7 @@ try {
   await png(background, 1024, tempBackground)
   await png(foreground, 1024, tempForeground)
   const manifest = path.join(profile, 'icons.json')
-  await fs.writeFile(manifest, JSON.stringify({ default: 'default.png', android_bg: 'background.png', android_fg: 'foreground.png', android_fg_scale: 100, bg_color: '#C1E6FF' }))
+  await fs.writeFile(manifest, JSON.stringify({ default: 'default.png', android_bg: 'background.png', android_fg: 'foreground.png', android_fg_scale: 100, bg_color: '#90D0FA' }))
   execFileSync(process.execPath, [path.join(root, 'tauri-desktop/node_modules/@tauri-apps/cli/tauri.js'), 'icon', manifest, '--output', path.join(root, 'tauri-desktop/src-tauri/icons')], { stdio: 'inherit' })
   await png(source, 64, path.join(root, 'tauri-desktop/src-tauri/icons/64x64.png'))
   await png(source, 1024, path.join(root, 'tauri-desktop/src-tauri/icons/icon.png'))

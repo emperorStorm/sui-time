@@ -1,6 +1,6 @@
 {
   "name": "sui-time-tauri-desktop",
-  "version": "0.7.10",
+  "version": "0.7.11",
   "private": true,
   "type": "module",
   "scripts": {
